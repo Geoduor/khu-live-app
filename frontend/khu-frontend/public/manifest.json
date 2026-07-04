@@ -1,0 +1,22 @@
+{
+  "short_name": "KHU",
+  "name": "Kenya Hockey Union — Official App",
+  "icons": [
+    {
+      "src": "icon-192.png",
+      "type": "image/png",
+      "sizes": "192x192"
+    },
+    {
+      "src": "icon-512.png",
+      "type": "image/png",
+      "sizes": "512x512"
+    }
+  ],
+  "start_url": ".",
+  "display": "standalone",
+  "orientation": "portrait",
+  "theme_color": "#0D1117",
+  "background_color": "#0D1117",
+  "description": "Live standings, fixtures, and results for Kenya Hockey Union — direct from kenyahockeyunion.org"
+}
