@@ -17,6 +17,7 @@ from typing import Optional
 from apscheduler.schedulers.background import BackgroundScheduler
 from datetime import datetime
 import logging
+import os
 
 from scraper import (
     scrape_standings,
@@ -48,9 +49,19 @@ app = FastAPI(
     version="1.1.0",
 )
 
+# CORS origins: locally we allow everything for convenience. In production
+# (Render), set ALLOWED_ORIGINS to your real Vercel URL(s), comma-separated,
+# e.g. "https://khu-live-app.vercel.app,https://your-custom-domain.com"
+_allowed_origins_env = os.environ.get("ALLOWED_ORIGINS", "")
+allowed_origins = (
+    [o.strip() for o in _allowed_origins_env.split(",") if o.strip()]
+    if _allowed_origins_env
+    else ["*"]  # local dev fallback — fine for testing, tighten in production
+)
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

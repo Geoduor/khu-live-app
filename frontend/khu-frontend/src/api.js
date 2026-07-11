@@ -1,10 +1,13 @@
 /**
  * api.js — Connects React frontend to the KHU FastAPI backend
- * Backend must be running on http://localhost:8000
+ *
+ * Locally: falls back to http://localhost:8000 automatically.
+ * In production (Vercel): set REACT_APP_API_URL to your deployed
+ * Render backend URL, e.g. https://khu-backend.onrender.com
  */
 import axios from "axios";
 
-const API_BASE = "http://localhost:8000";
+const API_BASE = process.env.REACT_APP_API_URL || "http://localhost:8000";
 
 const api = axios.create({
   baseURL: API_BASE,
