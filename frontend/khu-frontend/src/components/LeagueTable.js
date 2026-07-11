@@ -1,7 +1,7 @@
 import React from "react";
 import { useDiffedStandings } from "../hooks/useDiffedStandings";
 
-export default function LeagueTable({ data, onOpenTeam }) {
+export default function LeagueTable({ data, onOpenTeam, isFavorite, toggleFavorite }) {
   const rows = useDiffedStandings(data);
 
   return (
@@ -36,6 +36,15 @@ export default function LeagueTable({ data, onOpenTeam }) {
                   </span>
                   <div className="team-color-bar" />
                   <span className="team-tname">{t.team}</span>
+                  {toggleFavorite && t.team_url && (
+                    <span
+                      className={`fav-star ${isFavorite?.(t.team_url) ? "active" : ""}`}
+                      style={{ marginLeft: "auto" }}
+                      onClick={(e) => { e.stopPropagation(); toggleFavorite(t.team_url, t.team); }}
+                    >
+                      {isFavorite?.(t.team_url) ? "★" : "☆"}
+                    </span>
+                  )}
                 </div>
               </td>
               <td style={{ color: "var(--muted)" }}>{t.played}</td>
@@ -51,7 +60,7 @@ export default function LeagueTable({ data, onOpenTeam }) {
                 <div className="form-dots">
                   {t.form && t.form.length > 0 ? (
                     t.form.map((f, fi) => (
-                      <div key={fi} className={`form-dot form-${f}`}>{f}</div>
+                      <div key={fi} className={`form-dot form-${f === "?" ? "unknown" : f}`}>{f}</div>
                     ))
                   ) : (
                     <span className="form-dash">—</span>

@@ -27,6 +27,9 @@ export const getResults = () => api.get("/api/results").then(r => r.data);
 export const getLiveMatches = () => api.get("/api/live").then(r => r.data);
 export const getTeamProfile = (url) => api.get("/api/team", { params: { url } }).then(r => r.data);
 export const getMatchDetail = (url) => api.get("/api/match", { params: { url } }).then(r => r.data);
+export const getAllTeamsFlat = () => api.get("/api/teams/all").then(r => r.data);
+export const updatePushFavorites = (endpoint, favoriteTeams) =>
+  api.post("/api/push/update-favorites", { endpoint, favoriteTeams }).then(r => r.data);
 
 // ── Health check ──
 export const getHealth = () => api.get("/api/health").then(r => r.data);

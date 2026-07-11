@@ -43,7 +43,7 @@ export function usePushNotifications() {
     });
   }, [supported]);
 
-  const subscribe = useCallback(async () => {
+  const subscribe = useCallback(async (favoriteTeamUrls) => {
     if (!supported) return { success: false, reason: "Push notifications not supported in this browser" };
 
     setLoading(true);
@@ -64,7 +64,14 @@ export function usePushNotifications() {
         applicationServerKey,
       });
 
-      await api.post("/api/push/subscribe", subscription.toJSON());
+      // If the user already had favorites picked (e.g. from onboarding or
+      // starring teams before ever enabling push), seed them immediately
+      // so their very first notification is already correctly scoped —
+      // rather than being global until the next favorites change.
+      await api.post("/api/push/subscribe", {
+        ...subscription.toJSON(),
+        favoriteTeams: favoriteTeamUrls || [],
+      });
 
       setIsSubscribed(true);
       setLoading(false);

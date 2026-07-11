@@ -1,13 +1,15 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import "./App.css";
 import { getLeagues, getStandings, getFixtures, getResults, getLiveMatches, getHealth, refreshData } from "./api";
 import { usePushNotifications } from "./hooks/usePushNotifications";
+import { useFavorites, useOnboarding } from "./hooks/useFavorites";
 import LeagueTable from "./components/LeagueTable";
 import MatchCard from "./components/MatchCard";
 import LoadingState from "./components/LoadingState";
 import ErrorState from "./components/ErrorState";
 import TeamProfile from "./components/TeamProfile";
 import MatchDetail from "./components/MatchDetail";
+import OnboardingPicker from "./components/OnboardingPicker";
 
 const TABS = [
   { id: "home", icon: "🏠", label: "Home" },
@@ -46,16 +48,30 @@ function App() {
   const closeOverlay = () => setOverlay(null);
 
   const { supported: pushSupported, isSubscribed, loading: pushLoading, subscribe, unsubscribe } = usePushNotifications();
+  const { favorites, favoriteList, isFavorite, toggleFavorite } = useFavorites();
+  const { hasSeenOnboarding, markOnboardingSeen } = useOnboarding();
 
   const handleBellClick = async () => {
     if (isSubscribed) {
       await unsubscribe();
     } else {
-      const result = await subscribe();
+      const result = await subscribe(Object.keys(favorites));
       if (!result.success) {
         alert(result.reason || "Could not enable notifications");
       }
     }
+  };
+
+  // ── First-run onboarding: "which teams do you follow?" ──
+  // Only shown once ever per device (tracked via localStorage), and only
+  // once leagues have actually loaded so the picker has real teams to show.
+  const showOnboarding = !hasSeenOnboarding && !loadingLeagues && leagues.length > 0;
+
+  const handleOnboardingComplete = (chosenTeams) => {
+    // chosenTeams is [{team_url, team_name}, ...] from OnboardingPicker,
+    // or [] if the user tapped "Skip for now".
+    chosenTeams.forEach(({ team_url, team_name }) => toggleFavorite(team_url, team_name));
+    markOnboardingSeen();
   };
 
   // ── Track browser tab visibility — pause polling when tab is hidden ──
@@ -145,11 +161,20 @@ function App() {
   // Refreshes standings/fixtures/results every 45s, but only while the tab is visible.
   // This mirrors how professional live-score apps (FotMob, SofaScore) behave —
   // no point burning bandwidth/battery updating a screen nobody is looking at.
+  //
+  // IMPORTANT: this interval must NOT reset every time selectedLeague changes,
+  // otherwise switching leagues repeatedly restarts the 45s clock and causes
+  // bursts of requests that look like much faster polling than intended.
+  // We read the current league via a ref instead of a dependency, so the
+  // interval itself is created exactly once and keeps its own steady cadence.
+  const selectedLeagueRef = useRef(selectedLeague);
+  useEffect(() => { selectedLeagueRef.current = selectedLeague; }, [selectedLeague]);
+
   useEffect(() => {
     if (!isTabVisible) return; // don't poll while tab is hidden
 
     const interval = setInterval(() => {
-      getStandings(selectedLeague).then(setStandings).catch(() => {});
+      getStandings(selectedLeagueRef.current).then(setStandings).catch(() => {});
       getFixtures().then(setFixtures).catch(() => {});
       getResults().then(setResults).catch(() => {});
       getLiveMatches().then(setLive).catch(() => {});
@@ -157,7 +182,7 @@ function App() {
     }, POLL_INTERVAL_MS);
 
     return () => clearInterval(interval);
-  }, [isTabVisible, selectedLeague, checkHealth]);
+  }, [isTabVisible, checkHealth]);
 
   // ── Immediately refresh the moment the tab becomes visible again ──
   // (e.g. user was on another app/tab and comes back — don't make them wait 45s)
@@ -209,6 +234,8 @@ function App() {
 
   return (
     <div className="App">
+      {showOnboarding && <OnboardingPicker onComplete={handleOnboardingComplete} />}
+
       {/* Header */}
       <div className="header">
         <div className="flag-stripe">
@@ -216,7 +243,7 @@ function App() {
         </div>
         <div className="header-inner">
           <div className="logo">
-            <div className="logo-shield">🏑</div>
+            <img src="/khu-logo.png" alt="KHU Logo" className="logo-shield-img" />
             <div className="logo-text">
               <div className="logo-khu">KHU</div>
               <div className="logo-full">Kenya Hockey Union</div>
@@ -284,7 +311,7 @@ function App() {
       {/* Content */}
       <div className="main">
         {overlay?.type === "team" && (
-          <TeamProfile teamUrl={overlay.url} onBack={closeOverlay} onOpenTeam={openTeam} />
+          <TeamProfile teamUrl={overlay.url} onBack={closeOverlay} onOpenTeam={openTeam} isFavorite={isFavorite} toggleFavorite={toggleFavorite} />
         )}
         {overlay?.type === "match" && (
           <MatchDetail matchUrl={overlay.url} onBack={closeOverlay} onOpenTeam={openTeam} />
@@ -302,6 +329,9 @@ function App() {
             loadingResults={loadingResults}
             onOpenMatch={openMatch}
             onOpenTeam={openTeam}
+            favoriteList={favoriteList}
+            isFavorite={isFavorite}
+            toggleFavorite={toggleFavorite}
           />
         )}
 
@@ -313,15 +343,17 @@ function App() {
             standings={standings}
             loading={loadingStandings}
             onOpenTeam={openTeam}
+            isFavorite={isFavorite}
+            toggleFavorite={toggleFavorite}
           />
         )}
 
         {!overlay && tab === "fixtures" && (
-          <FixturesView fixtures={fixtures} loading={loadingFixtures} onOpenMatch={openMatch} onOpenTeam={openTeam} />
+          <FixturesView fixtures={fixtures} loading={loadingFixtures} onOpenMatch={openMatch} onOpenTeam={openTeam} isFavorite={isFavorite} toggleFavorite={toggleFavorite} />
         )}
 
         {!overlay && tab === "results" && (
-          <ResultsView results={results} loading={loadingResults} onOpenMatch={openMatch} onOpenTeam={openTeam} />
+          <ResultsView results={results} loading={loadingResults} onOpenMatch={openMatch} onOpenTeam={openTeam} isFavorite={isFavorite} toggleFavorite={toggleFavorite} />
         )}
       </div>
 
@@ -341,7 +373,7 @@ function App() {
 // ══════════════════════════════════════════════════
 // HOME VIEW
 // ══════════════════════════════════════════════════
-function HomeView({ leagues, loadingLeagues, onSelectLeague, fixtures, results, live, loadingFixtures, loadingResults, onOpenMatch, onOpenTeam }) {
+function HomeView({ leagues, loadingLeagues, onSelectLeague, fixtures, results, live, loadingFixtures, loadingResults, onOpenMatch, onOpenTeam, favoriteList, isFavorite, toggleFavorite }) {
   const liveMatches = live?.live || [];
 
   return (
@@ -360,6 +392,25 @@ function HomeView({ leagues, loadingLeagues, onSelectLeague, fixtures, results, 
         </div>
       </div>
 
+      {favoriteList && favoriteList.length > 0 && (
+        <div className="section" style={{ paddingBottom: 8 }}>
+          <div className="sec-head">
+            <span className="sec-title">⭐ Your Teams</span>
+          </div>
+          <div className="your-teams-strip">
+            {favoriteList.map((f) => (
+              <button
+                key={f.team_url}
+                className="your-team-chip"
+                onClick={() => onOpenTeam(f.team_url)}
+              >
+                {f.team_name}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
       {liveMatches.length > 0 && (
         <div className="section">
           <div className="sec-head">
@@ -369,7 +420,7 @@ function HomeView({ leagues, loadingLeagues, onSelectLeague, fixtures, results, 
             <span className="sec-badge">{liveMatches.length}</span>
           </div>
           <div className="match-list">
-            {liveMatches.map((m, i) => <MatchCard key={i} match={m} onOpenMatch={onOpenMatch} onOpenTeam={onOpenTeam} />)}
+            {liveMatches.map((m, i) => <MatchCard key={i} match={m} onOpenMatch={onOpenMatch} onOpenTeam={onOpenTeam} isFavorite={isFavorite} toggleFavorite={toggleFavorite} />)}
           </div>
         </div>
       )}
@@ -405,7 +456,7 @@ function HomeView({ leagues, loadingLeagues, onSelectLeague, fixtures, results, 
           <ErrorState title="Could not load results" message={results.error} compact />
         ) : results?.results?.length > 0 ? (
           <div className="match-list">
-            {results.results.slice(0, 3).map((m, i) => <MatchCard key={i} match={m} onOpenMatch={onOpenMatch} onOpenTeam={onOpenTeam} />)}
+            {results.results.slice(0, 3).map((m, i) => <MatchCard key={i} match={m} onOpenMatch={onOpenMatch} onOpenTeam={onOpenTeam} isFavorite={isFavorite} toggleFavorite={toggleFavorite} />)}
           </div>
         ) : (
           <ErrorState
@@ -426,7 +477,7 @@ function HomeView({ leagues, loadingLeagues, onSelectLeague, fixtures, results, 
           <ErrorState title="Could not load fixtures" message={fixtures.error} compact />
         ) : fixtures?.fixtures?.length > 0 ? (
           <div className="match-list">
-            {fixtures.fixtures.slice(0, 3).map((m, i) => <MatchCard key={i} match={m} onOpenMatch={onOpenMatch} onOpenTeam={onOpenTeam} />)}
+            {fixtures.fixtures.slice(0, 3).map((m, i) => <MatchCard key={i} match={m} onOpenMatch={onOpenMatch} onOpenTeam={onOpenTeam} isFavorite={isFavorite} toggleFavorite={toggleFavorite} />)}
           </div>
         ) : (
           <ErrorState
@@ -443,7 +494,7 @@ function HomeView({ leagues, loadingLeagues, onSelectLeague, fixtures, results, 
 // ══════════════════════════════════════════════════
 // TABLE VIEW
 // ══════════════════════════════════════════════════
-function TableView({ leagues, selectedLeague, setSelectedLeague, standings, loading, onOpenTeam }) {
+function TableView({ leagues, selectedLeague, setSelectedLeague, standings, loading, onOpenTeam, isFavorite, toggleFavorite }) {
   return (
     <div className="section">
       <div className="sec-head"><span className="sec-title">League Table</span></div>
@@ -469,7 +520,7 @@ function TableView({ leagues, selectedLeague, setSelectedLeague, standings, load
           <div style={{ marginBottom: 10, fontSize: 12, color: "var(--muted)" }}>
             {standings.league} — {standings.total_teams} teams
           </div>
-          <LeagueTable data={standings.standings} onOpenTeam={onOpenTeam} />
+          <LeagueTable data={standings.standings} onOpenTeam={onOpenTeam} isFavorite={isFavorite} toggleFavorite={toggleFavorite} />
           <div style={{ marginTop: 10, fontSize: 10, color: "var(--muted)" }}>
             Source: kenyahockeyunion.org · Last scraped: {standings.scraped_at ? new Date(standings.scraped_at).toLocaleString() : "unknown"}
           </div>
@@ -484,7 +535,7 @@ function TableView({ leagues, selectedLeague, setSelectedLeague, standings, load
 // ══════════════════════════════════════════════════
 // FIXTURES VIEW
 // ══════════════════════════════════════════════════
-function FixturesView({ fixtures, loading, onOpenMatch, onOpenTeam }) {
+function FixturesView({ fixtures, loading, onOpenMatch, onOpenTeam, isFavorite, toggleFavorite }) {
   return (
     <div className="section">
       <div className="sec-head"><span className="sec-title">Upcoming Fixtures</span></div>
@@ -494,7 +545,7 @@ function FixturesView({ fixtures, loading, onOpenMatch, onOpenTeam }) {
         <ErrorState title="Could not load fixtures" message={fixtures.error} />
       ) : fixtures?.fixtures?.length > 0 ? (
         <div className="match-list">
-          {fixtures.fixtures.map((m, i) => <MatchCard key={i} match={m} onOpenMatch={onOpenMatch} onOpenTeam={onOpenTeam} />)}
+          {fixtures.fixtures.map((m, i) => <MatchCard key={i} match={m} onOpenMatch={onOpenMatch} onOpenTeam={onOpenTeam} isFavorite={isFavorite} toggleFavorite={toggleFavorite} />)}
         </div>
       ) : (
         <ErrorState
@@ -509,7 +560,7 @@ function FixturesView({ fixtures, loading, onOpenMatch, onOpenTeam }) {
 // ══════════════════════════════════════════════════
 // RESULTS VIEW
 // ══════════════════════════════════════════════════
-function ResultsView({ results, loading, onOpenMatch, onOpenTeam }) {
+function ResultsView({ results, loading, onOpenMatch, onOpenTeam, isFavorite, toggleFavorite }) {
   return (
     <div className="section">
       <div className="sec-head"><span className="sec-title">Results</span></div>
@@ -519,7 +570,7 @@ function ResultsView({ results, loading, onOpenMatch, onOpenTeam }) {
         <ErrorState title="Could not load results" message={results.error} />
       ) : results?.results?.length > 0 ? (
         <div className="match-list">
-          {results.results.map((m, i) => <MatchCard key={i} match={m} onOpenMatch={onOpenMatch} onOpenTeam={onOpenTeam} />)}
+          {results.results.map((m, i) => <MatchCard key={i} match={m} onOpenMatch={onOpenMatch} onOpenTeam={onOpenTeam} isFavorite={isFavorite} toggleFavorite={toggleFavorite} />)}
         </div>
       ) : (
         <ErrorState

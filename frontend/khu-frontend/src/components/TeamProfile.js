@@ -3,7 +3,7 @@ import { getTeamProfile } from "../api";
 import LoadingState from "./LoadingState";
 import ErrorState from "./ErrorState";
 
-export default function TeamProfile({ teamUrl, onBack, onOpenTeam }) {
+export default function TeamProfile({ teamUrl, onBack, onOpenTeam, isFavorite, toggleFavorite }) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
 
@@ -30,12 +30,21 @@ export default function TeamProfile({ teamUrl, onBack, onOpenTeam }) {
             <div className="team-profile-badge">
               {(data.team_name || "?").slice(0, 2).toUpperCase()}
             </div>
-            <div>
+            <div style={{ flex: 1 }}>
               <div className="team-profile-name">{data.team_name || "Unknown Team"}</div>
               {data.position && (
                 <div className="team-profile-position">League Position: #{data.position}</div>
               )}
             </div>
+            {toggleFavorite && (
+              <span
+                className={`fav-star fav-star-lg ${isFavorite?.(teamUrl) ? "active" : ""}`}
+                onClick={() => toggleFavorite(teamUrl, data.team_name)}
+                title={isFavorite?.(teamUrl) ? "Remove from Your Teams" : "Add to Your Teams"}
+              >
+                {isFavorite?.(teamUrl) ? "★" : "☆"}
+              </span>
+            )}
           </div>
 
           {data.form && data.form.length > 0 && (
@@ -43,7 +52,7 @@ export default function TeamProfile({ teamUrl, onBack, onOpenTeam }) {
               <div className="profile-block-title">Current Form</div>
               <div className="form-dots" style={{ justifyContent: "flex-start" }}>
                 {data.form.map((f, i) => (
-                  <div key={i} className={`form-dot form-${f}`} style={{ width: 26, height: 26, fontSize: 12 }}>{f}</div>
+                  <div key={i} className={`form-dot form-${f === "?" ? "unknown" : f}`} style={{ width: 26, height: 26, fontSize: 12 }}>{f}</div>
                 ))}
               </div>
             </div>

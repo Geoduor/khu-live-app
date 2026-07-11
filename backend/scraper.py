@@ -41,6 +41,22 @@ MATCH_STATE_NOT_STARTED = "NS"
 MATCH_STATE_LIVE = "LIVE"
 MATCH_STATE_FINISHED = "FT"
 
+# ── Team name corrections ──
+# KHU's own site occasionally has typos/inconsistent naming for a club.
+# Rather than patch this in five different places (standings, calendar,
+# team profiles, match details), every raw team name extracted from the
+# site passes through this single correction map first.
+TEAM_NAME_CORRECTIONS = {
+    "Kisumu Youngsters": "Kisumu Youngstars",
+}
+
+
+def correct_team_name(name: str) -> str:
+    """Apply known name corrections to a raw scraped team name."""
+    if not name:
+        return name
+    return TEAM_NAME_CORRECTIONS.get(name.strip(), name.strip())
+
 # ── All leagues — update Super League URLs once Geofry confirms them ──
 LEAGUES = {
     # ── MEN'S SECTION (Tier 1 → 2 → 3) ──
@@ -155,15 +171,25 @@ def try_alt_urls(league: dict):
 
 def parse_form_from_cell(cell):
     """
-    JoomSport renders form as colored spans with text W, D or L.
-    Example: <span class="label label-success">W</span>
-             <span class="label label-danger">L</span>
-    Returns list of last 5 results e.g. ['W', 'D', 'L', 'W', 'W']
+    JoomSport renders form as up to 5 slots, each a colored span:
+      <span class="jsform_none match_win">W</span>
+      <span class="jsform_none match_draw">D</span>
+      <span class="jsform_none match_loose">L</span>
+      <span class="jsform_none match_quest">?</span>   <- unplayed/unknown slot
+
+    CONFIRMED from JoomSport's own source (class-jsport-tourn-matches.php):
+    the 5 slots are built oldest-match-first, left-to-right, with the
+    most recent result rightmost. Critically, a slot with NO recorded
+    result renders as "?" rather than being omitted — so we MUST keep
+    that placeholder in our output, or every subsequent real letter
+    shifts left and silently misrepresents which match it belongs to.
+
+    Returns a list of up to 5 entries, each "W", "D", "L", or "?".
     """
     form = []
     for tag in cell.find_all(True):
         text = tag.get_text(strip=True).upper()
-        if text in ("W", "D", "L") and len(text) == 1:
+        if text in ("W", "D", "L", "?"):
             form.append(text)
     return form[-5:] if len(form) > 5 else form
 
@@ -234,7 +260,7 @@ def parse_standings_table(table) -> list:
         team_url = team_link_tag.get("href", "") if team_link_tag else ""
         for img in team_cell.find_all("img"):
             img.decompose()
-        team_name = team_cell.get_text(strip=True)
+        team_name = correct_team_name(team_cell.get_text(strip=True))
         if not team_name:
             continue
 
@@ -442,7 +468,7 @@ def scrape_league_calendar(league_key: str) -> dict:
         home_team_url = ""
         if home_cell:
             inner = home_cell.find(class_="jsDivLineEmbl")
-            home_name = (inner or home_cell).get_text(strip=True)
+            home_name = correct_team_name((inner or home_cell).get_text(strip=True))
             link_tag = home_cell.find("a")
             if link_tag:
                 home_team_url = link_tag.get("href", "")
@@ -453,7 +479,7 @@ def scrape_league_calendar(league_key: str) -> dict:
         away_team_url = ""
         if away_cell:
             inner = away_cell.find(class_="jsDivLineEmbl")
-            away_name = (inner or away_cell).get_text(strip=True)
+            away_name = correct_team_name((inner or away_cell).get_text(strip=True))
             link_tag = away_cell.find("a")
             if link_tag:
                 away_team_url = link_tag.get("href", "")
@@ -576,7 +602,7 @@ def scrape_team_profile(team_url: str) -> dict:
 
     h1 = soup.find("h1")
     if h1:
-        result["team_name"] = h1.get_text(strip=True)
+        result["team_name"] = correct_team_name(h1.get_text(strip=True))
 
     blocks = soup.find_all("div", class_="overviewBlocks")
     for block in blocks:
@@ -614,7 +640,7 @@ def scrape_team_profile(team_url: str) -> dict:
                     if len(cells) >= 4:
                         result["recent_results"].append({
                             "date":     cells[0].get_text(strip=True),
-                            "opponent": cells[1].get_text(strip=True),
+                            "opponent": correct_team_name(cells[1].get_text(strip=True)),
                             "venue":    cells[2].get_text(strip=True),
                             "result":   cells[3].get_text(strip=True),
                         })
@@ -627,7 +653,7 @@ def scrape_team_profile(team_url: str) -> dict:
                     if len(cells) >= 4:
                         result["upcoming_fixtures"].append({
                             "date":     cells[0].get_text(strip=True),
-                            "opponent": cells[1].get_text(strip=True),
+                            "opponent": correct_team_name(cells[1].get_text(strip=True)),
                             "venue":    cells[2].get_text(strip=True),
                             "info":     cells[3].get_text(strip=True),
                         })
@@ -684,12 +710,12 @@ def scrape_match_detail(match_url: str) -> dict:
     home_tag = soup.find(class_="jsMatchHomeTeam")
     if home_tag:
         name_tag = home_tag.find(class_="jsMatchPartName")
-        result["home_team"] = (name_tag or home_tag).get_text(strip=True)
+        result["home_team"] = correct_team_name((name_tag or home_tag).get_text(strip=True))
 
     away_tag = soup.find(class_="jsMatchAwayTeam")
     if away_tag:
         name_tag = away_tag.find(class_="jsMatchPartName")
-        result["away_team"] = (name_tag or away_tag).get_text(strip=True)
+        result["away_team"] = correct_team_name((name_tag or away_tag).get_text(strip=True))
 
     score_tag = soup.find(class_="jsMatchScore")
     if score_tag:

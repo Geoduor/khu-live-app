@@ -120,9 +120,14 @@ def refresh_fixtures_results():
         cache["fixtures_results"] = data
 
         # ── Fire push notifications for newly-live matches ──
+        # Scoped: subscribers with favorite teams only get alerted when
+        # one of THEIR followed teams is playing. Subscribers who haven't
+        # set any favorites yet still get everything (see push.py docstring).
         for m in new_live:
             try:
-                push.send_notification_to_all(
+                team_urls = [u for u in [m.get("home_team_url"), m.get("away_team_url")] if u]
+                push.send_notification_to_favoriters(
+                    team_urls=team_urls,
                     title=f"🔴 LIVE: {m['home_team']} vs {m['away_team']}",
                     body=f"{m.get('league','KHU')} — kicking off now!",
                     url="/",
@@ -348,6 +353,39 @@ def get_all_standings():
     return {"standings": annotated, "source": "kenyahockeyunion.org"}
 
 
+@app.get("/api/teams/all")
+def get_all_teams():
+    """
+    Flat list of every team across all 8 leagues, for the favorites
+    onboarding picker — lets the frontend show one unified
+    "which teams do you follow?" list without querying 8 endpoints.
+
+    Includes team_url for every team, since that's the identity key
+    used everywhere else (standings rows, match cards, push scoping).
+    Teams without a captured profile link (rare scrape gaps) are still
+    included using their name as a fallback key so they remain
+    selectable, but won't scope push notifications until a real
+    team_url is available for them.
+    """
+    if not cache["standings"]:
+        raise HTTPException(status_code=503, detail="Standings not yet loaded.")
+
+    teams = []
+    seen = set()
+    for league_key, league_data in cache["standings"].items():
+        league_name = league_data.get("league", league_key)
+        for team in league_data.get("standings", []):
+            name = team.get("team")
+            team_url = team.get("team_url") or ""
+            dedupe_key = team_url or name
+            if name and dedupe_key not in seen:
+                seen.add(dedupe_key)
+                teams.append({"name": name, "team_url": team_url, "league": league_name})
+
+    teams.sort(key=lambda t: t["name"])
+    return {"teams": teams, "total": len(teams)}
+
+
 @app.get("/api/standings/{league_key}")
 def get_standings(league_key: str):
     if league_key not in LEAGUES:
@@ -415,6 +453,12 @@ class PushSubscriptionPayload(BaseModel):
     endpoint: str
     keys: PushSubscriptionKeys
     expirationTime: Optional[float] = None
+    favoriteTeams: Optional[list] = None  # Tier 2 scoping — empty/None = Tier 1 (all matches)
+
+
+class UpdateFavoritesPayload(BaseModel):
+    endpoint: str
+    favoriteTeams: list
 
 
 @app.get("/api/push/vapid-public-key")
@@ -425,9 +469,34 @@ def get_vapid_public_key():
 
 @app.post("/api/push/subscribe")
 def subscribe_to_push(subscription: PushSubscriptionPayload):
-    """Store a browser's push subscription so we can notify it on live matches."""
-    push.save_subscription(subscription.dict())
-    return {"message": "Subscribed to KHU live match notifications"}
+    """
+    Store a browser's push subscription so we can notify it on live matches.
+    If favoriteTeams is provided and non-empty, this subscriber only gets
+    alerts for matches involving those teams (Tier 2 — scoped).
+    If omitted/empty, they get alerts for every KHU match (Tier 1 — broad).
+    """
+    data = subscription.dict()
+    favorite_teams = data.pop("favoriteTeams", None)
+    push.save_subscription(data, favorite_teams=favorite_teams)
+    scope_msg = f"for {len(favorite_teams)} favorite team(s)" if favorite_teams else "for all KHU matches"
+    return {"message": f"Subscribed to live match notifications {scope_msg}"}
+
+
+@app.post("/api/push/update-favorites")
+def update_push_favorites(payload: UpdateFavoritesPayload):
+    """
+    Update which teams an existing subscriber wants alerts for —
+    called whenever the user changes their favorites in the app,
+    without needing to fully re-subscribe.
+    """
+    push.update_favorite_teams(payload.endpoint, payload.favoriteTeams)
+    return {"message": "Favorite teams updated for notifications"}
+
+
+@app.get("/api/push/favorites")
+def get_push_favorites(endpoint: str):
+    """Fetch the current favorite team URLs for a given subscription endpoint."""
+    return {"favoriteTeams": push.get_favorite_teams(endpoint)}
 
 
 @app.post("/api/push/unsubscribe")
