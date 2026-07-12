@@ -15,7 +15,7 @@ const TABS = [
   { id: "home", icon: "🏠", label: "Home" },
   { id: "table", icon: "📊", label: "Table" },
   { id: "fixtures", icon: "📅", label: "Fixtures" },
-  { id: "results", icon: "⚽", label: "Results" },
+  { id: "results", icon: "🏑, label: "Results" },
 ];
 
 const POLL_INTERVAL_MS = 45000; // 45s — matches FotMob/SofaScore live polling cadence
