@@ -535,6 +535,36 @@ function TableView({ leagues, selectedLeague, setSelectedLeague, standings, load
 // ══════════════════════════════════════════════════
 // FIXTURES VIEW
 // ══════════════════════════════════════════════════
+function GroupedMatchList({ matches, onOpenMatch, onOpenTeam, isFavorite, toggleFavorite }) {
+  // Matches arrive pre-sorted by league from the backend (see
+  // LEAGUE_DISPLAY_ORDER in scraper.py) — we just need to insert a
+  // header whenever the league changes as we walk down the list.
+  let lastLeague = null;
+
+  return (
+    <div className="match-list">
+      {matches.map((m, i) => {
+        const showHeader = m.league !== lastLeague;
+        lastLeague = m.league;
+        return (
+          <div key={i}>
+            {showHeader && (
+              <div className="league-group-header">{m.league}</div>
+            )}
+            <MatchCard
+              match={m}
+              onOpenMatch={onOpenMatch}
+              onOpenTeam={onOpenTeam}
+              isFavorite={isFavorite}
+              toggleFavorite={toggleFavorite}
+            />
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function FixturesView({ fixtures, loading, onOpenMatch, onOpenTeam, isFavorite, toggleFavorite }) {
   return (
     <div className="section">
@@ -544,9 +574,13 @@ function FixturesView({ fixtures, loading, onOpenMatch, onOpenTeam, isFavorite, 
       ) : fixtures?.error ? (
         <ErrorState title="Could not load fixtures" message={fixtures.error} />
       ) : fixtures?.fixtures?.length > 0 ? (
-        <div className="match-list">
-          {fixtures.fixtures.map((m, i) => <MatchCard key={i} match={m} onOpenMatch={onOpenMatch} onOpenTeam={onOpenTeam} isFavorite={isFavorite} toggleFavorite={toggleFavorite} />)}
-        </div>
+        <GroupedMatchList
+          matches={fixtures.fixtures}
+          onOpenMatch={onOpenMatch}
+          onOpenTeam={onOpenTeam}
+          isFavorite={isFavorite}
+          toggleFavorite={toggleFavorite}
+        />
       ) : (
         <ErrorState
           title="No fixtures found"
@@ -569,9 +603,13 @@ function ResultsView({ results, loading, onOpenMatch, onOpenTeam, isFavorite, to
       ) : results?.error ? (
         <ErrorState title="Could not load results" message={results.error} />
       ) : results?.results?.length > 0 ? (
-        <div className="match-list">
-          {results.results.map((m, i) => <MatchCard key={i} match={m} onOpenMatch={onOpenMatch} onOpenTeam={onOpenTeam} isFavorite={isFavorite} toggleFavorite={toggleFavorite} />)}
-        </div>
+        <GroupedMatchList
+          matches={results.results}
+          onOpenMatch={onOpenMatch}
+          onOpenTeam={onOpenTeam}
+          isFavorite={isFavorite}
+          toggleFavorite={toggleFavorite}
+        />
       ) : (
         <ErrorState
           title="No results found"

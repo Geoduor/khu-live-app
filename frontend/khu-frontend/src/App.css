@@ -332,6 +332,13 @@ body{
 .match-list{display:flex;flex-direction:column;gap:10px}
 .match-card{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:14px}
 .match-card-live{border-color:rgba(255,59,48,0.4);background:linear-gradient(135deg,var(--card),#1e1010)}
+
+.league-group-header{
+  font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:15px;
+  letter-spacing:0.5px;text-transform:uppercase;color:var(--amber);
+  padding:14px 2px 8px;
+}
+.league-group-header:first-child{ padding-top:0; }
 .match-meta{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
 .match-league{font-size:11px;font-weight:700;color:var(--muted);letter-spacing:0.5px;text-transform:uppercase}
 .match-venue{font-size:11px;color:var(--muted)}

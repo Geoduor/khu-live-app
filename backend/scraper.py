@@ -537,11 +537,81 @@ def scrape_league_calendar(league_key: str) -> dict:
     }
 
 
+# League display order for grouping results/fixtures — Premier tier
+# (men + women together) first, then Super tier, then National Zones.
+# This is presentation order only; it's separate from LEAGUES dict
+# insertion order, which stays as-is for scraping/scheduling purposes.
+LEAGUE_DISPLAY_ORDER = [
+    "premier_league_men",
+    "premier_league_women",
+    "super_league_men",
+    "super_league_women",
+    "national_league_men_ez",
+    "national_league_men_sz",
+    "national_league_men_wz",
+    "national_league_men_cz",
+]
+
+
+def _parse_match_date(date_str: str):
+    """
+    Parse JoomSport's date format (confirmed as DD-MM-YYYY HH:MM from
+    real scraped output, e.g. '13-06-2026 15:00') into a sortable
+    datetime. Falls back to datetime.min for unparseable/blank dates
+    so they sort last rather than crashing the whole sort.
+    """
+    if not date_str:
+        return datetime.min
+    for fmt in ("%d-%m-%Y %H:%M", "%d-%m-%Y", "%Y-%m-%d %H:%M", "%Y-%m-%d"):
+        try:
+            return datetime.strptime(date_str.strip(), fmt)
+        except ValueError:
+            continue
+    return datetime.min
+
+
+def _group_and_sort_matches(matches: list) -> list:
+    """
+    Group matches by league in LEAGUE_DISPLAY_ORDER, and within each
+    league group, sort by date descending (most recent first) — e.g.
+    for Results, the latest final score appears at the top of its
+    league's section; for Fixtures, the soonest upcoming match leads.
+    Leagues not present in LEAGUE_DISPLAY_ORDER (shouldn't normally
+    happen) are appended at the end, so nothing silently disappears.
+    Matches with an unparseable date sink to the bottom of their
+    league group rather than crashing the sort or floating to the top.
+    """
+    league_key_by_short = {info["short"]: key for key, info in LEAGUES.items()}
+
+    def sort_key(match):
+        league_short = match.get("league_short", "")
+        league_key = league_key_by_short.get(league_short)
+        league_index = (
+            LEAGUE_DISPLAY_ORDER.index(league_key)
+            if league_key in LEAGUE_DISPLAY_ORDER
+            else len(LEAGUE_DISPLAY_ORDER)
+        )
+
+        parsed_date = _parse_match_date(match.get("date", ""))
+        # Negate the timestamp so ascending sort = most-recent-first.
+        # Unparseable dates (datetime.min) get a neutral 0, which sorts
+        # after any real modern date's large negative key.
+        date_key = -parsed_date.timestamp() if parsed_date != datetime.min else 0
+
+        return (league_index, date_key)
+
+    return sorted(matches, key=sort_key)
+
+
 def scrape_all_fixtures_and_results() -> dict:
     """
     Scrape the calendar for EVERY league and split matches into
     upcoming fixtures (NS) vs results (FT) vs live (LIVE).
-    This replaces the old unreliable homepage-guessing scraper.
+
+    Results/fixtures are grouped by league (Premier Men+Women first,
+    then Super, then National Zones — see LEAGUE_DISPLAY_ORDER), and
+    sorted by date within each group — most recent first for results,
+    soonest-upcoming first for fixtures.
     """
     all_matches = []
     errors = []
@@ -555,6 +625,10 @@ def scrape_all_fixtures_and_results() -> dict:
     fixtures = [m for m in all_matches if m["state"] == MATCH_STATE_NOT_STARTED]
     results  = [m for m in all_matches if m["state"] == MATCH_STATE_FINISHED]
     live     = [m for m in all_matches if m["state"] == MATCH_STATE_LIVE]
+
+    fixtures = _group_and_sort_matches(fixtures)
+    results  = _group_and_sort_matches(results)
+    live     = _group_and_sort_matches(live)
 
     return {
         "fixtures": fixtures,
