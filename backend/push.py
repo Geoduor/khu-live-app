@@ -33,13 +33,34 @@ DB_PATH = Path(__file__).parent / "khu_cache.db"
 # ══════════════════════════════════════════════════════
 # VAPID KEYS — loaded from environment variables, never hardcoded
 # ══════════════════════════════════════════════════════
-VAPID_PRIVATE_KEY_PEM = os.environ.get("VAPID_PRIVATE_KEY_PEM", "").replace("\\n", "\n")
+# IMPORTANT — key format (this bit everyone the first time):
+#
+# py_vapid's Vapid02.from_string() does NOT accept a PEM-armored key
+# (the "-----BEGIN PRIVATE KEY-----" block). It expects the RAW private
+# key bytes, base64url-encoded, with no headers at all. Passing a PEM
+# string produces a confusing "ASN.1 parsing error: invalid length"
+# deep inside cryptography's DER parser — it looks like a corrupted
+# key, but it's actually just the wrong format being handed in.
+#
+# VAPID_PRIVATE_KEY_RAW_B64URL should be exactly that: the 32-byte
+# private key value, base64url-encoded, no padding, no PEM headers,
+# no newlines. Generate a correct one with:
+#
+#   python -c "
+#   from py_vapid import Vapid02
+#   import base64
+#   v = Vapid02(); v.generate_keys()
+#   raw = v.private_key.private_numbers().private_value.to_bytes(32, 'big')
+#   print(base64.urlsafe_b64encode(raw).decode().rstrip('='))
+#   "
+
+VAPID_PRIVATE_KEY_RAW_B64URL = os.environ.get("VAPID_PRIVATE_KEY_RAW_B64URL", "").strip()
 VAPID_PUBLIC_KEY_B64URL = os.environ.get("VAPID_PUBLIC_KEY_B64URL", "")
 VAPID_CLAIMS = {
     "sub": f"mailto:{os.environ.get('VAPID_CONTACT_EMAIL', 'khu-app@example.com')}"
 }
 
-if not VAPID_PRIVATE_KEY_PEM or not VAPID_PUBLIC_KEY_B64URL:
+if not VAPID_PRIVATE_KEY_RAW_B64URL or not VAPID_PUBLIC_KEY_B64URL:
     logger.warning(
         "⚠️ VAPID keys not found in environment. Push notifications will not work. "
         "Copy .env.example to .env and fill in real keys."
@@ -201,7 +222,7 @@ def _send_to_subscription_list(subscriptions: list, title: str, body: str, url: 
             webpush(
                 subscription_info=sub,
                 data=payload,
-                vapid_private_key=VAPID_PRIVATE_KEY_PEM,
+                vapid_private_key=VAPID_PRIVATE_KEY_RAW_B64URL,
                 vapid_claims=dict(VAPID_CLAIMS),
             )
             sent += 1
