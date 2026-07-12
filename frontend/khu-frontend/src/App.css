@@ -198,6 +198,14 @@ body{
   font-family:'Barlow Condensed',sans-serif;font-weight:900;font-size:20px;color:var(--red);
   flex-shrink:0;
 }
+.team-profile-badge-img{
+  width:56px;height:56px;border-radius:14px;object-fit:contain;
+  background:rgba(255,255,255,0.05);border:2px solid var(--border);
+  flex-shrink:0;
+}
+.team-logo-sm{
+  width:20px;height:20px;object-fit:contain;flex-shrink:0;border-radius:4px;
+}
 .team-profile-name{ font-family:'Barlow Condensed',sans-serif;font-weight:900;font-size:22px;line-height:1.1; }
 .team-profile-position{ font-size:12px;color:var(--amber);font-weight:700;margin-top:4px; }
 

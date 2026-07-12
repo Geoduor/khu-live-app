@@ -256,8 +256,31 @@ def parse_standings_table(table) -> list:
 
         # Cell 1 = Team name — capture the profile link before stripping images
         team_cell = cells[1]
-        team_link_tag = team_cell.find("a")
-        team_url = team_link_tag.get("href", "") if team_link_tag else ""
+
+        # A team cell can contain TWO separate <a> tags: one wrapping just
+        # the team's logo/emblem image, and one wrapping the team name text.
+        # Blindly taking the FIRST <a> in the cell risks grabbing a
+        # logo-only link that may point somewhere generic (e.g. the site
+        # homepage) rather than the real team profile page. We specifically
+        # want the anchor whose own text content is non-empty — that's the
+        # one that actually wraps the team's name — falling back to the
+        # first anchor only if none has text (better than nothing).
+        team_url = ""
+        candidate_links = team_cell.find_all("a")
+        text_link = next((a for a in candidate_links if a.get_text(strip=True)), None)
+        if text_link:
+            team_url = text_link.get("href", "")
+        elif candidate_links:
+            team_url = candidate_links[0].get("href", "")
+
+        team_logo_url = ""
+        logo_img = team_cell.find("img")
+        if logo_img and logo_img.get("src"):
+            team_logo_url = logo_img.get("src")
+            # Resolve relative URLs (e.g. "/wp-content/...") to absolute
+            if team_logo_url.startswith("/"):
+                team_logo_url = BASE_URL + team_logo_url
+
         for img in team_cell.find_all("img"):
             img.decompose()
         team_name = correct_team_name(team_cell.get_text(strip=True))
@@ -288,6 +311,7 @@ def parse_standings_table(table) -> list:
             "position":      position,
             "team":          team_name,
             "team_url":      team_url,
+            "team_logo_url": team_logo_url,
             "played":        played,
             "won":           won,
             "drawn":         drawn,
@@ -473,6 +497,17 @@ def scrape_league_calendar(league_key: str) -> dict:
             if link_tag:
                 home_team_url = link_tag.get("href", "")
 
+        # Home team logo — confirmed JoomSport structure uses a SEPARATE
+        # emblem cell (jsMatchDivHomeEmbl), not embedded in the name cell.
+        home_logo_url = ""
+        home_embl_cell = row.find(class_="jsMatchDivHomeEmbl")
+        if home_embl_cell:
+            img_tag = home_embl_cell.find("img")
+            if img_tag and img_tag.get("src"):
+                home_logo_url = img_tag.get("src")
+                if home_logo_url.startswith("/"):
+                    home_logo_url = BASE_URL + home_logo_url
+
         # Away team name + profile link
         away_cell = row.find(class_="jsMatchDivAway")
         away_name = ""
@@ -483,6 +518,16 @@ def scrape_league_calendar(league_key: str) -> dict:
             link_tag = away_cell.find("a")
             if link_tag:
                 away_team_url = link_tag.get("href", "")
+
+        # Away team logo — same dedicated-cell approach
+        away_logo_url = ""
+        away_embl_cell = row.find(class_="jsMatchDivAwayEmbl")
+        if away_embl_cell:
+            img_tag = away_embl_cell.find("img")
+            if img_tag and img_tag.get("src"):
+                away_logo_url = img_tag.get("src")
+                if away_logo_url.startswith("/"):
+                    away_logo_url = BASE_URL + away_logo_url
 
         if not home_name and not away_name:
             continue  # skip malformed rows
@@ -517,8 +562,10 @@ def scrape_league_calendar(league_key: str) -> dict:
             "date":       date_str,
             "home_team":  home_name,
             "home_team_url": home_team_url,
+            "home_logo_url": home_logo_url,
             "away_team":  away_name,
             "away_team_url": away_team_url,
+            "away_logo_url": away_logo_url,
             "home_score": home_score,
             "away_score": away_score,
             "state":      state,   # NS | LIVE | FT
@@ -660,12 +707,28 @@ def scrape_team_profile(team_url: str) -> dict:
     if not team_url:
         return {"error": "No team URL provided"}
 
+    # Sanity check: JoomSport team profile pages always live under
+    # /joomsport_team/ (confirmed from real KHU URLs like
+    # kenyahockeyunion.org/joomsport_team/kisumu-youngsters/?sid=3622).
+    # If a captured URL doesn't match this pattern, it's almost
+    # certainly a mis-scraped link (e.g. a logo-only anchor that
+    # pointed at the site homepage instead of a real team page) —
+    # fail clearly here rather than silently scraping the wrong page
+    # and showing something confusing like "Kenya Hockey Union" as
+    # if it were a team.
+    if "/joomsport_team/" not in team_url:
+        return {
+            "error": "This link doesn't point to a real team profile page — it may have been mis-captured during scraping.",
+            "source_url": team_url,
+        }
+
     soup = fetch_page(team_url)
     if not soup:
         return {"error": f"Could not reach {team_url}", "source_url": team_url}
 
     result = {
         "team_name": "",
+        "logo_url": "",
         "position": None,
         "form": [],
         "recent_results": [],
@@ -677,6 +740,20 @@ def scrape_team_profile(team_url: str) -> dict:
     h1 = soup.find("h1")
     if h1:
         result["team_name"] = correct_team_name(h1.get_text(strip=True))
+
+    # Team profile pages typically show the team's badge/emblem near the
+    # title — look for the first meaningful image on the page as a
+    # reasonable fallback since JoomSport doesn't use one single
+    # confirmed class name for this across all installations.
+    logo_img = soup.find("img", class_=re.compile(r"team|emblem|logo|badge", re.I))
+    if not logo_img and h1:
+        # fall back to the nearest image before/after the H1
+        logo_img = h1.find_previous("img") or h1.find_next("img")
+    if logo_img and logo_img.get("src"):
+        logo_src = logo_img.get("src")
+        if logo_src.startswith("/"):
+            logo_src = BASE_URL + logo_src
+        result["logo_url"] = logo_src
 
     blocks = soup.find_all("div", class_="overviewBlocks")
     for block in blocks:

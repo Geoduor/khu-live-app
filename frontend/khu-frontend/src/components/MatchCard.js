@@ -49,6 +49,9 @@ export default function MatchCard({ match, onOpenMatch, onOpenTeam, isFavorite, 
             >
               {match.home_team || "TBD"}
             </div>
+            {match.home_logo_url && (
+              <img src={match.home_logo_url} alt="" className="team-logo-sm" />
+            )}
             {toggleFavorite && match.home_team_url && (
               <span
                 className={`fav-star ${isFavorite?.(match.home_team_url) ? "active" : ""}`}
@@ -77,6 +80,9 @@ export default function MatchCard({ match, onOpenMatch, onOpenTeam, isFavorite, 
               >
                 {isFavorite?.(match.away_team_url) ? "★" : "☆"}
               </span>
+            )}
+            {match.away_logo_url && (
+              <img src={match.away_logo_url} alt="" className="team-logo-sm" />
             )}
             <div
               className={`team-name ${match.away_team_url ? "team-name-link" : ""}`}

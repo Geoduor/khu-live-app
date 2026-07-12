@@ -34,7 +34,11 @@ export default function LeagueTable({ data, onOpenTeam, isFavorite, toggleFavori
                     {t._rankDelta > 0 && <span className="rank-arrow rank-up">▲</span>}
                     {t._rankDelta < 0 && <span className="rank-arrow rank-down">▼</span>}
                   </span>
-                  <div className="team-color-bar" />
+                  {t.team_logo_url ? (
+                    <img src={t.team_logo_url} alt="" className="team-logo-sm" />
+                  ) : (
+                    <div className="team-color-bar" />
+                  )}
                   <span className="team-tname">{t.team}</span>
                   {toggleFavorite && t.team_url && (
                     <span
