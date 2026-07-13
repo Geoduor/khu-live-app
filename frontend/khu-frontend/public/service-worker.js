@@ -3,17 +3,34 @@
 /**
  * service-worker.js — Offline-first caching for the KHU app
  *
- * Strategy (matches how FotMob/ESPN handle offline):
- *  - App shell (HTML/CSS/JS)  -> cache-first, so the app opens instantly offline
- *  - Standings/table data     -> network-first, falls back to cache if offline
- *                                (standings don't need to be second-fresh, but
- *                                 should still prefer live data when available)
- *  - Live match data          -> network-only (no point caching something
- *                                 that's stale by definition within seconds)
+ * IMPORTANT FIX (previously caused blank/dark screens on normal
+ * refresh after a new deployment): the app shell (HTML/JS/CSS) now
+ * uses NETWORK-FIRST instead of cache-first. Create React App
+ * fingerprints every build with a new filename hash (e.g.
+ * main.7851b279.js -> main.a92f1c3d.js), so a stale cached index.html
+ * pointing at an old, no-longer-existent JS filename produced a
+ * silent crash -> blank screen, only fixable by a hard refresh that
+ * bypassed the service worker entirely. Fans would have hit this on
+ * every single deployment without knowing to hard-refresh.
+ *
+ * Strategy now:
+ *  - App shell (HTML/CSS/JS)  -> network-first: always try to fetch
+ *    the latest version first; only fall back to cache if genuinely
+ *    offline. This means online users ALWAYS get the current build.
+ *  - Standings/table data     -> network-first, falls back to cache
+ *    if offline (unchanged from before)
+ *  - Live match data          -> network-only (unchanged — stale live
+ *    data is worse than no data)
+ *
+ * We also bump CACHE_VERSION on every meaningful change to this file,
+ * which forces old cache buckets to be deleted on activate — the
+ * previous version never actually changed, so old caches never got
+ * cleaned up even when the strategy itself was supposed to do so.
  */
 
-const CACHE_NAME = "khu-app-shell-v1";
-const DATA_CACHE_NAME = "khu-app-data-v1";
+const CACHE_VERSION = "v2"; // bump this string whenever service-worker.js changes meaningfully
+const CACHE_NAME = `khu-app-shell-${CACHE_VERSION}`;
+const DATA_CACHE_NAME = `khu-app-data-${CACHE_VERSION}`;
 
 const APP_SHELL_URLS = [
   "/",
@@ -23,15 +40,25 @@ const APP_SHELL_URLS = [
   "/icon-512.png",
 ];
 
-// ── Install: pre-cache the app shell ──
+// ── Listen for the "activate now" signal from serviceWorkerRegistration.js ──
+// This is what lets a new deployment take over immediately instead of
+// waiting for every open tab to be closed first (which could otherwise
+// leave fans stuck on a stale version indefinitely).
+self.addEventListener("message", (event) => {
+  if (event.data && event.data.type === "SKIP_WAITING") {
+    self.skipWaiting();
+  }
+});
+
+// ── Install: pre-cache the app shell, activate immediately ──
 self.addEventListener("install", (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => cache.addAll(APP_SHELL_URLS))
   );
-  self.skipWaiting();
+  self.skipWaiting(); // don't wait for old tabs to close before activating
 });
 
-// ── Activate: clean up old cache versions ──
+// ── Activate: delete ANY cache bucket that isn't this exact version ──
 self.addEventListener("activate", (event) => {
   event.waitUntil(
     caches.keys().then((keys) =>
@@ -42,7 +69,7 @@ self.addEventListener("activate", (event) => {
       )
     )
   );
-  self.clients.claim();
+  self.clients.claim(); // take control of already-open tabs immediately
 });
 
 // ── Fetch: route requests based on type ──
@@ -51,7 +78,6 @@ self.addEventListener("fetch", (event) => {
 
   // API calls to the backend — network-first, cache as fallback
   if (url.pathname.startsWith("/api/")) {
-    // Never cache live match data — it's meaningless once stale
     if (url.pathname === "/api/live") {
       event.respondWith(fetch(event.request));
       return;
@@ -69,13 +95,22 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  // App shell / static assets — cache-first
+  // App shell / static assets (HTML, JS, CSS, icons) — NETWORK-FIRST.
+  // This is the actual fix: always prefer the live network version so
+  // a fresh deployment is picked up on normal refresh, not just hard
+  // refresh. Cache is only used as a fallback when genuinely offline.
   event.respondWith(
-    caches.match(event.request).then((cached) => cached || fetch(event.request))
+    fetch(event.request)
+      .then((response) => {
+        const clone = response.clone();
+        caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
+        return response;
+      })
+      .catch(() => caches.match(event.request))
   );
 });
 
-// ── Push notifications (Feature 4) ──
+// ── Push notifications (unchanged) ──
 self.addEventListener("push", (event) => {
   let payload = { title: "KHU Update", body: "New match activity" };
   try {
