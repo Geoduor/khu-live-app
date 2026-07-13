@@ -25,6 +25,7 @@ from scraper import (
     scrape_team_profile,
     scrape_match_detail,
     LEAGUES,
+    LEAGUE_DISPLAY_ORDER,
 )
 import database as db
 import push
@@ -300,10 +301,20 @@ def health():
 
 @app.get("/api/leagues")
 def get_leagues():
+    """
+    Returns leagues in LEAGUE_DISPLAY_ORDER (PLM, PLW, SLM, SLW, then
+    National League zones) rather than LEAGUES dict insertion order,
+    which is separately optimized for scraping/scheduling sequence.
+    """
+    ordered_keys = [k for k in LEAGUE_DISPLAY_ORDER if k in LEAGUES]
+    # Safety net: include any league not explicitly listed, so a future
+    # addition to LEAGUES never silently disappears from this endpoint.
+    ordered_keys += [k for k in LEAGUES if k not in ordered_keys]
+
     return {
         "leagues": [
-            {"key": key, "name": info["name"], "short": info["short"], "url": info["url"]}
-            for key, info in LEAGUES.items()
+            {"key": key, "name": LEAGUES[key]["name"], "short": LEAGUES[key]["short"], "url": LEAGUES[key]["url"]}
+            for key in ordered_keys
         ]
     }
 

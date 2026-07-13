@@ -593,10 +593,10 @@ LEAGUE_DISPLAY_ORDER = [
     "premier_league_women",
     "super_league_men",
     "super_league_women",
+    "national_league_men_cz",
     "national_league_men_ez",
     "national_league_men_sz",
     "national_league_men_wz",
-    "national_league_men_cz",
 ]
 
 
