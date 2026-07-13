@@ -3,18 +3,18 @@ import { getTeamProfile } from "../api";
 import LoadingState from "./LoadingState";
 import ErrorState from "./ErrorState";
 
-export default function TeamProfile({ teamUrl, onBack, onOpenTeam, isFavorite, toggleFavorite }) {
+export default function TeamProfile({ teamUrl, teamName, onBack, onOpenTeam, isFavorite, toggleFavorite }) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     setLoading(true);
     setData(null);
-    getTeamProfile(teamUrl)
+    getTeamProfile(teamUrl, teamName)
       .then(setData)
       .catch(() => setData({ error: "Could not load team profile" }))
       .finally(() => setLoading(false));
-  }, [teamUrl]);
+  }, [teamUrl, teamName]);
 
   return (
     <div className="section">

@@ -43,7 +43,7 @@ export default function MatchCard({ match, onOpenMatch, onOpenTeam, isFavorite, 
               onClick={(e) => {
                 if (match.home_team_url && onOpenTeam) {
                   e.stopPropagation();
-                  onOpenTeam(match.home_team_url);
+                  onOpenTeam(match.home_team_url, match.home_team);
                 }
               }}
             >
@@ -89,7 +89,7 @@ export default function MatchCard({ match, onOpenMatch, onOpenTeam, isFavorite, 
               onClick={(e) => {
                 if (match.away_team_url && onOpenTeam) {
                   e.stopPropagation();
-                  onOpenTeam(match.away_team_url);
+                  onOpenTeam(match.away_team_url, match.away_team);
                 }
               }}
             >

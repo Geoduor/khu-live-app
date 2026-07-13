@@ -15,7 +15,7 @@ const TABS = [
   { id: "home", icon: "🏠", label: "Home" },
   { id: "table", icon: "📊", label: "Table" },
   { id: "fixtures", icon: "📅", label: "Fixtures" },
-  { id: "results", icon: "⚽", label: "Results" },
+  { id: "results", icon: "🏑", label: "Results" },
 ];
 
 const POLL_INTERVAL_MS = 45000; // 45s — matches FotMob/SofaScore live polling cadence
@@ -43,7 +43,7 @@ function App() {
   // Kept as a simple stack so "Back" always returns to exactly where you were,
   // same pattern FotMob uses for drill-down navigation without full page reloads.
   const [overlay, setOverlay] = useState(null); // { type: 'team'|'match', url: string } | null
-  const openTeam = (url) => setOverlay({ type: "team", url });
+  const openTeam = (url, name = "") => setOverlay({ type: "team", url, name });
   const openMatch = (url) => setOverlay({ type: "match", url });
   const closeOverlay = () => setOverlay(null);
 
@@ -311,7 +311,7 @@ function App() {
       {/* Content */}
       <div className="main">
         {overlay?.type === "team" && (
-          <TeamProfile teamUrl={overlay.url} onBack={closeOverlay} onOpenTeam={openTeam} isFavorite={isFavorite} toggleFavorite={toggleFavorite} />
+          <TeamProfile teamUrl={overlay.url} teamName={overlay.name} onBack={closeOverlay} onOpenTeam={openTeam} isFavorite={isFavorite} toggleFavorite={toggleFavorite} />
         )}
         {overlay?.type === "match" && (
           <MatchDetail matchUrl={overlay.url} onBack={closeOverlay} onOpenTeam={openTeam} />
@@ -402,7 +402,7 @@ function HomeView({ leagues, loadingLeagues, onSelectLeague, fixtures, results, 
               <button
                 key={f.team_url}
                 className="your-team-chip"
-                onClick={() => onOpenTeam(f.team_url)}
+                onClick={() => onOpenTeam(f.team_url, f.team_name)}
               >
                 {f.team_name}
               </button>
@@ -456,7 +456,7 @@ function HomeView({ leagues, loadingLeagues, onSelectLeague, fixtures, results, 
           <ErrorState title="Could not load results" message={results.error} compact />
         ) : results?.results?.length > 0 ? (
           <div className="match-list">
-            {results.results.slice(0, 3).map((m, i) => <MatchCard key={i} match={m} onOpenMatch={onOpenMatch} onOpenTeam={onOpenTeam} isFavorite={isFavorite} toggleFavorite={toggleFavorite} />)}
+            {(results.most_recent || results.results).slice(0, 3).map((m, i) => <MatchCard key={i} match={m} onOpenMatch={onOpenMatch} onOpenTeam={onOpenTeam} isFavorite={isFavorite} toggleFavorite={toggleFavorite} />)}
           </div>
         ) : (
           <ErrorState

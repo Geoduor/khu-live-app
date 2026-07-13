@@ -689,33 +689,35 @@ def scrape_all_fixtures_and_results() -> dict:
     }
 
 
-def scrape_team_profile(team_url: str) -> dict:
+def scrape_team_profile(team_url: str, known_team_name: str = "") -> dict:
     """
-    Scrape a team's profile page — confirmed structure from JoomSport source
-    (sportleague/views/default/elements/team-overview.php):
+    Scrape a team's profile page.
 
-      <div class="overviewBlocks"><h3>Position</h3><table class="tblPosition">...</table></div>
-      <div class="overviewBlocks"><h3>Current form</h3><table class="tblPosition">...</table></div>
-      <div class="overviewBlocks"><h3>Results</h3>
-        <table class="tblPosition">
-          <thead><tr><th>Date</th><th>Team</th><th>Location</th><th>Results</th></tr></thead>
-          <tbody>...</tbody>
-        </table>
-      </div>
-      <div class="overviewBlocks"><h3>Fixtures</h3><table class="tblPosition">...same columns...</table></div>
+    CORRECTED structure (confirmed by directly inspecting a real KHU
+    team page, since generic JoomSport plugin source didn't match this
+    site's actual theme/customization):
+
+      - The page's FIRST <h1> is the site-wide masthead ("KENYA HOCKEY
+        UNION"), NOT the team name — using soup.find("h1") blindly
+        was pulling the wrong text entirely. We now prefer a name
+        already known from standings/match data (passed in as
+        known_team_name) since that's proven reliable, and only fall
+        back to page scraping if it's not supplied.
+
+      - Match history lives under an "Matches" tab
+        ({team_url}#stab_matches), but is server-rendered directly
+        into the initial page HTML (the #anchor just toggles CSS
+        visibility client-side — confirmed by viewing the real page).
+        It uses the EXACT SAME jstable-row / jsMatchDivHome /
+        jsMatchDivAway / jsMatchDivScore structure as the per-league
+        calendar view we already parse successfully in
+        scrape_league_calendar() — so we reuse that same row-parsing
+        logic here rather than the old (incorrect) overviewBlocks/
+        tblPosition assumption.
     """
     if not team_url:
         return {"error": "No team URL provided"}
 
-    # Sanity check: JoomSport team profile pages always live under
-    # /joomsport_team/ (confirmed from real KHU URLs like
-    # kenyahockeyunion.org/joomsport_team/kisumu-youngsters/?sid=3622).
-    # If a captured URL doesn't match this pattern, it's almost
-    # certainly a mis-scraped link (e.g. a logo-only anchor that
-    # pointed at the site homepage instead of a real team page) —
-    # fail clearly here rather than silently scraping the wrong page
-    # and showing something confusing like "Kenya Hockey Union" as
-    # if it were a team.
     if "/joomsport_team/" not in team_url:
         return {
             "error": "This link doesn't point to a real team profile page — it may have been mis-captured during scraping.",
@@ -727,7 +729,7 @@ def scrape_team_profile(team_url: str) -> dict:
         return {"error": f"Could not reach {team_url}", "source_url": team_url}
 
     result = {
-        "team_name": "",
+        "team_name": correct_team_name(known_team_name) if known_team_name else "",
         "logo_url": "",
         "position": None,
         "form": [],
@@ -737,77 +739,99 @@ def scrape_team_profile(team_url: str) -> dict:
         "scraped_at": datetime.now().isoformat(),
     }
 
-    h1 = soup.find("h1")
-    if h1:
-        result["team_name"] = correct_team_name(h1.get_text(strip=True))
+    # Only scrape the name from the page if we weren't given one —
+    # and even then, skip the site's masthead h1 by looking for a
+    # heading that sits near the team badge image instead of just
+    # taking the first h1 on the page.
+    if not result["team_name"]:
+        badge_img = soup.find("img", src=re.compile(r"team|emblem|logo|badge", re.I))
+        name_candidate = None
+        if badge_img:
+            # The team name typically appears as a heading shortly after
+            # the badge image in the page's reading order.
+            name_candidate = badge_img.find_next(["h1", "h2", "h3"])
+        if name_candidate:
+            result["team_name"] = correct_team_name(name_candidate.get_text(strip=True))
+        else:
+            # Last resort: page <title> often reads "TeamName - Site Name"
+            title_tag = soup.find("title")
+            if title_tag:
+                title_text = title_tag.get_text(strip=True)
+                result["team_name"] = correct_team_name(title_text.split("-")[0].strip())
 
-    # Team profile pages typically show the team's badge/emblem near the
-    # title — look for the first meaningful image on the page as a
-    # reasonable fallback since JoomSport doesn't use one single
-    # confirmed class name for this across all installations.
+    # Team badge/logo — same heuristic used elsewhere in this file.
     logo_img = soup.find("img", class_=re.compile(r"team|emblem|logo|badge", re.I))
-    if not logo_img and h1:
-        # fall back to the nearest image before/after the H1
-        logo_img = h1.find_previous("img") or h1.find_next("img")
+    if not logo_img:
+        logo_img = soup.find("img", src=re.compile(r"team|emblem|logo|badge", re.I))
     if logo_img and logo_img.get("src"):
         logo_src = logo_img.get("src")
         if logo_src.startswith("/"):
             logo_src = BASE_URL + logo_src
         result["logo_url"] = logo_src
 
-    blocks = soup.find_all("div", class_="overviewBlocks")
-    for block in blocks:
-        heading = block.find("h3")
-        heading_text = heading.get_text(strip=True).lower() if heading else ""
-        table = block.find("table", class_="tblPosition")
-        if not table:
+    # ── Match history: reuse the proven jstable-row parsing approach ──
+    # Find every match row anywhere on the page (the tab system is
+    # client-side visibility toggling, not separate content) and split
+    # into recent_results / upcoming_fixtures the same way the calendar
+    # scraper does, using this team's own name to label the opponent.
+    row_divs = soup.find_all("div", class_="jstable-row")
+    for row in row_divs:
+        if "js-mdname" in row.get("class", []):
+            continue  # matchday header row, not an actual match
+
+        time_cell = row.find(class_="jsMatchDivTime")
+        date_str = ""
+        if time_cell:
+            inner = time_cell.find(class_="jsDivLineEmbl")
+            date_str = (inner or time_cell).get_text(strip=True)
+
+        home_cell = row.find(class_="jsMatchDivHome")
+        home_name = ""
+        if home_cell:
+            inner = home_cell.find(class_="jsDivLineEmbl")
+            home_name = correct_team_name((inner or home_cell).get_text(strip=True))
+
+        away_cell = row.find(class_="jsMatchDivAway")
+        away_name = ""
+        if away_cell:
+            inner = away_cell.find(class_="jsDivLineEmbl")
+            away_name = correct_team_name((inner or away_cell).get_text(strip=True))
+
+        if not home_name and not away_name:
             continue
 
-        if "position" in heading_text:
-            tbody = table.find("tbody")
-            row = tbody.find("tr") if tbody else None
-            if row:
-                cells = [c.get_text(strip=True) for c in row.find_all("td")]
-                if cells:
-                    result["position"] = cells[0]
+        score_cell = row.find(class_="jsMatchDivScore")
+        score_text = ""
+        has_live = False
+        if score_cell:
+            has_live = score_cell.find(class_=re.compile(r"jscalendarLive")) is not None
+            score_text = score_cell.get_text(separator=" ", strip=True)
 
-        elif "current form" in heading_text:
-            tbody = table.find("tbody")
-            row = tbody.find("tr") if tbody else None
-            if row:
-                form = []
-                for cell in row.find_all("td"):
-                    letter_tag = cell.find(class_=re.compile(r"jsform"))
-                    text = (letter_tag or cell).get_text(strip=True).upper()
-                    if text in ("W", "D", "L"):
-                        form.append(text)
-                result["form"] = form
+        has_digit_score = bool(re.search(r"\d+\s*[-:]\s*\d+", score_text))
 
-        elif "results" in heading_text:
-            tbody = table.find("tbody")
-            if tbody:
-                for row in tbody.find_all("tr"):
-                    cells = row.find_all("td")
-                    if len(cells) >= 4:
-                        result["recent_results"].append({
-                            "date":     cells[0].get_text(strip=True),
-                            "opponent": correct_team_name(cells[1].get_text(strip=True)),
-                            "venue":    cells[2].get_text(strip=True),
-                            "result":   cells[3].get_text(strip=True),
-                        })
+        # Determine which side is "us" vs the opponent, using whichever
+        # name is a closer match to our known team name — falls back to
+        # simple substring comparison since exact scrape formatting can
+        # vary slightly between the calendar view and this team-page view.
+        team_name_lower = (result["team_name"] or "").lower()
+        is_home_us = team_name_lower and team_name_lower in home_name.lower()
+        opponent = away_name if is_home_us else home_name
+        venue = "H" if is_home_us else "A"
 
-        elif "fixtures" in heading_text:
-            tbody = table.find("tbody")
-            if tbody:
-                for row in tbody.find_all("tr"):
-                    cells = row.find_all("td")
-                    if len(cells) >= 4:
-                        result["upcoming_fixtures"].append({
-                            "date":     cells[0].get_text(strip=True),
-                            "opponent": correct_team_name(cells[1].get_text(strip=True)),
-                            "venue":    cells[2].get_text(strip=True),
-                            "info":     cells[3].get_text(strip=True),
-                        })
+        if has_digit_score and not has_live:
+            result["recent_results"].append({
+                "date": date_str,
+                "opponent": opponent,
+                "venue": venue,
+                "result": score_text,
+            })
+        elif not has_digit_score:
+            result["upcoming_fixtures"].append({
+                "date": date_str,
+                "opponent": opponent,
+                "venue": venue,
+                "info": "",
+            })
 
     return result
 

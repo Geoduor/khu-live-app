@@ -41,7 +41,7 @@ export default function MatchDetail({ matchUrl, onBack, onOpenTeam }) {
           <div className="match-detail-body">
             <div
               className="match-detail-team"
-              onClick={() => data.home_team_url && onOpenTeam(data.home_team_url)}
+              onClick={() => data.home_team_url && onOpenTeam(data.home_team_url, data.home_team)}
             >
               {data.home_team || "TBD"}
             </div>
@@ -54,7 +54,7 @@ export default function MatchDetail({ matchUrl, onBack, onOpenTeam }) {
             </div>
             <div
               className="match-detail-team"
-              onClick={() => data.away_team_url && onOpenTeam(data.away_team_url)}
+              onClick={() => data.away_team_url && onOpenTeam(data.away_team_url, data.away_team)}
             >
               {data.away_team || "TBD"}
             </div>

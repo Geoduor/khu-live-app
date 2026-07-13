@@ -24,6 +24,7 @@ from scraper import (
     scrape_all_fixtures_and_results,
     scrape_team_profile,
     scrape_match_detail,
+    _parse_match_date,
     LEAGUES,
     LEAGUE_DISPLAY_ORDER,
 )
@@ -357,8 +358,21 @@ def get_results():
     if not data:
         raise HTTPException(status_code=503, detail="No results data available yet — try again shortly.")
     data = annotate_staleness(dict(data))
+
+    results = data.get("results", [])
+    # "most_recent" ignores league grouping entirely and sorts purely
+    # by date across ALL leagues — used for the Home page preview,
+    # where "3 most recent results anywhere" is the intent, not
+    # "3 results from whichever league happens to be first."
+    most_recent = sorted(
+        results,
+        key=lambda m: _parse_match_date(m.get("date", "")),
+        reverse=True,
+    )
+
     return {
-        "results": data.get("results", []),
+        "results": results,
+        "most_recent": most_recent,
         "total": data.get("total_results", 0),
         "source": "kenyahockeyunion.org",
         "scraped_at": data.get("_cache_scraped_at"),
@@ -556,23 +570,30 @@ _match_cache = {}  # match_url -> (data, fetched_at)
 
 
 @app.get("/api/team")
-def get_team_profile(url: str):
+def get_team_profile(url: str, name: str = ""):
     """
     Fetch a team's profile page (position, form, results, fixtures).
     'url' must be a real kenyahockeyunion.org team page URL, which the
     frontend gets from the 'team_url' field already present in standings
     and match data — never guessed or constructed.
+
+    'name' is optional — if the frontend already knows the team's name
+    (e.g. from the standings row or match card the user tapped), pass
+    it here. This avoids re-scraping the name from the page itself,
+    which proved unreliable (the page's first <h1> is the site's own
+    masthead, not the team name).
     """
     if "kenyahockeyunion.org" not in url:
         raise HTTPException(status_code=400, detail="Invalid team URL — must be a kenyahockeyunion.org link")
 
-    cached = _team_cache.get(url)
+    cache_key = f"{url}::{name}"
+    cached = _team_cache.get(cache_key)
     if cached and (time.time() - cached[1]) < TEAM_CACHE_TTL:
         return cached[0]
 
-    data = scrape_team_profile(url)
+    data = scrape_team_profile(url, known_team_name=name)
     if not data.get("error"):
-        _team_cache[url] = (data, time.time())
+        _team_cache[cache_key] = (data, time.time())
     return data
 
 
