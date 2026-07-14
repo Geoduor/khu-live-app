@@ -4,19 +4,39 @@
 
 :root{
   --red:#BB0000; --green:#006600; --black:#0D0D0D;
-  --bg:#0D1117; --card:#161D27; --surface:#1E2D3D;
-  --border:rgba(255,255,255,0.07);
-  --white:#F0F4F8; --muted:#6B8099;
+  --bg:#0D0709; --card:rgba(255,255,255,0.045); --surface:rgba(255,255,255,0.07);
+  --border:rgba(255,255,255,0.09);
+  --white:#F5F0F0; --muted:#9A8688;
   --amber:#F0A500; --live:#FF3B30;
 }
 
 body{
-  font-family:'Inter',sans-serif;background:var(--bg);color:var(--white);
+  font-family:'Inter',sans-serif;color:var(--white);
   overflow-x:hidden; -webkit-tap-highlight-color:transparent;
   margin:0;
+  /* Deep red-to-black gradient, translating the reference design's
+     purple-gradient technique into our red/black/green KHU identity
+     instead of switching palettes entirely. */
+  background:
+    radial-gradient(ellipse 90% 60% at 20% 0%, rgba(187,0,0,0.22) 0%, transparent 60%),
+    radial-gradient(ellipse 80% 50% at 100% 30%, rgba(0,102,0,0.14) 0%, transparent 55%),
+    linear-gradient(160deg, #1a0505 0%, #0D0709 55%, #05080a 100%);
+  background-attachment: fixed;
 }
 
 .App { min-height: 100vh; }
+
+/* ── GLASSMORPHISM CARD BASE ── */
+/* Shared translucent-blur treatment used across match cards, league
+   cards, and other surfaces — adopted from the reference design's
+   floating glass-panel look instead of flat opaque cards. */
+.glass-surface{
+  background: var(--card);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  border: 1px solid var(--border);
+  box-shadow: 0 8px 24px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.04);
+}
 
 /* ── FLAG STRIPE ── */
 .flag-stripe{ height:4px;width:100%;display:flex; }
@@ -27,7 +47,8 @@ body{
 
 /* ── HEADER ── */
 .header{ position:fixed;top:0;left:0;right:0;z-index:200;
-  background:rgba(13,17,23,0.97);backdrop-filter:blur(14px); }
+  background:rgba(13,7,9,0.75);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);
+  border-bottom:1px solid var(--border); }
 .header-inner{ display:flex;align-items:center;justify-content:space-between;padding:10px 16px; }
 .logo{display:flex;align-items:center;gap:10px}
 .logo-shield-img{
@@ -69,36 +90,56 @@ body{
 .main{padding-top:88px;padding-bottom:80px;min-height:100vh}
 
 /* ── BOTTOM NAV ── */
-.bnav{ position:fixed;bottom:0;left:0;right:0;z-index:200;
-  background:rgba(13,17,23,0.97);backdrop-filter:blur(14px);
-  border-top:1px solid var(--border); display:grid;grid-template-columns:repeat(4,1fr); }
+/* Floating pill nav, adopted from the reference blueprint instead of
+   an edge-to-edge bar — sits with margin, fully rounded, glass panel. */
+.bnav{
+  position:fixed;bottom:16px;left:16px;right:16px;z-index:200;
+  background:rgba(20,10,12,0.75);backdrop-filter:blur(22px);-webkit-backdrop-filter:blur(22px);
+  border:1px solid var(--border);
+  box-shadow: 0 10px 32px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.05);
+  border-radius:28px;
+  display:grid;grid-template-columns:repeat(4,1fr);
+  max-width:520px;margin:0 auto;
+}
 .bnav-btn{ display:flex;flex-direction:column;align-items:center;justify-content:center;
-  gap:3px;padding:10px 4px 14px;border:none;background:none;
-  color:var(--muted);font-size:10px;font-weight:600;cursor:pointer; }
+  gap:2px;padding:12px 4px;border:none;background:none;
+  color:var(--muted);font-size:10px;font-weight:600;cursor:pointer;
+  transition: color 0.18s; }
 .bnav-btn.active{color:var(--red)}
-.bnav-icon{font-size:21px;line-height:1}
+.bnav-icon{font-size:20px;line-height:1;transition: transform 0.18s;}
+.bnav-btn.active .bnav-icon{ transform: translateY(-1px) scale(1.08); }
 
 /* ── SECTION ── */
-.section{padding:16px}
+.section{padding:16px 16px 100px;}
 .sec-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px}
 .sec-title{font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:20px}
 .sec-badge{font-size:11px;font-weight:700;padding:3px 9px;border-radius:12px;
   background:rgba(187,0,0,0.15);color:var(--red);border:1px solid rgba(187,0,0,0.3)}
 
 /* ── PILLS ── */
-.pills{display:flex;gap:8px;overflow-x:auto;padding:0 16px 12px;scrollbar-width:none}
+.pills{display:flex;gap:8px;overflow-x:auto;padding:0 16px 14px;scrollbar-width:none}
 .pills::-webkit-scrollbar{display:none}
-.pill{ flex-shrink:0;padding:7px 16px;border-radius:20px;font-size:12px;font-weight:700;
-  border:1px solid var(--border);background:none;color:var(--muted);cursor:pointer; }
-.pill.active{background:var(--red);color:#fff;border-color:var(--red)}
+.pill{ flex-shrink:0;padding:8px 18px;border-radius:22px;font-size:12px;font-weight:700;
+  border:1px solid var(--border);background:rgba(255,255,255,0.04);color:var(--muted);cursor:pointer;
+  backdrop-filter:blur(10px);transition:all 0.18s; }
+.pill.active{
+  background:linear-gradient(135deg, var(--red), #7a0000);
+  color:#fff;border-color:var(--red);
+  box-shadow: 0 4px 16px rgba(187,0,0,0.4);
+}
 
 /* ── LEAGUE SELECT GRID (Home) ── */
 .league-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
 .league-card{
-  background:var(--card);border:1px solid var(--border);border-radius:14px;
-  padding:14px;cursor:pointer;transition:border-color 0.2s;
+  background: var(--card);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  border: 1px solid var(--border);
+  box-shadow: 0 8px 24px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.04);
+  border-radius:16px;
+  padding:14px;cursor:pointer;transition:transform 0.18s, border-color 0.2s;
 }
-.league-card:hover{border-color:rgba(187,0,0,0.3)}
+.league-card:hover{border-color:rgba(187,0,0,0.4);transform:translateY(-2px)}
 .league-card-tier{font-size:10px;color:var(--amber);font-weight:700;letter-spacing:1px;text-transform:uppercase;margin-bottom:4px}
 .league-card-name{font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:16px;line-height:1.2}
 .league-card-teams{font-size:11px;color:var(--muted);margin-top:6px}
@@ -216,7 +257,8 @@ body{
 }
 .mini-match-row{
   display:flex;align-items:center;justify-content:space-between;gap:10px;
-  background:var(--card);border:1px solid var(--border);border-radius:10px;
+  background:var(--card);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
+  border:1px solid var(--border);border-radius:10px;
   padding:10px 14px;font-size:12px;
 }
 .mini-match-date{ color:var(--muted);min-width:60px; }
@@ -226,7 +268,10 @@ body{
 
 /* ── MATCH DETAIL ── */
 .match-detail-card{
-  background:var(--card);border:1px solid var(--border);border-radius:16px;padding:20px;
+  background:var(--card);backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);
+  border:1px solid var(--border);
+  box-shadow: 0 8px 24px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.04);
+  border-radius:18px;padding:20px;
 }
 .match-detail-meta{
   display:flex;flex-direction:column;align-items:center;gap:4px;
@@ -337,9 +382,27 @@ body{
 }
 
 /* ── MATCH CARDS ── */
-.match-list{display:flex;flex-direction:column;gap:10px}
-.match-card{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:14px}
-.match-card-live{border-color:rgba(255,59,48,0.4);background:linear-gradient(135deg,var(--card),#1e1010)}
+/* Redesigned to match the reference blueprint: glassmorphism panel,
+   tighter single-row logo-score-logo layout, bolder LIVE treatment. */
+.match-list{display:flex;flex-direction:column;gap:12px}
+.match-card{
+  background: var(--card);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  border: 1px solid var(--border);
+  box-shadow: 0 8px 24px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.04);
+  border-radius:18px;padding:16px;
+  transition: transform 0.18s, box-shadow 0.18s;
+}
+.match-card-clickable:hover{
+  transform: translateY(-2px);
+  box-shadow: 0 12px 28px rgba(0,0,0,0.45), inset 0 1px 0 rgba(255,255,255,0.06);
+}
+.match-card-live{
+  border-color:rgba(255,59,48,0.5);
+  background: linear-gradient(135deg, rgba(255,59,48,0.08), var(--card));
+  box-shadow: 0 8px 24px rgba(255,59,48,0.15), inset 0 1px 0 rgba(255,255,255,0.04);
+}
 
 .league-group-header{
   font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:15px;
@@ -347,15 +410,16 @@ body{
   padding:14px 2px 8px;
 }
 .league-group-header:first-child{ padding-top:0; }
-.match-meta{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
+.match-meta{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
 .match-league{font-size:11px;font-weight:700;color:var(--muted);letter-spacing:0.5px;text-transform:uppercase}
 .match-venue{font-size:11px;color:var(--muted)}
-.match-body{display:flex;align-items:center;gap:8px}
+.match-body{display:flex;align-items:center;gap:10px}
 .team-col{flex:1}
 .team-name{font-weight:700;font-size:14px;line-height:1.2}
 .score-col{text-align:center;min-width:70px}
-.score-display{font-family:'Barlow Condensed',sans-serif;font-weight:900;font-size:30px;
-  letter-spacing:-1px;line-height:1}
+.score-display{font-family:'Barlow Condensed',sans-serif;font-weight:900;font-size:32px;
+  letter-spacing:-1px;line-height:1;
+  text-shadow: 0 2px 12px rgba(0,0,0,0.4);}
 .score-tbd{font-size:16px;color:var(--muted);font-weight:700}
 .match-time{font-size:12px;color:var(--amber);font-weight:600;margin-top:4px;text-align:center}
 
