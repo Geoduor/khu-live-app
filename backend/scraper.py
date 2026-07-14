@@ -184,10 +184,27 @@ def parse_form_from_cell(cell):
     that placeholder in our output, or every subsequent real letter
     shifts left and silently misrepresents which match it belongs to.
 
+    BUG FIX (previously caused e.g. "W W W W W" for a team with only
+    3 real wins): each form slot can be a wrapper tag (e.g. a <a> or
+    <div>) around an INNER tag that actually holds the letter. If both
+    the wrapper AND the inner tag have text that's exactly "W"/"D"/"L"/
+    "?", find_all(True) matched BOTH — silently DOUBLE-COUNTING every
+    real slot. Taking the last 5 of a doubled, mostly-repeating list
+    tended to collapse onto whichever letter repeated most at the end
+    of the season, exactly the symptom reported. We now only count
+    LEAF-level tags — ones with no element children of their own —
+    so a slot contributes exactly one entry no matter how many levels
+    of wrapping markup surround its letter.
+
     Returns a list of up to 5 entries, each "W", "D", "L", or "?".
     """
     form = []
     for tag in cell.find_all(True):
+        # Skip any tag that itself contains a child element — we only
+        # want the innermost tag actually holding the letter, so a
+        # wrapper and its child never both get counted for one slot.
+        if tag.find(True) is not None:
+            continue
         text = tag.get_text(strip=True).upper()
         if text in ("W", "D", "L", "?"):
             form.append(text)
