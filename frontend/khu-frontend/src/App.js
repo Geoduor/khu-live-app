@@ -515,7 +515,7 @@ function TableView({ leagues, selectedLeague, setSelectedLeague, standings, load
             className={`league-pill ${selectedLeague === l.key ? "active" : ""}`}
             onClick={() => setSelectedLeague(l.key)}
           >
-            <span className="league-pill-icon">🏑</span>
+            <span className="league-pill-icon">{l.short.replace("NLM-", "").slice(0, 3)}</span>
             <span className="league-pill-label">{l.short}</span>
           </button>
         ))}

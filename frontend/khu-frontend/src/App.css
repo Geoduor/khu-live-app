@@ -13,8 +13,11 @@
   --red:#BB0000; --green:#006600; --black:#0D0D0D;
   --bg:#0D0709; --card:rgba(255,255,255,0.045); --surface:rgba(255,255,255,0.07);
   --border:rgba(255,255,255,0.09);
+  --border-hover:rgba(255,255,255,0.22);
   --white:#F5F0F0; --muted:#9A8688;
   --amber:#F0A500; --live:#FF3B30;
+  --header-bg: rgba(13,7,9,0.75);
+  --nav-bg: rgba(20,10,12,0.75);
   --gradient-bg:
     radial-gradient(ellipse 90% 55% at 15% -5%, rgba(187,0,0,0.24) 0%, transparent 55%),
     radial-gradient(ellipse 75% 50% at 100% 20%, rgba(0,102,0,0.16) 0%, transparent 55%),
@@ -26,8 +29,11 @@
   --red:#BB0000; --green:#006600; --black:#1A1414;
   --bg:#FAF6F5; --card:rgba(20,10,10,0.04); --surface:rgba(20,10,10,0.06);
   --border:rgba(20,10,10,0.10);
+  --border-hover:rgba(20,10,10,0.28);
   --white:#1A1414; --muted:#7A6668;
   --amber:#C97E00; --live:#E0281F;
+  --header-bg: rgba(255,255,255,0.82);
+  --nav-bg: rgba(255,255,255,0.85);
   /* Same Kenyan flag palette (red/black/white/green) fading together,
      just on a pale base instead of near-black — keeps brand identity
      consistent across both modes rather than switching to a
@@ -72,7 +78,7 @@ body{
 
 /* ── HEADER ── */
 .header{ position:fixed;top:0;left:0;right:0;z-index:200;
-  background:rgba(13,7,9,0.75);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);
+  background:var(--header-bg);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);
   border-bottom:1px solid var(--border); }
 .header-inner{ display:flex;align-items:center;justify-content:space-between;padding:10px 16px; }
 .logo{display:flex;align-items:center;gap:10px}
@@ -92,7 +98,7 @@ body{
 .refresh-btn{ background:var(--surface);border:1px solid var(--border);border-radius:8px;
   padding:6px 10px;color:var(--muted);font-size:12px;cursor:pointer;font-weight:600;
   display:flex;align-items:center;gap:4px; transition: color 0.2s, border-color 0.2s; }
-.refresh-btn:hover{color:var(--white);border-color:rgba(255,255,255,0.2)}
+.refresh-btn:hover{color:var(--white);border-color:var(--border-hover)}
 .refresh-btn.spinning svg{animation:spin 1s linear infinite}
 @keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}
 
@@ -101,7 +107,7 @@ body{
   width:32px;height:32px;display:flex;align-items:center;justify-content:center;
   font-size:15px;cursor:pointer;transition:all 0.2s;
 }
-.bell-btn:hover{border-color:rgba(255,255,255,0.2)}
+.bell-btn:hover{border-color:var(--border-hover)}
 .bell-btn.bell-active{background:rgba(240,165,0,0.15);border-color:rgba(240,165,0,0.4)}
 
 .theme-toggle-btn{
@@ -109,7 +115,7 @@ body{
   width:32px;height:32px;display:flex;align-items:center;justify-content:center;
   font-size:14px;cursor:pointer;transition:all 0.2s;
 }
-.theme-toggle-btn:hover{border-color:rgba(255,255,255,0.2);transform:rotate(15deg)}
+.theme-toggle-btn:hover{border-color:var(--border-hover);transform:rotate(15deg)}
 
 .status-bar{ padding:6px 16px;font-size:11px;display:flex;align-items:center;gap:6px;
   border-top:1px solid var(--border); }
@@ -126,7 +132,7 @@ body{
    an edge-to-edge bar — sits with margin, fully rounded, glass panel. */
 .bnav{
   position:fixed;bottom:16px;left:16px;right:16px;z-index:200;
-  background:rgba(20,10,12,0.75);backdrop-filter:blur(22px);-webkit-backdrop-filter:blur(22px);
+  background:var(--nav-bg);backdrop-filter:blur(22px);-webkit-backdrop-filter:blur(22px);
   border:1px solid var(--border);
   box-shadow: 0 10px 32px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.05);
   border-radius:28px;
@@ -177,13 +183,15 @@ body{
 }
 .league-pill-icon{
   width:40px;height:40px;border-radius:50%;
-  display:flex;align-items:center;justify-content:center;font-size:17px;
+  display:flex;align-items:center;justify-content:center;
+  font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:13px;
+  letter-spacing:-0.3px;
   background:var(--card);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);
-  border:1.5px solid var(--border);transition:all 0.2s;
+  border:1.5px solid var(--border);transition:all 0.2s;color:var(--muted);
 }
 .league-pill.active .league-pill-icon{
   background:linear-gradient(135deg, var(--red), #7a0000);
-  border-color:var(--red);
+  border-color:var(--red);color:#fff;
   box-shadow: 0 4px 14px rgba(187,0,0,0.45);
 }
 .league-pill-label{font-size:10px;font-weight:700;color:var(--muted);letter-spacing:0.3px}
@@ -210,7 +218,7 @@ body{
 .league-table th{ color:var(--muted);font-size:10px;font-weight:700;letter-spacing:0.8px;
   text-transform:uppercase;text-align:right;padding:8px 6px;border-bottom:1px solid var(--border); }
 .league-table th:first-child,.league-table th:nth-child(2){text-align:left}
-.league-table td{padding:11px 6px;border-bottom:1px solid rgba(255,255,255,0.04);text-align:right}
+.league-table td{padding:11px 6px;border-bottom:1px solid var(--border);text-align:right}
 .league-table td:first-child,.league-table td:nth-child(2){text-align:left}
 .league-table tr:last-child td{border-bottom:none}
 .pos-num{color:var(--muted);font-size:11px;width:20px;display:inline-block;text-align:center}
@@ -290,7 +298,7 @@ body{
   padding:8px 16px;color:var(--white);font-size:13px;font-weight:600;
   cursor:pointer;margin-bottom:16px;
 }
-.back-btn:hover{border-color:rgba(255,255,255,0.2)}
+.back-btn:hover{border-color:var(--border-hover)}
 
 /* ── TEAM PROFILE ── */
 .team-profile-header{ display:flex;align-items:center;gap:14px;margin-bottom:20px; }
