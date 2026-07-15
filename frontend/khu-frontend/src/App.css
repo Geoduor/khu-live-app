@@ -2,26 +2,50 @@
 
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
-:root{
+/* ══════════════════════════════════════════════════════════════
+   THEME SYSTEM — dark (default) and light palettes.
+   Applied via [data-theme="dark"|"light"] on <html> (see useTheme
+   hook). Both keep red/green as the KHU brand accent; only the base
+   surface/text/glass tinting inverts between modes.
+   ══════════════════════════════════════════════════════════════ */
+:root,
+:root[data-theme="dark"]{
   --red:#BB0000; --green:#006600; --black:#0D0D0D;
   --bg:#0D0709; --card:rgba(255,255,255,0.045); --surface:rgba(255,255,255,0.07);
   --border:rgba(255,255,255,0.09);
   --white:#F5F0F0; --muted:#9A8688;
   --amber:#F0A500; --live:#FF3B30;
+  --gradient-bg:
+    radial-gradient(ellipse 90% 55% at 15% -5%, rgba(187,0,0,0.24) 0%, transparent 55%),
+    radial-gradient(ellipse 75% 50% at 100% 20%, rgba(0,102,0,0.16) 0%, transparent 55%),
+    radial-gradient(ellipse 70% 45% at 50% 100%, rgba(245,240,240,0.05) 0%, transparent 60%),
+    linear-gradient(160deg, #1a0505 0%, #0D0709 55%, #05080a 100%);
+}
+
+:root[data-theme="light"]{
+  --red:#BB0000; --green:#006600; --black:#1A1414;
+  --bg:#FAF6F5; --card:rgba(20,10,10,0.04); --surface:rgba(20,10,10,0.06);
+  --border:rgba(20,10,10,0.10);
+  --white:#1A1414; --muted:#7A6668;
+  --amber:#C97E00; --live:#E0281F;
+  /* Same Kenyan flag palette (red/black/white/green) fading together,
+     just on a pale base instead of near-black — keeps brand identity
+     consistent across both modes rather than switching to a
+     different color scheme entirely for light mode. */
+  --gradient-bg:
+    radial-gradient(ellipse 90% 55% at 15% -5%, rgba(187,0,0,0.10) 0%, transparent 55%),
+    radial-gradient(ellipse 75% 50% at 100% 20%, rgba(0,102,0,0.09) 0%, transparent 55%),
+    radial-gradient(ellipse 70% 45% at 50% 100%, rgba(20,20,20,0.04) 0%, transparent 60%),
+    linear-gradient(160deg, #ffffff 0%, #FAF6F5 55%, #f3ecea 100%);
 }
 
 body{
   font-family:'Inter',sans-serif;color:var(--white);
   overflow-x:hidden; -webkit-tap-highlight-color:transparent;
   margin:0;
-  /* Deep red-to-black gradient, translating the reference design's
-     purple-gradient technique into our red/black/green KHU identity
-     instead of switching palettes entirely. */
-  background:
-    radial-gradient(ellipse 90% 60% at 20% 0%, rgba(187,0,0,0.22) 0%, transparent 60%),
-    radial-gradient(ellipse 80% 50% at 100% 30%, rgba(0,102,0,0.14) 0%, transparent 55%),
-    linear-gradient(160deg, #1a0505 0%, #0D0709 55%, #05080a 100%);
+  background: var(--gradient-bg);
   background-attachment: fixed;
+  transition: background 0.3s ease, color 0.3s ease;
 }
 
 .App { min-height: 100vh; }
@@ -33,6 +57,7 @@ body{
 .glass-surface{
   background: var(--card);
   backdrop-filter: blur(18px);
+
   -webkit-backdrop-filter: blur(18px);
   border: 1px solid var(--border);
   box-shadow: 0 8px 24px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.04);
@@ -79,6 +104,13 @@ body{
 .bell-btn:hover{border-color:rgba(255,255,255,0.2)}
 .bell-btn.bell-active{background:rgba(240,165,0,0.15);border-color:rgba(240,165,0,0.4)}
 
+.theme-toggle-btn{
+  background:var(--surface);border:1px solid var(--border);border-radius:8px;
+  width:32px;height:32px;display:flex;align-items:center;justify-content:center;
+  font-size:14px;cursor:pointer;transition:all 0.2s;
+}
+.theme-toggle-btn:hover{border-color:rgba(255,255,255,0.2);transform:rotate(15deg)}
+
 .status-bar{ padding:6px 16px;font-size:11px;display:flex;align-items:center;gap:6px;
   border-top:1px solid var(--border); }
 .status-bar > span:first-of-type { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -102,12 +134,19 @@ body{
   max-width:520px;margin:0 auto;
 }
 .bnav-btn{ display:flex;flex-direction:column;align-items:center;justify-content:center;
-  gap:2px;padding:12px 4px;border:none;background:none;
+  gap:3px;padding:10px 4px;border:none;background:none;
   color:var(--muted);font-size:10px;font-weight:600;cursor:pointer;
   transition: color 0.18s; }
 .bnav-btn.active{color:var(--red)}
-.bnav-icon{font-size:20px;line-height:1;transition: transform 0.18s;}
-.bnav-btn.active .bnav-icon{ transform: translateY(-1px) scale(1.08); }
+.bnav-icon-wrap{
+  display:flex;align-items:center;justify-content:center;
+  width:34px;height:26px;border-radius:14px;transition:all 0.2s;
+}
+.bnav-btn.active .bnav-icon-wrap{
+  background:linear-gradient(135deg, rgba(187,0,0,0.22), rgba(187,0,0,0.1));
+}
+.bnav-icon{font-size:18px;line-height:1;transition: transform 0.18s;}
+.bnav-btn.active .bnav-icon{ transform: scale(1.05); }
 
 /* ── SECTION ── */
 .section{padding:16px 16px 100px;}
@@ -127,6 +166,28 @@ body{
   color:#fff;border-color:var(--red);
   box-shadow: 0 4px 16px rgba(187,0,0,0.4);
 }
+
+/* Icon-above-label league selector, adopted from the reference
+   design's sport-category row (small circular icon + text stacked). */
+.league-pill-row{display:flex;gap:10px;overflow-x:auto;padding:0 16px 16px;scrollbar-width:none}
+.league-pill-row::-webkit-scrollbar{display:none}
+.league-pill{
+  flex-shrink:0;display:flex;flex-direction:column;align-items:center;gap:5px;
+  background:none;border:none;cursor:pointer;padding:2px;
+}
+.league-pill-icon{
+  width:40px;height:40px;border-radius:50%;
+  display:flex;align-items:center;justify-content:center;font-size:17px;
+  background:var(--card);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);
+  border:1.5px solid var(--border);transition:all 0.2s;
+}
+.league-pill.active .league-pill-icon{
+  background:linear-gradient(135deg, var(--red), #7a0000);
+  border-color:var(--red);
+  box-shadow: 0 4px 14px rgba(187,0,0,0.45);
+}
+.league-pill-label{font-size:10px;font-weight:700;color:var(--muted);letter-spacing:0.3px}
+.league-pill.active .league-pill-label{color:var(--red)}
 
 /* ── LEAGUE SELECT GRID (Home) ── */
 .league-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}

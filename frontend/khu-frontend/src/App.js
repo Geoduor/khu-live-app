@@ -3,6 +3,7 @@ import "./App.css";
 import { getLeagues, getStandings, getFixtures, getResults, getLiveMatches, getHealth, refreshData } from "./api";
 import { usePushNotifications } from "./hooks/usePushNotifications";
 import { useFavorites, useOnboarding } from "./hooks/useFavorites";
+import { useTheme } from "./hooks/useTheme";
 import LeagueTable from "./components/LeagueTable";
 import MatchCard from "./components/MatchCard";
 import LoadingState from "./components/LoadingState";
@@ -49,6 +50,7 @@ function App() {
 
   const { supported: pushSupported, isSubscribed, loading: pushLoading, subscribe, unsubscribe } = usePushNotifications();
   const { favorites, favoriteList, isFavorite, toggleFavorite } = useFavorites();
+  const { theme, toggleTheme, isDark } = useTheme();
   const { hasSeenOnboarding, markOnboardingSeen } = useOnboarding();
 
   const handleBellClick = async () => {
@@ -250,6 +252,13 @@ function App() {
             </div>
           </div>
           <div className="header-right">
+            <button
+              className="theme-toggle-btn"
+              onClick={toggleTheme}
+              title={isDark ? "Switch to light mode" : "Switch to dark mode"}
+            >
+              {isDark ? "☀️" : "🌙"}
+            </button>
             {pushSupported && (
               <button
                 className={`bell-btn ${isSubscribed ? "bell-active" : ""}`}
@@ -361,7 +370,7 @@ function App() {
       <div className="bnav">
         {TABS.map(t => (
           <button key={t.id} className={`bnav-btn ${tab === t.id && !overlay ? "active" : ""}`} onClick={() => { setTab(t.id); closeOverlay(); }}>
-            <span className="bnav-icon">{t.icon}</span>
+            <span className="bnav-icon-wrap"><span className="bnav-icon">{t.icon}</span></span>
             {t.label}
           </button>
         ))}
@@ -499,14 +508,15 @@ function TableView({ leagues, selectedLeague, setSelectedLeague, standings, load
     <div className="section">
       <div className="sec-head"><span className="sec-title">League Table</span></div>
 
-      <div className="pills">
+      <div className="league-pill-row">
         {leagues.map(l => (
           <button
             key={l.key}
-            className={`pill ${selectedLeague === l.key ? "active" : ""}`}
+            className={`league-pill ${selectedLeague === l.key ? "active" : ""}`}
             onClick={() => setSelectedLeague(l.key)}
           >
-            {l.short}
+            <span className="league-pill-icon">🏑</span>
+            <span className="league-pill-label">{l.short}</span>
           </button>
         ))}
       </div>
