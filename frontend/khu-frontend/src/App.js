@@ -50,7 +50,7 @@ function App() {
 
   const { supported: pushSupported, isSubscribed, loading: pushLoading, subscribe, unsubscribe } = usePushNotifications();
   const { favorites, favoriteList, isFavorite, toggleFavorite } = useFavorites();
-  const { theme, toggleTheme, isDark } = useTheme();
+  const { toggleTheme, isDark } = useTheme();
   const { hasSeenOnboarding, markOnboardingSeen } = useOnboarding();
 
   const handleBellClick = async () => {
