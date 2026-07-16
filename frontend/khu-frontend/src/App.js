@@ -384,20 +384,66 @@ function App() {
 // ══════════════════════════════════════════════════
 function HomeView({ leagues, loadingLeagues, onSelectLeague, fixtures, results, live, loadingFixtures, loadingResults, onOpenMatch, onOpenTeam, favoriteList, isFavorite, toggleFavorite }) {
   const liveMatches = live?.live || [];
+  const nextFixture = fixtures?.fixtures?.[0];
+  const mostRecentResult = (results?.most_recent || results?.results || [])[0];
+
+  // The scoreboard hero shows, in priority order: a live match right
+  // now, otherwise the soonest upcoming fixture, otherwise the most
+  // recent result — always something concrete and current, never a
+  // generic tagline with nothing real behind it.
+  const heroMatch = liveMatches[0] || nextFixture || mostRecentResult;
+  const heroState = liveMatches[0] ? "LIVE" : nextFixture ? "NS" : "FT";
+
+  // League tiers, visually distinguished by actual importance in
+  // Kenyan hockey's real league structure — Premier League is the
+  // top flight, Super League the second tier, National League zones
+  // are regional/grassroots — rather than one flat identical grid.
+  const premierLeagues = leagues.filter(l => l.short.startsWith("PL"));
+  const superLeagues = leagues.filter(l => l.short.startsWith("SL"));
+  const nationalLeagues = leagues.filter(l => l.short.startsWith("NLM"));
 
   return (
     <>
-      <div className="section" style={{ paddingBottom: 0 }}>
-        <div style={{ marginBottom: 20 }}>
-          <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 2, color: "var(--red)", textTransform: "uppercase", marginBottom: 6 }}>
-            🇰🇪 Official Live App
+      {/* ── SCOREBOARD HERO ── */}
+      <div className="section" style={{ paddingBottom: 8 }}>
+        <div className="scoreboard-hero">
+          <div className="scoreboard-hero-top">
+            <span className="scoreboard-hero-brand">KHU LIVE</span>
+            {heroState === "LIVE" && (
+              <span className="match-state-live"><span className="pulse-dot" /> LIVE</span>
+            )}
+            {heroState === "NS" && <span className="scoreboard-hero-tag">NEXT UP</span>}
+            {heroState === "FT" && <span className="scoreboard-hero-tag">LATEST RESULT</span>}
           </div>
-          <div style={{ fontFamily: "'Barlow Condensed',sans-serif", fontWeight: 900, fontSize: 30, lineHeight: 1.05 }}>
-            Kenya Hockey Union
-          </div>
-          <div style={{ fontSize: 13, color: "var(--muted)", marginTop: 4 }}>
-            Live tables · fixtures · results — direct from kenyahockeyunion.org
-          </div>
+
+          {heroMatch ? (
+            <div className="scoreboard-hero-body" onClick={() => heroMatch.match_url && onOpenMatch(heroMatch.match_url)}>
+              <div className="scoreboard-hero-team">
+                {heroMatch.home_logo_url && <img src={heroMatch.home_logo_url} alt="" className="scoreboard-hero-logo" />}
+                <span>{heroMatch.home_team}</span>
+              </div>
+              <div className="scoreboard-hero-center">
+                {heroState === "NS" ? (
+                  <>
+                    <div className="scoreboard-hero-vs">VS</div>
+                    <div className="scoreboard-hero-time">{heroMatch.time || heroMatch.date}</div>
+                  </>
+                ) : (
+                  <div className="scoreboard-hero-score">
+                    {heroMatch.home_score ?? 0}<span className="scoreboard-hero-dash">–</span>{heroMatch.away_score ?? 0}
+                  </div>
+                )}
+              </div>
+              <div className="scoreboard-hero-team">
+                {heroMatch.away_logo_url && <img src={heroMatch.away_logo_url} alt="" className="scoreboard-hero-logo" />}
+                <span>{heroMatch.away_team}</span>
+              </div>
+            </div>
+          ) : (
+            <div className="scoreboard-hero-empty">Live tables, fixtures &amp; results — direct from kenyahockeyunion.org</div>
+          )}
+
+          {heroMatch?.league && <div className="scoreboard-hero-league">{heroMatch.league}</div>}
         </div>
       </div>
 
@@ -420,7 +466,7 @@ function HomeView({ leagues, loadingLeagues, onSelectLeague, fixtures, results, 
         </div>
       )}
 
-      {liveMatches.length > 0 && (
+      {liveMatches.length > 1 && (
         <div className="section">
           <div className="sec-head">
             <span className="sec-title" style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -429,11 +475,12 @@ function HomeView({ leagues, loadingLeagues, onSelectLeague, fixtures, results, 
             <span className="sec-badge">{liveMatches.length}</span>
           </div>
           <div className="match-list">
-            {liveMatches.map((m, i) => <MatchCard key={i} match={m} onOpenMatch={onOpenMatch} onOpenTeam={onOpenTeam} isFavorite={isFavorite} toggleFavorite={toggleFavorite} />)}
+            {liveMatches.slice(1).map((m, i) => <MatchCard key={i} match={m} onOpenMatch={onOpenMatch} onOpenTeam={onOpenTeam} isFavorite={isFavorite} toggleFavorite={toggleFavorite} />)}
           </div>
         </div>
       )}
 
+      {/* ── LEAGUE HIERARCHY — tiered by actual importance ── */}
       <div className="section">
         <div className="sec-head">
           <span className="sec-title">All Leagues</span>
@@ -443,15 +490,51 @@ function HomeView({ leagues, loadingLeagues, onSelectLeague, fixtures, results, 
         ) : leagues.length === 0 ? (
           <ErrorState title="No leagues found" message="Backend returned no leagues." compact />
         ) : (
-          <div className="league-grid">
-            {leagues.map(l => (
-              <div key={l.key} className="league-card" onClick={() => onSelectLeague(l.key)}>
-                <div className="league-card-tier">{l.short}</div>
-                <div className="league-card-name">{l.name}</div>
-                <div className="league-card-teams">View standings →</div>
+          <>
+            {premierLeagues.length > 0 && (
+              <div className="league-tier league-tier-premier">
+                <div className="league-tier-label">🏆 Premier League — Top Flight</div>
+                <div className="league-grid">
+                  {premierLeagues.map(l => (
+                    <div key={l.key} className="league-card league-card-premier" onClick={() => onSelectLeague(l.key)}>
+                      <div className="league-card-tier">{l.short}</div>
+                      <div className="league-card-name">{l.name}</div>
+                      <div className="league-card-teams">View standings →</div>
+                    </div>
+                  ))}
+                </div>
               </div>
-            ))}
-          </div>
+            )}
+
+            {superLeagues.length > 0 && (
+              <div className="league-tier">
+                <div className="league-tier-label">Super League — Second Tier</div>
+                <div className="league-grid">
+                  {superLeagues.map(l => (
+                    <div key={l.key} className="league-card" onClick={() => onSelectLeague(l.key)}>
+                      <div className="league-card-tier">{l.short}</div>
+                      <div className="league-card-name">{l.name}</div>
+                      <div className="league-card-teams">View standings →</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {nationalLeagues.length > 0 && (
+              <div className="league-tier">
+                <div className="league-tier-label">National League — Regional Zones</div>
+                <div className="league-grid league-grid-compact">
+                  {nationalLeagues.map(l => (
+                    <div key={l.key} className="league-card league-card-compact" onClick={() => onSelectLeague(l.key)}>
+                      <div className="league-card-tier">{l.short}</div>
+                      <div className="league-card-name">{l.name.replace("National League Men — ", "")}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </>
         )}
       </div>
 

@@ -197,6 +197,94 @@ body{
 .league-pill-label{font-size:10px;font-weight:700;color:var(--muted);letter-spacing:0.3px}
 .league-pill.active .league-pill-label{color:var(--red)}
 
+/* ══════════════════════════════════════════════════════
+   SCOREBOARD HERO — the page's signature element.
+   Shows the actual live/next/latest match like a stadium scoreboard,
+   not a generic tagline — always something concrete and current.
+   ══════════════════════════════════════════════════════ */
+.scoreboard-hero{
+  background: linear-gradient(155deg, rgba(187,0,0,0.14), rgba(0,102,0,0.06), var(--card));
+  backdrop-filter: blur(20px);-webkit-backdrop-filter: blur(20px);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  padding: 18px 20px 16px;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.05);
+  position: relative; overflow: hidden;
+}
+.scoreboard-hero::before{
+  /* Faint turf-line texture in the corner — a quiet nod to the pitch
+     itself, rather than generic decoration unrelated to hockey. */
+  content:''; position:absolute; top:-30%; right:-15%; width:220px; height:220px;
+  border: 2px solid rgba(0,102,0,0.15); border-radius: 50%;
+  pointer-events: none;
+}
+.scoreboard-hero-top{
+  display:flex; align-items:center; justify-content:space-between; margin-bottom:14px;
+}
+.scoreboard-hero-brand{
+  font-family:'Barlow Condensed',sans-serif; font-weight:900; font-size:13px;
+  letter-spacing:2px; color:var(--muted);
+}
+.scoreboard-hero-tag{
+  font-size:11px; font-weight:800; letter-spacing:1px; color:var(--amber);
+  text-transform:uppercase;
+}
+.scoreboard-hero-body{
+  display:flex; align-items:center; justify-content:space-between; gap:10px;
+  cursor:pointer; position:relative; z-index:1;
+}
+.scoreboard-hero-team{
+  flex:1; display:flex; flex-direction:column; align-items:center; gap:8px;
+  font-weight:700; font-size:13px; text-align:center;
+}
+.scoreboard-hero-logo{ width:44px; height:44px; object-fit:contain; }
+.scoreboard-hero-center{ min-width:90px; text-align:center; }
+.scoreboard-hero-score{
+  font-family:'Barlow Condensed',sans-serif; font-weight:900; font-size:44px;
+  letter-spacing:-2px; line-height:1;
+  text-shadow: 0 2px 16px rgba(0,0,0,0.35);
+}
+.scoreboard-hero-dash{ color:var(--muted); font-weight:300; margin:0 4px; }
+.scoreboard-hero-vs{
+  font-family:'Barlow Condensed',sans-serif; font-weight:800; font-size:22px;
+  color:var(--muted);
+}
+.scoreboard-hero-time{ font-size:11px; color:var(--amber); font-weight:700; margin-top:4px; }
+.scoreboard-hero-league{
+  text-align:center; font-size:11px; color:var(--muted); font-weight:600;
+  margin-top:14px; letter-spacing:0.3px; position:relative; z-index:1;
+}
+.scoreboard-hero-empty{
+  font-size:13px; color:var(--muted); text-align:center; padding:10px 0;
+}
+
+/* ══════════════════════════════════════════════════════
+   LEAGUE TIERS — visually distinguished by real importance in
+   Kenyan hockey's structure (Premier > Super > National Zones),
+   instead of one flat identical grid of 8 boxes.
+   ══════════════════════════════════════════════════════ */
+.league-tier{ margin-bottom:22px; }
+.league-tier:last-child{ margin-bottom:0; }
+.league-tier-label{
+  font-family:'Barlow Condensed',sans-serif; font-weight:800; font-size:14px;
+  letter-spacing:0.4px; color:var(--muted); text-transform:uppercase;
+  margin-bottom:10px;
+}
+.league-tier-premier .league-tier-label{ color:var(--amber); }
+
+.league-card-premier{
+  border-color: rgba(240,165,0,0.3);
+  background: linear-gradient(155deg, rgba(240,165,0,0.08), var(--card));
+}
+.league-card-premier:hover{ border-color: rgba(240,165,0,0.55); }
+.league-card-premier .league-card-tier{ color: var(--amber); }
+
+.league-grid-compact{ grid-template-columns: repeat(2, 1fr); gap:8px; }
+.league-card-compact{
+  padding:10px 12px; border-radius:12px;
+}
+.league-card-compact .league-card-name{ font-size:13px; }
+
 /* ── LEAGUE SELECT GRID (Home) ── */
 .league-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
 .league-card{
