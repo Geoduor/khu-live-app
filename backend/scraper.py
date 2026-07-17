@@ -50,6 +50,26 @@ TEAM_NAME_CORRECTIONS = {
     "Kisumu Youngsters": "Kisumu Youngstars",
 }
 
+# ── League membership corrections ──
+# KHU's own live site occasionally lists a team in a league it doesn't
+# actually belong in (confirmed manually against KHU's official season
+# document + direct verification that this is a genuine site error,
+# not a legitimate reserve/second-team situation). Rather than silently
+# trust every row scraped, teams listed here are EXCLUDED from the
+# specific league_key they're wrongly appearing in — they still appear
+# normally in whichever league they actually belong to.
+#
+# Format: { league_key: {set of team names to exclude from that league} }
+LEAGUE_EXCLUSIONS = {
+    "super_league_women": {"Kenyatta University Ladies", "Kenyatta University"},
+}
+
+
+def is_excluded_from_league(team_name: str, league_key: str) -> bool:
+    """Check whether a team should be excluded from a given league's standings/results."""
+    excluded_names = LEAGUE_EXCLUSIONS.get(league_key, set())
+    return team_name.strip() in excluded_names
+
 
 def correct_team_name(name: str) -> str:
     """Apply known name corrections to a raw scraped team name."""
@@ -252,11 +272,15 @@ def find_standings_table(soup):
     return None
 
 
-def parse_standings_table(table) -> list:
+def parse_standings_table(table, league_key: str = "") -> list:
     """
     Parse a JoomSport standings table into a list of team dicts.
     Column order (confirmed from KHU screenshot):
     0=Rank | 1=Team | 2=Pl | 3=W | 4=D | 5=L | 6=Diff | 7=GD | 8=Pts | 9=Form
+
+    league_key (optional) enables LEAGUE_EXCLUSIONS filtering — a team
+    confirmed to be wrongly listed in a given league on KHU's own live
+    site gets skipped here rather than silently trusted.
     """
     standings = []
     tbody = table.find("tbody") or table
@@ -304,6 +328,12 @@ def parse_standings_table(table) -> list:
         if not team_name:
             continue
 
+        # Skip teams confirmed to be wrongly listed in this league on
+        # KHU's own live site (see LEAGUE_EXCLUSIONS docstring above).
+        if league_key and is_excluded_from_league(team_name, league_key):
+            logger.info(f"Excluding '{team_name}' from {league_key} (confirmed site error)")
+            continue
+
         def get(idx):
             return cells[idx].get_text(strip=True) if idx < len(cells) else "0"
 
@@ -339,6 +369,12 @@ def parse_standings_table(table) -> list:
             "points":        points,
             "form":          form,
         })
+
+    # Re-number positions sequentially in case any rows were excluded
+    # above — otherwise an excluded team leaves a gap (e.g. 1,2,4,5
+    # instead of a clean 1,2,3,4).
+    for i, team in enumerate(standings, start=1):
+        team["position"] = str(i)
 
     return standings
 
@@ -387,7 +423,7 @@ def scrape_standings(league_key: str) -> dict:
             "source_url":  used_url,
         }
 
-    standings = parse_standings_table(table)
+    standings = parse_standings_table(table, league_key=league_key)
 
     return {
         "league":      league["name"],
@@ -566,6 +602,13 @@ def scrape_league_calendar(league_key: str) -> dict:
         has_digit_score = bool(re.search(r"\d+\s*[-:]\s*\d+", score_text))
 
         state = parse_match_state(score_text, has_live, has_digit_score)
+
+        # Skip this match entirely if either team is confirmed excluded
+        # from this specific league (same LEAGUE_EXCLUSIONS check used
+        # for standings) — a mis-listed team shouldn't show up in
+        # fixtures/results for a league it doesn't actually belong to.
+        if is_excluded_from_league(home_name, league_key) or is_excluded_from_league(away_name, league_key):
+            continue
 
         # Extract clean numeric score if finished/live
         home_score, away_score = None, None
