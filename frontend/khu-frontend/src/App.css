@@ -285,6 +285,43 @@ body{
 }
 .league-card-compact .league-card-name{ font-size:13px; }
 
+.bracket-link-btn{
+  width:100%;margin-top:10px;padding:12px;border-radius:14px;
+  background: linear-gradient(135deg, rgba(240,165,0,0.16), rgba(187,0,0,0.08));
+  border: 1px solid rgba(240,165,0,0.35);
+  color: var(--amber); font-weight:700; font-size:13px;
+  cursor:pointer; transition: all 0.2s;
+}
+.bracket-link-btn:hover{ border-color: rgba(240,165,0,0.6); transform: translateY(-1px); }
+
+/* ── PLAYOFF BRACKET ── */
+.bracket-round{ margin-bottom:22px; }
+.bracket-round:last-child{ margin-bottom:0; }
+.bracket-round-label{
+  font-family:'Barlow Condensed',sans-serif; font-weight:800; font-size:14px;
+  letter-spacing:0.5px; text-transform:uppercase; color:var(--amber);
+  margin-bottom:10px;
+}
+.bracket-round-matches{ display:flex; flex-direction:column; gap:10px; }
+.bracket-round-final .bracket-round-label{ color: var(--red); }
+
+.bracket-match{
+  background: var(--card); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
+  border: 1px solid var(--border); border-radius: 14px; padding: 12px 14px;
+}
+.bracket-match-meta{
+  display:flex; justify-content:space-between; font-size:10px; color:var(--muted);
+  font-weight:600; margin-bottom:8px; text-transform:uppercase; letter-spacing:0.3px;
+}
+.bracket-team{
+  display:flex; align-items:center; gap:8px; padding:6px 0;
+}
+.bracket-team-clickable{ cursor:pointer; }
+.bracket-team-clickable:hover .bracket-team-name{ color: var(--red); }
+.bracket-team-tbd{ opacity:0.5; }
+.bracket-team-name{ font-weight:700; font-size:13px; flex:1; transition:color 0.15s; }
+.bracket-seed-label{ font-size:10px; color:var(--muted); font-weight:600; }
+
 /* ── LEAGUE SELECT GRID (Home) ── */
 .league-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
 .league-card{

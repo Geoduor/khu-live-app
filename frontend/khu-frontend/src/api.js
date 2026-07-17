@@ -28,6 +28,7 @@ export const getAllStandings = () =>
 export const getFixtures = () => api.get("/api/fixtures").then(r => r.data);
 export const getResults = () => api.get("/api/results").then(r => r.data);
 export const getLiveMatches = () => api.get("/api/live").then(r => r.data);
+export const getPlayoffBracket = () => api.get("/api/playoffs/nlm").then(r => r.data);
 export const getTeamProfile = (url, name = "") => api.get("/api/team", { params: { url, name } }).then(r => r.data);
 export const getMatchDetail = (url) => api.get("/api/match", { params: { url } }).then(r => r.data);
 export const getAllTeamsFlat = () => api.get("/api/teams/all").then(r => r.data);

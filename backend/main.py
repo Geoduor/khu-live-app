@@ -381,6 +381,87 @@ def get_results():
     }
 
 
+@app.get("/api/playoffs/nlm")
+def get_nlm_playoff_bracket():
+    """
+    National League Men cross-zone playoff bracket.
+
+    HONEST DATA NOTE: the bracket STRUCTURE below is confirmed from
+    KHU's official 2026 season document (EZ/CZ meet in one half,
+    WZ/SZ in the other, converging at the semis/final). Quarter-final
+    SEEDING (which real teams occupy each slot) is derived live from
+    each zone's actual scraped standings — position #1 and #2 — since
+    that data already exists and updates automatically as the regular
+    season progresses.
+
+    What this endpoint does NOT yet have: real playoff MATCH results
+    (scores). KHU's site doesn't expose a confirmed scraped source for
+    these cross-zone playoff fixtures yet — every playoff round below
+    shows "TBD"/no score until we locate and build a scraper for that
+    specific data once the playoffs actually begin.
+    """
+    def top_two(zone_key):
+        zone_data = cache["standings"].get(zone_key, {})
+        standings = zone_data.get("standings", [])
+        first = standings[0] if len(standings) > 0 else None
+        second = standings[1] if len(standings) > 1 else None
+        return first, second
+
+    ez1, ez2 = top_two("national_league_men_ez")
+    cz1, cz2 = top_two("national_league_men_cz")
+    wz1, wz2 = top_two("national_league_men_wz")
+    sz1, sz2 = top_two("national_league_men_sz")
+
+    def seed(team):
+        if not team:
+            return {"name": "TBD", "team_url": "", "logo_url": "", "seed_label": ""}
+        return {
+            "name": team.get("team", "TBD"),
+            "team_url": team.get("team_url", ""),
+            "logo_url": team.get("team_logo_url", ""),
+        }
+
+    bracket = {
+        "quarter_finals": [
+            {"id": "QF1", "venue": "Pitch 1", "status": "TBA",
+             "home": {**seed(ez1), "seed_label": "NLM-EZ #1"},
+             "away": {**seed(cz2), "seed_label": "NLM-CZ #2"}},
+            {"id": "QF2", "venue": "Pitch 1", "status": "TBA",
+             "home": {**seed(ez2), "seed_label": "NLM-EZ #2"},
+             "away": {**seed(cz1), "seed_label": "NLM-CZ #1"}},
+            {"id": "QF3", "venue": "Pitch 2", "status": "TBA",
+             "home": {**seed(wz1), "seed_label": "NLM-WZ #1"},
+             "away": {**seed(sz2), "seed_label": "NLM-SZ #2"}},
+            {"id": "QF4", "venue": "Pitch 2", "status": "TBA",
+             "home": {**seed(wz2), "seed_label": "NLM-WZ #2"},
+             "away": {**seed(sz1), "seed_label": "NLM-SZ #1"}},
+        ],
+        "semi_finals": [
+            {"id": "SF1", "venue": "Pitch 1", "status": "TBA",
+             "home": {"name": "Winner QF1", "team_url": "", "logo_url": "", "seed_label": ""},
+             "away": {"name": "Winner QF2", "team_url": "", "logo_url": "", "seed_label": ""}},
+            {"id": "SF2", "venue": "Pitch 2", "status": "TBA",
+             "home": {"name": "Winner QF3", "team_url": "", "logo_url": "", "seed_label": ""},
+             "away": {"name": "Winner QF4", "team_url": "", "logo_url": "", "seed_label": ""}},
+        ],
+        "third_place": {
+            "id": "3RD", "venue": "Nairobi", "status": "TBA",
+            "home": {"name": "Loser SF1", "team_url": "", "logo_url": "", "seed_label": ""},
+            "away": {"name": "Loser SF2", "team_url": "", "logo_url": "", "seed_label": ""},
+        },
+        "final": {
+            "id": "FINAL", "venue": "Nairobi", "status": "TBA",
+            "home": {"name": "Winner SF1", "team_url": "", "logo_url": "", "seed_label": ""},
+            "away": {"name": "Winner SF2", "team_url": "", "logo_url": "", "seed_label": ""},
+        },
+        "seeding_source": "Live NLM zone standings (kenyahockeyunion.org)",
+        "match_results_note": "Playoff match scores are not yet available from a confirmed scraped source — will populate automatically once KHU publishes cross-zone playoff fixtures.",
+        "scraped_at": datetime.now().isoformat(),
+    }
+
+    return bracket
+
+
 @app.get("/api/standings/all")
 def get_all_standings():
     if not cache["standings"]:

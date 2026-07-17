@@ -10,6 +10,7 @@ import LoadingState from "./components/LoadingState";
 import ErrorState from "./components/ErrorState";
 import TeamProfile from "./components/TeamProfile";
 import MatchDetail from "./components/MatchDetail";
+import PlayoffBracket from "./components/PlayoffBracket";
 import OnboardingPicker from "./components/OnboardingPicker";
 
 const TABS = [
@@ -46,6 +47,7 @@ function App() {
   const [overlay, setOverlay] = useState(null); // { type: 'team'|'match', url: string } | null
   const openTeam = (url, name = "") => setOverlay({ type: "team", url, name });
   const openMatch = (url) => setOverlay({ type: "match", url });
+  const openBracket = () => setOverlay({ type: "bracket" });
   const closeOverlay = () => setOverlay(null);
 
   const { supported: pushSupported, isSubscribed, loading: pushLoading, subscribe, unsubscribe } = usePushNotifications();
@@ -325,6 +327,9 @@ function App() {
         {overlay?.type === "match" && (
           <MatchDetail matchUrl={overlay.url} onBack={closeOverlay} onOpenTeam={openTeam} />
         )}
+        {overlay?.type === "bracket" && (
+          <PlayoffBracket onBack={closeOverlay} onOpenTeam={openTeam} />
+        )}
 
         {!overlay && tab === "home" && (
           <HomeView
@@ -341,6 +346,7 @@ function App() {
             favoriteList={favoriteList}
             isFavorite={isFavorite}
             toggleFavorite={toggleFavorite}
+            onOpenBracket={openBracket}
           />
         )}
 
@@ -382,7 +388,7 @@ function App() {
 // ══════════════════════════════════════════════════
 // HOME VIEW
 // ══════════════════════════════════════════════════
-function HomeView({ leagues, loadingLeagues, onSelectLeague, fixtures, results, live, loadingFixtures, loadingResults, onOpenMatch, onOpenTeam, favoriteList, isFavorite, toggleFavorite }) {
+function HomeView({ leagues, loadingLeagues, onSelectLeague, fixtures, results, live, loadingFixtures, loadingResults, onOpenMatch, onOpenTeam, favoriteList, isFavorite, toggleFavorite, onOpenBracket }) {
   const liveMatches = live?.live || [];
   const nextFixture = fixtures?.fixtures?.[0];
   const mostRecentResult = (results?.most_recent || results?.results || [])[0];
@@ -493,7 +499,7 @@ function HomeView({ leagues, loadingLeagues, onSelectLeague, fixtures, results, 
           <>
             {premierLeagues.length > 0 && (
               <div className="league-tier league-tier-premier">
-                <div className="league-tier-label">🏆 Premier League — Top Flight</div>
+                <div className="league-tier-label">🏆 Premier League</div>
                 <div className="league-grid">
                   {premierLeagues.map(l => (
                     <div key={l.key} className="league-card league-card-premier" onClick={() => onSelectLeague(l.key)}>
@@ -508,7 +514,7 @@ function HomeView({ leagues, loadingLeagues, onSelectLeague, fixtures, results, 
 
             {superLeagues.length > 0 && (
               <div className="league-tier">
-                <div className="league-tier-label">Super League — Second Tier</div>
+                <div className="league-tier-label">Super League</div>
                 <div className="league-grid">
                   {superLeagues.map(l => (
                     <div key={l.key} className="league-card" onClick={() => onSelectLeague(l.key)}>
@@ -523,7 +529,7 @@ function HomeView({ leagues, loadingLeagues, onSelectLeague, fixtures, results, 
 
             {nationalLeagues.length > 0 && (
               <div className="league-tier">
-                <div className="league-tier-label">National League — Regional Zones</div>
+                <div className="league-tier-label">National League</div>
                 <div className="league-grid league-grid-compact">
                   {nationalLeagues.map(l => (
                     <div key={l.key} className="league-card league-card-compact" onClick={() => onSelectLeague(l.key)}>
@@ -532,6 +538,9 @@ function HomeView({ leagues, loadingLeagues, onSelectLeague, fixtures, results, 
                     </div>
                   ))}
                 </div>
+                <button className="bracket-link-btn" onClick={onOpenBracket}>
+                  🏆 View National Playoff Bracket →
+                </button>
               </div>
             )}
           </>
