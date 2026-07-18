@@ -36,7 +36,6 @@ function App() {
   const [loadingStandings, setLoadingStandings] = useState(true);
   const [loadingFixtures, setLoadingFixtures] = useState(true);
   const [loadingResults, setLoadingResults] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
   const [isTabVisible, setIsTabVisible] = useState(!document.hidden);
 
   const [backendError, setBackendError] = useState(null);
@@ -201,24 +200,7 @@ function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isTabVisible]);
 
-  const handleRefresh = async () => {
-    setRefreshing(true);
-    try {
-      await refreshData();
-      const [standingsData, fixturesData, resultsData] = await Promise.all([
-        getStandings(selectedLeague),
-        getFixtures(),
-        getResults(),
-      ]);
-      setStandings(standingsData);
-      setFixtures(fixturesData);
-      setResults(resultsData);
-      checkHealth();
-    } catch (err) {
-      console.error("Refresh failed:", err);
-    }
-    setRefreshing(false);
-  };
+  
 
   // ── If backend is completely unreachable, show a clear error screen ──
   if (backendError) {
