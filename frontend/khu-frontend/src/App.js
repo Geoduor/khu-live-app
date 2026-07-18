@@ -499,7 +499,7 @@ function HomeView({ leagues, loadingLeagues, onSelectLeague, fixtures, results, 
           <>
             {premierLeagues.length > 0 && (
               <div className="league-tier league-tier-premier">
-                <div className="league-tier-label">🏆 Premier League — Top Flight</div>
+                <div className="league-tier-label">🏆 Premier League</div>
                 <div className="league-grid">
                   {premierLeagues.map(l => (
                     <div key={l.key} className="league-card league-card-premier" onClick={() => onSelectLeague(l.key)}>
@@ -514,7 +514,7 @@ function HomeView({ leagues, loadingLeagues, onSelectLeague, fixtures, results, 
 
             {superLeagues.length > 0 && (
               <div className="league-tier">
-                <div className="league-tier-label">Super League — Second Tier</div>
+                <div className="league-tier-label">Super League</div>
                 <div className="league-grid">
                   {superLeagues.map(l => (
                     <div key={l.key} className="league-card" onClick={() => onSelectLeague(l.key)}>
@@ -529,7 +529,7 @@ function HomeView({ leagues, loadingLeagues, onSelectLeague, fixtures, results, 
 
             {nationalLeagues.length > 0 && (
               <div className="league-tier">
-                <div className="league-tier-label">National League — Regional Zones</div>
+                <div className="league-tier-label">National League</div>
                 <div className="league-grid league-grid-compact">
                   {nationalLeagues.map(l => (
                     <div key={l.key} className="league-card league-card-compact" onClick={() => onSelectLeague(l.key)}>
