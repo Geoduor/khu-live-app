@@ -36,6 +36,7 @@ function App() {
   const [loadingStandings, setLoadingStandings] = useState(true);
   const [loadingFixtures, setLoadingFixtures] = useState(true);
   const [loadingResults, setLoadingResults] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [isTabVisible, setIsTabVisible] = useState(!document.hidden);
 
   const [backendError, setBackendError] = useState(null);
@@ -200,7 +201,24 @@ function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isTabVisible]);
 
-  
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    try {
+      await refreshData();
+      const [standingsData, fixturesData, resultsData] = await Promise.all([
+        getStandings(selectedLeague),
+        getFixtures(),
+        getResults(),
+      ]);
+      setStandings(standingsData);
+      setFixtures(fixturesData);
+      setResults(resultsData);
+      checkHealth();
+    } catch (err) {
+      console.error("Refresh failed:", err);
+    }
+    setRefreshing(false);
+  };
 
   // ── If backend is completely unreachable, show a clear error screen ──
   if (backendError) {
@@ -253,6 +271,17 @@ function App() {
                 {isSubscribed ? "🔔" : "🔕"}
               </button>
             )}
+            <button
+              className={`refresh-btn ${refreshing ? "spinning" : ""}`}
+              onClick={handleRefresh}
+              disabled={refreshing}
+            >
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                <polyline points="23 4 23 10 17 10" />
+                <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
+              </svg>
+              {refreshing ? "Refreshing..." : "Refresh"}
+            </button>
           </div>
         </div>
         <div className="status-bar">
@@ -470,7 +499,7 @@ function HomeView({ leagues, loadingLeagues, onSelectLeague, fixtures, results, 
           <>
             {premierLeagues.length > 0 && (
               <div className="league-tier league-tier-premier">
-                <div className="league-tier-label">🏆 Premier League</div>
+                <div className="league-tier-label">🏆 Premier League — Top Flight</div>
                 <div className="league-grid">
                   {premierLeagues.map(l => (
                     <div key={l.key} className="league-card league-card-premier" onClick={() => onSelectLeague(l.key)}>
@@ -485,7 +514,7 @@ function HomeView({ leagues, loadingLeagues, onSelectLeague, fixtures, results, 
 
             {superLeagues.length > 0 && (
               <div className="league-tier">
-                <div className="league-tier-label">Super League</div>
+                <div className="league-tier-label">Super League — Second Tier</div>
                 <div className="league-grid">
                   {superLeagues.map(l => (
                     <div key={l.key} className="league-card" onClick={() => onSelectLeague(l.key)}>
@@ -500,7 +529,7 @@ function HomeView({ leagues, loadingLeagues, onSelectLeague, fixtures, results, 
 
             {nationalLeagues.length > 0 && (
               <div className="league-tier">
-                <div className="league-tier-label">National League</div>
+                <div className="league-tier-label">National League — Regional Zones</div>
                 <div className="league-grid league-grid-compact">
                   {nationalLeagues.map(l => (
                     <div key={l.key} className="league-card league-card-compact" onClick={() => onSelectLeague(l.key)}>
