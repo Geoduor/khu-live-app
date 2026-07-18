@@ -23,7 +23,7 @@ export default function LeagueTable({ data, onOpenTeam, isFavorite, toggleFavori
           const clickable = Boolean(t.team_url && onOpenTeam);
 
           return (
-            <tr key={t.team + i} className={t._flash ? "row-flash" : ""}>
+            <tr key={t.team + i} className={`${t._flash ? "row-flash" : ""} ${t.is_placeholder ? "row-placeholder" : ""}`}>
               <td>
                 <div
                   className={`team-cell ${clickable ? "team-cell-clickable" : ""}`}
@@ -40,6 +40,7 @@ export default function LeagueTable({ data, onOpenTeam, isFavorite, toggleFavori
                     <div className="team-color-bar" />
                   )}
                   <span className="team-tname">{t.team}</span>
+                  {t.is_placeholder && <span className="placeholder-badge">Yet to play</span>}
                   {toggleFavorite && t.team_url && (
                     <span
                       className={`fav-star ${isFavorite?.(t.team_url) ? "active" : ""}`}
@@ -62,7 +63,9 @@ export default function LeagueTable({ data, onOpenTeam, isFavorite, toggleFavori
               <td className={`gd-td ${gdClass}`}>{gdDisplay}</td>
               <td>
                 <div className="form-dots">
-                  {t.form && t.form.length > 0 ? (
+                  {t.is_placeholder ? (
+                    <span className="form-dash">—</span>
+                  ) : t.form && t.form.length > 0 ? (
                     t.form.map((f, fi) => (
                       <div key={fi} className={`form-dot form-${f === "?" ? "unknown" : f}`}>{f}</div>
                     ))

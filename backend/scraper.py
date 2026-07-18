@@ -71,6 +71,61 @@ def is_excluded_from_league(team_name: str, league_key: str) -> bool:
     return team_name.strip() in excluded_names
 
 
+# ── Placeholder teams ──
+# A team confirmed (via KHU's official season document + direct manual
+# verification) to genuinely belong in a league, but not yet published
+# on KHU's LIVE site — e.g. they haven't played their first fixture
+# yet, so there's no real row to scrape. We show them with zero stats
+# rather than omit them entirely, but this is CLEARLY NOT hallucinated
+# data: every field is honestly zero/empty, never guessed.
+#
+# CRITICAL: once KHU actually publishes this team's real row (they
+# start playing and get added to the live standings table), the
+# placeholder must automatically stop appearing — see
+# inject_placeholder_teams() below, which checks for a real match by
+# name before ever adding a placeholder, so we never show both at once.
+PLACEHOLDER_TEAMS = {
+    "super_league_women": ["Kisii University Ladies"],
+}
+
+
+def inject_placeholder_teams(standings: list, league_key: str) -> list:
+    """
+    Append placeholder rows for teams confirmed to belong in this
+    league but not yet published live by KHU — ONLY if a real scraped
+    entry with that name doesn't already exist (which would mean KHU
+    has since published them for real, and the placeholder should
+    naturally stop being used).
+    """
+    placeholders = PLACEHOLDER_TEAMS.get(league_key, [])
+    existing_names = {t["team"].strip().lower() for t in standings}
+
+    for name in placeholders:
+        if name.strip().lower() in existing_names:
+            # KHU has published real data for this team now — don't
+            # add a duplicate placeholder alongside the real entry.
+            continue
+
+        standings.append({
+            "position":      str(len(standings) + 1),
+            "team":          name,
+            "team_url":      "",
+            "team_logo_url": "",
+            "played":        "0",
+            "won":           "0",
+            "drawn":         "0",
+            "lost":          "0",
+            "goals_for":     "0",
+            "goals_against": "0",
+            "goal_diff":     "0",
+            "points":        "0",
+            "form":          [],
+            "is_placeholder": True,
+        })
+
+    return standings
+
+
 def correct_team_name(name: str) -> str:
     """Apply known name corrections to a raw scraped team name."""
     if not name:
@@ -424,6 +479,7 @@ def scrape_standings(league_key: str) -> dict:
         }
 
     standings = parse_standings_table(table, league_key=league_key)
+    standings = inject_placeholder_teams(standings, league_key)
 
     return {
         "league":      league["name"],

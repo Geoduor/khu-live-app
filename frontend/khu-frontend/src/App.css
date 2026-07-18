@@ -370,6 +370,21 @@ body{
 .row-flash td {
   animation: row-flash-anim 2.2s ease-out;
 }
+
+/* ── PLACEHOLDER TEAM ROW ── */
+/* Visually honest marker for a team confirmed to belong in this
+   league (per KHU's official season document) but not yet published
+   on KHU's live site — never blends in as if it were real scraped
+   data. Automatically disappears once KHU publishes the real row
+   (handled server-side in scraper.py's inject_placeholder_teams). */
+.row-placeholder td{ opacity: 0.55; font-style: italic; }
+.row-placeholder .team-tname{ font-style: italic; }
+.placeholder-badge{
+  font-size:9px; font-weight:700; color:var(--amber); font-style: normal;
+  background: rgba(240,165,0,0.12); padding:2px 7px; border-radius:8px;
+  letter-spacing:0.3px; text-transform:uppercase; margin-left:6px;
+}
+
 .rank-arrow {
   display: inline-block;
   font-size: 8px;
