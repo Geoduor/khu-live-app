@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import "./App.css";
-import { getLeagues, getStandings, getFixtures, getResults, getLiveMatches, getHealth, refreshData } from "./api";
+import { getLeagues, getStandings, getFixtures, getResults, getLiveMatches, getHealth } from "./api";
 import { usePushNotifications } from "./hooks/usePushNotifications";
 import { useFavorites, useOnboarding } from "./hooks/useFavorites";
 import { useTheme } from "./hooks/useTheme";
@@ -36,7 +36,6 @@ function App() {
   const [loadingStandings, setLoadingStandings] = useState(true);
   const [loadingFixtures, setLoadingFixtures] = useState(true);
   const [loadingResults, setLoadingResults] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
   const [isTabVisible, setIsTabVisible] = useState(!document.hidden);
 
   const [backendError, setBackendError] = useState(null);
@@ -201,25 +200,6 @@ function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isTabVisible]);
 
-  const handleRefresh = async () => {
-    setRefreshing(true);
-    try {
-      await refreshData();
-      const [standingsData, fixturesData, resultsData] = await Promise.all([
-        getStandings(selectedLeague),
-        getFixtures(),
-        getResults(),
-      ]);
-      setStandings(standingsData);
-      setFixtures(fixturesData);
-      setResults(resultsData);
-      checkHealth();
-    } catch (err) {
-      console.error("Refresh failed:", err);
-    }
-    setRefreshing(false);
-  };
-
   // ── If backend is completely unreachable, show a clear error screen ──
   if (backendError) {
     return (
@@ -271,17 +251,6 @@ function App() {
                 {isSubscribed ? "🔔" : "🔕"}
               </button>
             )}
-            <button
-              className={`refresh-btn ${refreshing ? "spinning" : ""}`}
-              onClick={handleRefresh}
-              disabled={refreshing}
-            >
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                <polyline points="23 4 23 10 17 10" />
-                <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
-              </svg>
-              {refreshing ? "Refreshing..." : "Refresh"}
-            </button>
           </div>
         </div>
         <div className="status-bar">
@@ -505,7 +474,6 @@ function HomeView({ leagues, loadingLeagues, onSelectLeague, fixtures, results, 
                     <div key={l.key} className="league-card league-card-premier" onClick={() => onSelectLeague(l.key)}>
                       <div className="league-card-tier">{l.short}</div>
                       <div className="league-card-name">{l.name}</div>
-                      <div className="league-card-teams">View standings →</div>
                     </div>
                   ))}
                 </div>
@@ -520,7 +488,6 @@ function HomeView({ leagues, loadingLeagues, onSelectLeague, fixtures, results, 
                     <div key={l.key} className="league-card" onClick={() => onSelectLeague(l.key)}>
                       <div className="league-card-tier">{l.short}</div>
                       <div className="league-card-name">{l.name}</div>
-                      <div className="league-card-teams">View standings →</div>
                     </div>
                   ))}
                 </div>
