@@ -1195,24 +1195,7 @@ if __name__ == "__main__":
                 )
 
     print(f"\n{'─'*65}")
-    print("[9] FIXTURES & RESULTS (Homepage)")
-    print("-" * 65)
-    fr = scrape_fixtures_and_results()
-    print(f"  Fixtures : {fr.get('total_fixtures', 0)}")
-    print(f"  Results  : {fr.get('total_results', 0)}")
-    if fr.get("error"):
-        print(f"  ⚠ ERROR  : {fr['error']}")
-    if fr.get("results"):
-        print("\n  Recent Results:")
-        for r in fr["results"][:8]:
-            print(f"    {r['date']:12} {r['home_team']} vs {r['away_team']} | {r['score']}")
-    if fr.get("fixtures"):
-        print("\n  Upcoming Fixtures:")
-        for f in fr["fixtures"][:8]:
-            print(f"    {f['date']:12} {f['time']:8} {f['home_team']} vs {f['away_team']}")
-
-    print(f"\n{'─'*65}")
-    print("[9] FIXTURES & RESULTS — NEW: per-league calendar scraper")
+    print("[9] FIXTURES & RESULTS — per-league calendar scraper")
     print("-" * 65)
     fr2 = scrape_all_fixtures_and_results()
     print(f"  Live     : {fr2.get('total_live', 0)}")
