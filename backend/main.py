@@ -10,7 +10,7 @@ Strategy (matches how ESPN/SofaScore/FotMob handle unreliable upstream sources):
      and tell the frontend exactly how stale it is
 """
 
-from fastapi import FastAPI, HTTPException, UploadFile, File, Header
+from fastapi import FastAPI, HTTPException, UploadFile, File, Header, Response
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional
@@ -19,6 +19,7 @@ from datetime import datetime
 import logging
 import os
 import tempfile
+import requests
 
 from scraper import (
     scrape_standings,
@@ -29,6 +30,8 @@ from scraper import (
     _group_and_sort_matches,
     LEAGUES,
     LEAGUE_DISPLAY_ORDER,
+    HEADERS as SCRAPER_HEADERS,
+    BASE_URL as KHU_BASE_URL,
 )
 from pdf_fixtures import parse_pdf_fixtures, merge_pdf_fixtures_into_scraped
 import database as db
@@ -384,6 +387,58 @@ def health():
             "opened_at": breaker_state["opened_at"],
         },
     }
+
+
+# ══════════════════════════════════════════════════════
+# TEAM LOGO PROXY
+# ══════════════════════════════════════════════════════
+# Why this exists: the browser loading team crest <img> tags directly
+# from kenyahockeyunion.org can fail even when the URL is 100% correct
+# — most likely due to hotlink/referrer protection on their WordPress
+# host, which our backend's own scrape requests don't hit because
+# `requests` doesn't send a browser-style Referer header the way a
+# real <img> tag load does. Routing every logo through our own backend
+# sidesteps this: our server fetches the image (using the same browser-
+# like HEADERS our scraper already uses successfully) and streams it
+# back under our own domain, so the browser never talks to KHU's
+# server directly for images at all.
+_LOGO_CACHE: dict = {}  # url -> (content_bytes, content_type) — small in-memory cache
+_LOGO_CACHE_MAX_ENTRIES = 500
+
+
+@app.get("/api/logo")
+def proxy_logo(url: str):
+    """
+    Fetch a team logo server-side and stream it back. Only allows URLs
+    on kenyahockeyunion.org's own domain — this is NOT a general-purpose
+    open proxy, just a narrow fix for one specific image-loading problem.
+    """
+    if not url or KHU_BASE_URL.replace("https://", "").replace("www.", "") not in url:
+        raise HTTPException(status_code=400, detail="Only kenyahockeyunion.org image URLs are allowed.")
+
+    if url in _LOGO_CACHE:
+        content, content_type = _LOGO_CACHE[url]
+        return Response(content=content, media_type=content_type, headers={"Cache-Control": "public, max-age=86400"})
+
+    try:
+        resp = requests.get(url, headers=SCRAPER_HEADERS, timeout=10)
+        resp.raise_for_status()
+    except Exception as e:
+        logger.warning(f"Logo proxy fetch failed for {url}: {e}")
+        raise HTTPException(status_code=404, detail="Could not fetch logo image.")
+
+    content_type = resp.headers.get("Content-Type", "image/png")
+    if not content_type.startswith("image/"):
+        raise HTTPException(status_code=415, detail="URL did not return an image.")
+
+    # Simple bounded in-memory cache — logos rarely change, no need to
+    # re-fetch from KHU on every single page load. Evict oldest entry
+    # if we hit the cap, rather than growing unbounded.
+    if len(_LOGO_CACHE) >= _LOGO_CACHE_MAX_ENTRIES:
+        _LOGO_CACHE.pop(next(iter(_LOGO_CACHE)))
+    _LOGO_CACHE[url] = (resp.content, content_type)
+
+    return Response(content=resp.content, media_type=content_type, headers={"Cache-Control": "public, max-age=86400"})
 
 
 @app.get("/api/leagues")

@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { teamLogoUrl } from "../api";
 
 /**
  * TeamLogo — renders a team's crest image, falling back to a clean
@@ -46,7 +47,7 @@ export default function TeamLogo({ src, name, className = "" }) {
 
   return (
     <img
-      src={src}
+      src={teamLogoUrl(src)}
       alt=""
       className={className}
       onError={() => setFailed(true)}

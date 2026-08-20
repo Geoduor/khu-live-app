@@ -9,6 +9,26 @@ import axios from "axios";
 
 const API_BASE = process.env.REACT_APP_API_URL || "http://localhost:8000";
 
+/**
+ * teamLogoUrl — routes a KHU-hosted team logo through our own backend's
+ * /api/logo proxy instead of loading it directly from
+ * kenyahockeyunion.org in the browser. Their server has been serving
+ * broken images to us directly (likely referrer/hotlink protection —
+ * our backend's own scrape requests succeed with browser-style headers,
+ * but the browser's direct <img> load to their domain doesn't), so this
+ * sidesteps that entirely: our backend fetches it server-side and
+ * streams it back under our own domain.
+ *
+ * Pass-through for anything that isn't a kenyahockeyunion.org URL
+ * (there shouldn't be any today, but this keeps it safe if that ever
+ * changes) and for empty/missing URLs (TeamLogo's fallback handles those).
+ */
+export function teamLogoUrl(rawUrl) {
+  if (!rawUrl) return rawUrl;
+  if (!rawUrl.includes("kenyahockeyunion.org")) return rawUrl;
+  return `${API_BASE}/api/logo?url=${encodeURIComponent(rawUrl)}`;
+}
+
 const api = axios.create({
   baseURL: API_BASE,
   timeout: 15000,
