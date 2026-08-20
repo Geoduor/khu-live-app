@@ -2,6 +2,7 @@ import React, { useState, useEffect } from "react";
 import { getPlayoffBracket } from "../api";
 import LoadingState from "./LoadingState";
 import ErrorState from "./ErrorState";
+import TeamLogo from "./TeamLogo";
 
 /**
  * PlayoffBracket — visualizes the National League Men cross-zone
@@ -31,7 +32,7 @@ function BracketMatchup({ match, onOpenTeam }) {
           className={`bracket-team ${isTBD(team) ? "bracket-team-tbd" : "bracket-team-clickable"}`}
           onClick={() => !isTBD(team) && onOpenTeam(team.team_url, team.name)}
         >
-          {team.logo_url && <img src={team.logo_url} alt="" className="team-logo-sm" />}
+          {!isTBD(team) && <TeamLogo src={team.logo_url} name={team.name} className="team-logo-sm" />}
           <span className="bracket-team-name">{team.name}</span>
           {team.seed_label && <span className="bracket-seed-label">{team.seed_label}</span>}
         </div>

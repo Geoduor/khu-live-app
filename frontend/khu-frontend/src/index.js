@@ -7,6 +7,12 @@ import * as serviceWorkerRegistration from "./serviceWorkerRegistration";
 // Apply the saved theme BEFORE React mounts, so there's no flash of
 // the wrong theme on load — same value useTheme() will read, just
 // applied synchronously here first.
+//
+// Light is the app's default theme. We only deviate from it if the
+// person has explicitly picked dark mode before (stored in
+// localStorage) — we no longer default to the OS's prefers-color-scheme,
+// so a phone set to system dark mode still opens the app in light mode
+// on first visit.
 (function applyInitialTheme() {
   try {
     const stored = localStorage.getItem("khu_theme");
@@ -15,10 +21,9 @@ import * as serviceWorkerRegistration from "./serviceWorkerRegistration";
       return;
     }
   } catch {
-    // localStorage unavailable — fall through to OS preference
+    // localStorage unavailable — fall through to default
   }
-  const prefersLight = window.matchMedia?.("(prefers-color-scheme: light)").matches;
-  document.documentElement.setAttribute("data-theme", prefersLight ? "light" : "dark");
+  document.documentElement.setAttribute("data-theme", "light");
 })();
 
 const root = ReactDOM.createRoot(document.getElementById("root"));

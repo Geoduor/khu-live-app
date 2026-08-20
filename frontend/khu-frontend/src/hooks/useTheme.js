@@ -9,9 +9,10 @@ const STORAGE_KEY = "khu_theme";
  * :root[data-theme="light"] / :root[data-theme="dark"] cascades
  * automatically — no need to touch individual components.
  *
- * Defaults to the device's OS-level preference (prefers-color-scheme)
- * on first visit, then respects whatever the user explicitly picks
- * afterward.
+ * Light is the app's default theme. First-time visitors always see
+ * light mode regardless of their device's OS-level dark-mode setting;
+ * dark is available as a secondary option via the toggle, and once
+ * someone picks it explicitly, that choice is remembered.
  */
 export function useTheme() {
   const [theme, setTheme] = useState(() => {
@@ -19,10 +20,9 @@ export function useTheme() {
       const stored = localStorage.getItem(STORAGE_KEY);
       if (stored === "light" || stored === "dark") return stored;
     } catch {
-      // localStorage unavailable — fall through to OS preference
+      // localStorage unavailable — fall through to default
     }
-    const prefersLight = window.matchMedia?.("(prefers-color-scheme: light)").matches;
-    return prefersLight ? "light" : "dark";
+    return "light";
   });
 
   useEffect(() => {

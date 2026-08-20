@@ -89,6 +89,56 @@ cache = {
 STALE_THRESHOLD_SECONDS = 60 * 30  # 30 minutes
 
 
+def _normalize_team_name(name: str) -> str:
+    """Loose match key for logo lookups — lowercase, collapse whitespace.
+    Deliberately simple (no fuzzy matching) so we only ever backfill a
+    logo when we're confident it's the same team, never a guess."""
+    return " ".join((name or "").strip().lower().split())
+
+
+def build_team_logo_lookup() -> dict:
+    """
+    Build a {normalized_team_name: logo_url} map from whatever standings
+    data is currently cached. Standings scrapes reliably carry each
+    team's real logo URL (see scraper.parse_standings_table) — fixtures
+    and results scrapes sometimes don't (JoomSport's calendar view uses
+    a different HTML structure than its standings table), and PDF-sourced
+    fixtures never carry a logo at all (PDFs don't have one to extract).
+    This lookup lets us fill those gaps with the real logo we already
+    have on file for that team, rather than leaving it blank or showing
+    a broken image icon.
+    """
+    lookup = {}
+    for league_data in cache["standings"].values():
+        for team in league_data.get("standings", []):
+            logo = team.get("team_logo_url")
+            name = team.get("team")
+            if logo and name:
+                lookup.setdefault(_normalize_team_name(name), logo)
+    return lookup
+
+
+def backfill_match_logos(matches: list, logo_lookup: dict) -> int:
+    """Fill in home_logo_url/away_logo_url on any match missing one,
+    using the standings-derived lookup. Never overwrites a logo a match
+    already has (e.g. from a genuinely successful live scrape) — only
+    fills genuine gaps. Returns how many logo fields were filled, purely
+    for logging."""
+    filled = 0
+    for m in matches:
+        if not m.get("home_logo_url"):
+            logo = logo_lookup.get(_normalize_team_name(m.get("home_team", "")))
+            if logo:
+                m["home_logo_url"] = logo
+                filled += 1
+        if not m.get("away_logo_url"):
+            logo = logo_lookup.get(_normalize_team_name(m.get("away_team", "")))
+            if logo:
+                m["away_logo_url"] = logo
+                filled += 1
+    return filled
+
+
 def refresh_standings_for(league_key: str):
     """Scrape one league; save to DB regardless of success; update in-memory cache."""
     try:
@@ -130,6 +180,20 @@ def refresh_fixtures_results():
             merged = merge_pdf_fixtures_into_scraped(data.get("fixtures", []), pdf_matches)
             data["fixtures"] = _group_and_sort_matches(merged)
             data["total_fixtures"] = len(data["fixtures"])
+
+        # ── Backfill missing team logos from standings data ──
+        # Standings scrapes reliably carry real logo URLs; fixtures/results
+        # scrapes and PDF-sourced fixtures often don't. This fills the gap
+        # using whatever we already have on file, without ever overwriting
+        # a logo a match already has.
+        logo_lookup = build_team_logo_lookup()
+        if logo_lookup:
+            filled = 0
+            filled += backfill_match_logos(data.get("fixtures", []), logo_lookup)
+            filled += backfill_match_logos(data.get("results", []), logo_lookup)
+            filled += backfill_match_logos(data.get("live", []), logo_lookup)
+            if filled:
+                logger.info(f"Backfilled {filled} missing team logo(s) from standings data")
 
         total = data.get("total_fixtures", 0) + data.get("total_results", 0) + data.get("total_live", 0)
         success = total > 0
@@ -628,6 +692,12 @@ async def upload_fixtures_pdf(
     added_count = len(merged_fixtures) - len(existing_fixtures)
 
     merged_fixtures = _group_and_sort_matches(merged_fixtures)
+
+    # Backfill logos immediately (don't make the user wait for the next
+    # scheduled refresh to see them) — same lookup/rule as refresh_fixtures_results.
+    logo_lookup = build_team_logo_lookup()
+    if logo_lookup:
+        backfill_match_logos(merged_fixtures, logo_lookup)
 
     updated = dict(current)
     updated["fixtures"] = merged_fixtures

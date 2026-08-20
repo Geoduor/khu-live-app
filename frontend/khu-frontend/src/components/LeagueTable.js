@@ -1,5 +1,6 @@
 import React from "react";
 import { useDiffedStandings } from "../hooks/useDiffedStandings";
+import TeamLogo from "./TeamLogo";
 
 export default function LeagueTable({ data, onOpenTeam, isFavorite, toggleFavorite }) {
   const rows = useDiffedStandings(data);
@@ -34,11 +35,7 @@ export default function LeagueTable({ data, onOpenTeam, isFavorite, toggleFavori
                     {t._rankDelta > 0 && <span className="rank-arrow rank-up">▲</span>}
                     {t._rankDelta < 0 && <span className="rank-arrow rank-down">▼</span>}
                   </span>
-                  {t.team_logo_url ? (
-                    <img src={t.team_logo_url} alt="" className="team-logo-sm" />
-                  ) : (
-                    <div className="team-color-bar" />
-                  )}
+                  <TeamLogo src={t.team_logo_url} name={t.team} className="team-logo-sm" />
                   <span className="team-tname">{t.team}</span>
                   {t.is_placeholder && <span className="placeholder-badge">Yet to play</span>}
                   {toggleFavorite && t.team_url && (

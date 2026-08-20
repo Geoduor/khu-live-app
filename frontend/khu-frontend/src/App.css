@@ -3,28 +3,14 @@
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
 /* ══════════════════════════════════════════════════════════════
-   THEME SYSTEM — dark (default) and light palettes.
+   THEME SYSTEM — light (default) and dark palettes.
    Applied via [data-theme="dark"|"light"] on <html> (see useTheme
    hook). Both keep red/green as the KHU brand accent; only the base
-   surface/text/glass tinting inverts between modes.
+   surface/text/glass tinting inverts between modes. Bare :root
+   (no data-theme attribute set yet, e.g. before JS runs) falls back
+   to light — matching the app's actual default.
    ══════════════════════════════════════════════════════════════ */
 :root,
-:root[data-theme="dark"]{
-  --red:#BB0000; --green:#006600; --black:#0D0D0D;
-  --bg:#0D0709; --card:rgba(255,255,255,0.045); --surface:rgba(255,255,255,0.07);
-  --border:rgba(255,255,255,0.09);
-  --border-hover:rgba(255,255,255,0.22);
-  --white:#F5F0F0; --muted:#9A8688;
-  --amber:#F0A500; --live:#FF3B30;
-  --header-bg: rgba(13,7,9,0.75);
-  --nav-bg: rgba(20,10,12,0.75);
-  --gradient-bg:
-    radial-gradient(ellipse 90% 55% at 15% -5%, rgba(187,0,0,0.24) 0%, transparent 55%),
-    radial-gradient(ellipse 75% 50% at 100% 20%, rgba(0,102,0,0.16) 0%, transparent 55%),
-    radial-gradient(ellipse 70% 45% at 50% 100%, rgba(245,240,240,0.05) 0%, transparent 60%),
-    linear-gradient(160deg, #1a0505 0%, #0D0709 55%, #05080a 100%);
-}
-
 :root[data-theme="light"]{
   --red:#BB0000; --green:#006600; --black:#1A1414;
   --bg:#FAF6F5; --card:rgba(20,10,10,0.04); --surface:rgba(20,10,10,0.06);
@@ -43,6 +29,22 @@
     radial-gradient(ellipse 75% 50% at 100% 20%, rgba(0,102,0,0.09) 0%, transparent 55%),
     radial-gradient(ellipse 70% 45% at 50% 100%, rgba(20,20,20,0.04) 0%, transparent 60%),
     linear-gradient(160deg, #ffffff 0%, #FAF6F5 55%, #f3ecea 100%);
+}
+
+:root[data-theme="dark"]{
+  --red:#BB0000; --green:#006600; --black:#0D0D0D;
+  --bg:#0D0709; --card:rgba(255,255,255,0.045); --surface:rgba(255,255,255,0.07);
+  --border:rgba(255,255,255,0.09);
+  --border-hover:rgba(255,255,255,0.22);
+  --white:#F5F0F0; --muted:#9A8688;
+  --amber:#F0A500; --live:#FF3B30;
+  --header-bg: rgba(13,7,9,0.75);
+  --nav-bg: rgba(20,10,12,0.75);
+  --gradient-bg:
+    radial-gradient(ellipse 90% 55% at 15% -5%, rgba(187,0,0,0.24) 0%, transparent 55%),
+    radial-gradient(ellipse 75% 50% at 100% 20%, rgba(0,102,0,0.16) 0%, transparent 55%),
+    radial-gradient(ellipse 70% 45% at 50% 100%, rgba(245,240,240,0.05) 0%, transparent 60%),
+    linear-gradient(160deg, #1a0505 0%, #0D0709 55%, #05080a 100%);
 }
 
 body{
@@ -456,6 +458,21 @@ body{
 .team-logo-sm{
   width:20px;height:20px;object-fit:contain;flex-shrink:0;border-radius:4px;
 }
+
+/* TeamLogo fallback — shown when a team's real logo is missing or fails
+   to load. Sizing comes from whichever size class (team-logo-sm,
+   team-profile-badge-img, scoreboard-hero-logo) is combined with this
+   one; only the fill/shape/typography is defined here. */
+.team-logo-fallback{
+  display:flex; align-items:center; justify-content:center;
+  border-radius:50%; flex-shrink:0;
+  background:linear-gradient(135deg, var(--red), var(--green));
+  color:#fff; font-family:'Barlow Condensed',sans-serif; font-weight:800;
+  letter-spacing:0.3px;
+}
+.team-logo-sm.team-logo-fallback{ font-size:8px; }
+.team-profile-badge-img.team-logo-fallback{ font-size:18px; border:2px solid var(--border); }
+.scoreboard-hero-logo.team-logo-fallback{ font-size:15px; }
 .team-profile-name{ font-family:'Barlow Condensed',sans-serif;font-weight:900;font-size:22px;line-height:1.1; }
 .team-profile-position{ font-size:12px;color:var(--amber);font-weight:700;margin-top:4px; }
 
@@ -619,6 +636,24 @@ body{
   padding:14px 2px 8px;
 }
 .league-group-header:first-child{ padding-top:0; }
+
+.date-group-header{
+  font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:13px;
+  letter-spacing:0.3px;color:var(--muted);
+  padding:16px 2px 8px;
+  border-bottom:1px solid var(--border);
+  margin-bottom:8px;
+}
+.date-group-header:first-child{ padding-top:0; }
+
+.league-filter-select{
+  background:var(--surface); color:var(--white); border:1px solid var(--border);
+  border-radius:8px; padding:6px 10px; font-size:12px; font-weight:600;
+  font-family:inherit; cursor:pointer; max-width:170px;
+}
+.league-filter-select:hover{ border-color:var(--border-hover); }
+.league-filter-select:focus{ outline:none; border-color:var(--amber); }
+
 .match-meta{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
 .match-league{font-size:11px;font-weight:700;color:var(--muted);letter-spacing:0.5px;text-transform:uppercase}
 .match-venue{font-size:11px;color:var(--muted)}

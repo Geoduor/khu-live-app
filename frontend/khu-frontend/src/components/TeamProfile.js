@@ -2,6 +2,7 @@ import React, { useState, useEffect } from "react";
 import { getTeamProfile } from "../api";
 import LoadingState from "./LoadingState";
 import ErrorState from "./ErrorState";
+import TeamLogo from "./TeamLogo";
 
 export default function TeamProfile({ teamUrl, teamName, onBack, onOpenTeam, isFavorite, toggleFavorite }) {
   const [data, setData] = useState(null);
@@ -27,13 +28,7 @@ export default function TeamProfile({ teamUrl, teamName, onBack, onOpenTeam, isF
       ) : (
         <>
           <div className="team-profile-header">
-            {data.logo_url ? (
-              <img src={data.logo_url} alt="" className="team-profile-badge-img" />
-            ) : (
-              <div className="team-profile-badge">
-                {(data.team_name || "?").slice(0, 2).toUpperCase()}
-              </div>
-            )}
+            <TeamLogo src={data.logo_url} name={data.team_name} className="team-profile-badge-img" />
             <div style={{ flex: 1 }}>
               <div className="team-profile-name">{data.team_name || "Unknown Team"}</div>
               {data.position && (

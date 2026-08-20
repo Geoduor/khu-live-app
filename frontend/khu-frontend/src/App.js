@@ -12,6 +12,7 @@ import TeamProfile from "./components/TeamProfile";
 import MatchDetail from "./components/MatchDetail";
 import PlayoffBracket from "./components/PlayoffBracket";
 import OnboardingPicker from "./components/OnboardingPicker";
+import TeamLogo from "./components/TeamLogo";
 
 const TABS = [
   { id: "home", icon: "🏠", label: "Home" },
@@ -333,7 +334,7 @@ function App() {
         )}
 
         {!overlay && tab === "fixtures" && (
-          <FixturesView fixtures={fixtures} loading={loadingFixtures} onOpenMatch={openMatch} onOpenTeam={openTeam} isFavorite={isFavorite} toggleFavorite={toggleFavorite} />
+          <FixturesView fixtures={fixtures} leagues={leagues} loading={loadingFixtures} onOpenMatch={openMatch} onOpenTeam={openTeam} isFavorite={isFavorite} toggleFavorite={toggleFavorite} />
         )}
 
         {!overlay && tab === "results" && (
@@ -394,7 +395,7 @@ function HomeView({ leagues, loadingLeagues, onSelectLeague, fixtures, results, 
           {heroMatch ? (
             <div className="scoreboard-hero-body" onClick={() => heroMatch.match_url && onOpenMatch(heroMatch.match_url)}>
               <div className="scoreboard-hero-team">
-                {heroMatch.home_logo_url && <img src={heroMatch.home_logo_url} alt="" className="scoreboard-hero-logo" />}
+                <TeamLogo src={heroMatch.home_logo_url} name={heroMatch.home_team} className="scoreboard-hero-logo" />
                 <span>{heroMatch.home_team}</span>
               </div>
               <div className="scoreboard-hero-center">
@@ -410,7 +411,7 @@ function HomeView({ leagues, loadingLeagues, onSelectLeague, fixtures, results, 
                 )}
               </div>
               <div className="scoreboard-hero-team">
-                {heroMatch.away_logo_url && <img src={heroMatch.away_logo_url} alt="" className="scoreboard-hero-logo" />}
+                <TeamLogo src={heroMatch.away_logo_url} name={heroMatch.away_team} className="scoreboard-hero-logo" />
                 <span>{heroMatch.away_team}</span>
               </div>
             </div>
@@ -604,6 +605,113 @@ function TableView({ leagues, selectedLeague, setSelectedLeague, standings, load
 // ══════════════════════════════════════════════════
 // FIXTURES VIEW
 // ══════════════════════════════════════════════════
+// ── Date parsing/formatting shared by fixtures & results grouping ──
+// match.date arrives in one of two formats depending on where the match
+// came from: "DD-MM-YYYY HH:MM" (live JoomSport scrape — see
+// scraper._parse_match_date) or "YYYY-MM-DD HH:MM" (PDF-sourced — see
+// pdf_fixtures.py). Both are handled here so grouping/sorting works
+// correctly regardless of source.
+function parseMatchDateJS(dateStr) {
+  if (!dateStr) return null;
+  const s = dateStr.trim();
+
+  // YYYY-MM-DD HH:MM (PDF-sourced)
+  let m = s.match(/^(\d{4})-(\d{2})-(\d{2})(?:\s+(\d{2}):(\d{2}))?$/);
+  if (m) {
+    const [, y, mo, d, h, mi] = m;
+    return new Date(+y, +mo - 1, +d, +(h || 0), +(mi || 0));
+  }
+
+  // DD-MM-YYYY HH:MM (live-scraped)
+  m = s.match(/^(\d{2})-(\d{2})-(\d{4})(?:\s+(\d{2}):(\d{2}))?$/);
+  if (m) {
+    const [, d, mo, y, h, mi] = m;
+    return new Date(+y, +mo - 1, +d, +(h || 0), +(mi || 0));
+  }
+
+  return null;
+}
+
+function formatDateHeader(date) {
+  if (!date) return "Date TBC";
+  return date.toLocaleDateString("en-KE", {
+    weekday: "long", day: "numeric", month: "long", year: "numeric",
+  });
+}
+
+function sameCalendarDay(a, b) {
+  if (!a || !b) return false;
+  return a.getFullYear() === b.getFullYear() &&
+    a.getMonth() === b.getMonth() &&
+    a.getDate() === b.getDate();
+}
+
+/**
+ * LeagueFilterSelect — dropdown shown above Fixtures/Results lists.
+ * "All Leagues" (value "") shows every league's matches, grouped by
+ * date, with each MatchCard's own league tag identifying which league
+ * that match belongs to. Selecting a specific league filters the list
+ * down to just that league (still grouped by date).
+ */
+function LeagueFilterSelect({ leagues, value, onChange }) {
+  return (
+    <select
+      className="league-filter-select"
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+    >
+      <option value="">All Leagues</option>
+      {leagues.map((l) => (
+        <option key={l.short || l.key} value={l.short}>{l.name}</option>
+      ))}
+    </select>
+  );
+}
+
+/**
+ * DateGroupedMatchList — groups matches by calendar date (not league).
+ * Matches are re-sorted chronologically here because the backend's
+ * pre-sort order is league-first (see LEAGUE_DISPLAY_ORDER), which is
+ * the right order for GroupedMatchList but the wrong order once we're
+ * grouping by date across every league at once.
+ */
+function DateGroupedMatchList({ matches, onOpenMatch, onOpenTeam, isFavorite, toggleFavorite }) {
+  const sorted = [...matches].sort((a, b) => {
+    const da = parseMatchDateJS(a.date);
+    const db = parseMatchDateJS(b.date);
+    if (!da && !db) return 0;
+    if (!da) return 1;   // undated matches sort last
+    if (!db) return -1;
+    return da - db;
+  });
+
+  let lastDate = null;
+
+  return (
+    <div className="match-list">
+      {sorted.map((m, i) => {
+        const d = parseMatchDateJS(m.date);
+        const showHeader = !sameCalendarDay(d, lastDate);
+        lastDate = d;
+        return (
+          <div key={i}>
+            {showHeader && (
+              <div className="date-group-header">{formatDateHeader(d)}</div>
+            )}
+            <MatchCard
+              match={m}
+              onOpenMatch={onOpenMatch}
+              onOpenTeam={onOpenTeam}
+              isFavorite={isFavorite}
+              toggleFavorite={toggleFavorite}
+            />
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function GroupedMatchList({ matches, onOpenMatch, onOpenTeam, isFavorite, toggleFavorite }) {
   // Matches arrive pre-sorted by league from the backend (see
   // LEAGUE_DISPLAY_ORDER in scraper.py) — we just need to insert a
@@ -634,21 +742,43 @@ function GroupedMatchList({ matches, onOpenMatch, onOpenTeam, isFavorite, toggle
   );
 }
 
-function FixturesView({ fixtures, loading, onOpenMatch, onOpenTeam, isFavorite, toggleFavorite }) {
+function FixturesView({ fixtures, leagues, loading, onOpenMatch, onOpenTeam, isFavorite, toggleFavorite }) {
+  const [leagueFilter, setLeagueFilter] = useState("");
+
+  const allFixtures = fixtures?.fixtures || [];
+  const filtered = leagueFilter
+    ? allFixtures.filter((m) => m.league_short === leagueFilter)
+    : allFixtures;
+
+  const filteredLeagueName = leagueFilter
+    ? leagues.find((l) => l.short === leagueFilter)?.name
+    : null;
+
   return (
     <div className="section">
-      <div className="sec-head"><span className="sec-title">Upcoming Fixtures</span></div>
+      <div className="sec-head">
+        <span className="sec-title">Upcoming Fixtures</span>
+        {leagues?.length > 0 && (
+          <LeagueFilterSelect leagues={leagues} value={leagueFilter} onChange={setLeagueFilter} />
+        )}
+      </div>
       {loading ? (
         <LoadingState message="Loading fixtures..." />
       ) : fixtures?.error ? (
         <ErrorState title="Could not load fixtures" message={fixtures.error} />
-      ) : fixtures?.fixtures?.length > 0 ? (
-        <GroupedMatchList
-          matches={fixtures.fixtures}
+      ) : filtered.length > 0 ? (
+        <DateGroupedMatchList
+          matches={filtered}
           onOpenMatch={onOpenMatch}
           onOpenTeam={onOpenTeam}
           isFavorite={isFavorite}
           toggleFavorite={toggleFavorite}
+        />
+      ) : allFixtures.length > 0 ? (
+        <ErrorState
+          title="No upcoming fixtures"
+          message={`No scheduled fixtures found for ${filteredLeagueName || "this league"} right now.`}
+          compact
         />
       ) : (
         <ErrorState
