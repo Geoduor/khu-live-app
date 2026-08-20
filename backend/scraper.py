@@ -33,6 +33,66 @@ HEADERS = {
 
 BASE_URL = "https://www.kenyahockeyunion.org"
 
+# Attributes that commonly hold the REAL image URL on WordPress sites
+# using lazy-loading (very common — a3 Lazy Load, WP Rocket, native
+# loading="lazy" polyfills, etc). When lazy-loading is active, the
+# `src` attribute usually holds a tiny placeholder/blank image that
+# only gets swapped for the real one by JavaScript once the image
+# scrolls into view — which never happens here, since BeautifulSoup
+# doesn't execute JS. Checked in this order, falling back to `src`
+# last since it's the least reliable when lazy-loading is in play.
+_LAZY_SRC_ATTRS = ("data-src", "data-lazy-src", "data-original", "data-lazy", "data-srcset")
+
+
+def _extract_img_src(img_tag) -> str:
+    """
+    Get the real, absolute URL for an <img> tag — preferring lazy-load
+    attributes over `src` (see _LAZY_SRC_ATTRS above), and skipping
+    obviously-placeholder values (inline base64 data URIs, which are
+    the standard lazy-load placeholder format, and blank/whitespace).
+    Resolves site-relative paths ("/wp-content/...") to absolute URLs.
+    Returns "" if no usable image URL is found — never a placeholder.
+    """
+    if not img_tag:
+        return ""
+
+    def _is_placeholder(url: str) -> bool:
+        if not url or not url.strip():
+            return True
+        u = url.strip().lower()
+        # Inline base64 placeholders (the most common lazy-load pattern)
+        # and common blank-gif/placeholder filenames.
+        return u.startswith("data:") or "placeholder" in u or u.endswith("blank.gif")
+
+    for attr in _LAZY_SRC_ATTRS:
+        val = img_tag.get(attr, "")
+        if val and val.split(",")[0].strip() and not _is_placeholder(val.split(",")[0]):
+            # data-srcset can be a comma-separated list — take the first URL
+            val = val.split(",")[0].strip().split(" ")[0]
+            return BASE_URL + val if val.startswith("/") else val
+
+    src = img_tag.get("src", "")
+    if src and not _is_placeholder(src):
+        return BASE_URL + src if src.startswith("/") else src
+
+    return ""
+
+
+def _find_img_by_keyword(soup, keyword_pattern: str):
+    """
+    Find an <img> tag whose URL (checking lazy-load attrs AND src, not
+    just src) matches keyword_pattern (e.g. "team|emblem|logo|badge").
+    A plain `soup.find("img", src=re.compile(...))` misses images under
+    lazy-loading, since the real matching URL lives in a data-* attribute
+    while `src` holds an unrelated placeholder. Returns None if no match.
+    """
+    pattern = re.compile(keyword_pattern, re.I)
+    for img in soup.find_all("img"):
+        candidates = [img.get(attr, "") for attr in _LAZY_SRC_ATTRS] + [img.get("src", "")]
+        if any(pattern.search(c) for c in candidates if c):
+            return img
+    return None
+
 # JoomSport match states (confirmed from source code — m_played field):
 #   0 or ''  -> NOT_STARTED (shows "vs")
 #   -1       -> LIVE (shows score + a "jscalendarLive" div)
@@ -371,11 +431,7 @@ def parse_standings_table(table, league_key: str = "") -> list:
 
         team_logo_url = ""
         logo_img = team_cell.find("img")
-        if logo_img and logo_img.get("src"):
-            team_logo_url = logo_img.get("src")
-            # Resolve relative URLs (e.g. "/wp-content/...") to absolute
-            if team_logo_url.startswith("/"):
-                team_logo_url = BASE_URL + team_logo_url
+        team_logo_url = _extract_img_src(logo_img)
 
         for img in team_cell.find_all("img"):
             img.decompose()
@@ -611,11 +667,7 @@ def scrape_league_calendar(league_key: str) -> dict:
         home_logo_url = ""
         home_embl_cell = row.find(class_="jsMatchDivHomeEmbl")
         if home_embl_cell:
-            img_tag = home_embl_cell.find("img")
-            if img_tag and img_tag.get("src"):
-                home_logo_url = img_tag.get("src")
-                if home_logo_url.startswith("/"):
-                    home_logo_url = BASE_URL + home_logo_url
+            home_logo_url = _extract_img_src(home_embl_cell.find("img"))
 
         # Away team name + profile link
         away_cell = row.find(class_="jsMatchDivAway")
@@ -632,11 +684,7 @@ def scrape_league_calendar(league_key: str) -> dict:
         away_logo_url = ""
         away_embl_cell = row.find(class_="jsMatchDivAwayEmbl")
         if away_embl_cell:
-            img_tag = away_embl_cell.find("img")
-            if img_tag and img_tag.get("src"):
-                away_logo_url = img_tag.get("src")
-                if away_logo_url.startswith("/"):
-                    away_logo_url = BASE_URL + away_logo_url
+            away_logo_url = _extract_img_src(away_embl_cell.find("img"))
 
         if not home_name and not away_name:
             continue  # skip malformed rows
@@ -860,7 +908,7 @@ def scrape_team_profile(team_url: str, known_team_name: str = "") -> dict:
     # heading that sits near the team badge image instead of just
     # taking the first h1 on the page.
     if not result["team_name"]:
-        badge_img = soup.find("img", src=re.compile(r"team|emblem|logo|badge", re.I))
+        badge_img = _find_img_by_keyword(soup, r"team|emblem|logo|badge")
         name_candidate = None
         if badge_img:
             # The team name typically appears as a heading shortly after
@@ -878,11 +926,9 @@ def scrape_team_profile(team_url: str, known_team_name: str = "") -> dict:
     # Team badge/logo — same heuristic used elsewhere in this file.
     logo_img = soup.find("img", class_=re.compile(r"team|emblem|logo|badge", re.I))
     if not logo_img:
-        logo_img = soup.find("img", src=re.compile(r"team|emblem|logo|badge", re.I))
-    if logo_img and logo_img.get("src"):
-        logo_src = logo_img.get("src")
-        if logo_src.startswith("/"):
-            logo_src = BASE_URL + logo_src
+        logo_img = _find_img_by_keyword(soup, r"team|emblem|logo|badge")
+    logo_src = _extract_img_src(logo_img)
+    if logo_src:
         result["logo_url"] = logo_src
 
     # ── Match history: reuse the proven jstable-row parsing approach ──
