@@ -117,6 +117,20 @@ def refresh_fixtures_results():
     """
     try:
         data = scrape_all_fixtures_and_results()
+
+        # ── Re-apply any PDF-sourced fixtures on EVERY refresh ──
+        # Without this, a scheduled scrape (every 15 min) would overwrite
+        # the cache with whatever the live site currently has — including
+        # nothing, during a genuine data gap — silently wiping out fixtures
+        # that were only ever published as PDF. This keeps PDF fixtures
+        # alive across every future refresh until the live site catches up
+        # and merge_pdf_fixtures_into_scraped's dedup naturally drops them.
+        pdf_matches = db.load_pdf_fixtures()
+        if pdf_matches:
+            merged = merge_pdf_fixtures_into_scraped(data.get("fixtures", []), pdf_matches)
+            data["fixtures"] = _group_and_sort_matches(merged)
+            data["total_fixtures"] = len(data["fixtures"])
+
         total = data.get("total_fixtures", 0) + data.get("total_results", 0) + data.get("total_live", 0)
         success = total > 0
 
@@ -601,6 +615,12 @@ async def upload_fixtures_pdf(
             "skipped_rows": pdf_result["skipped_rows"],
         }
 
+    # ── Persist to the permanent PDF store FIRST. ──
+    # This is what makes the fixtures survive every future scheduled
+    # refresh (see refresh_fixtures_results in this file) — not just
+    # today's in-memory cache.
+    db.save_pdf_fixtures(pdf_result["matches"], source_file=file.filename)
+
     current = cache.get("fixtures_results") or {}
     existing_fixtures = current.get("fixtures", [])
 
@@ -622,7 +642,7 @@ async def upload_fixtures_pdf(
     updated["_cache_success"] = True
     cache["fixtures_results"] = updated
 
-    logger.info(f"PDF upload merged {added_count} new fixtures from {file.filename}")
+    logger.info(f"PDF upload merged {added_count} new fixtures from {file.filename} (persisted {pdf_result['total']} to pdf_fixtures_store)")
 
     return {
         "message": f"Merged {added_count} new fixtures from PDF.",

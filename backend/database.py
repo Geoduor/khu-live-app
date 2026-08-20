@@ -45,6 +45,24 @@ def init_db():
         )
     """)
 
+    # ── PDF-sourced fixtures, stored SEPARATELY from the live-scrape cache. ──
+    # This is the source of truth for "fixtures KHU published as PDF but
+    # hasn't put on the live site yet." Every fixtures/results refresh
+    # (scheduled every 15 min, or manual) re-merges this table's contents
+    # into the fresh scrape output — so PDF fixtures survive indefinitely,
+    # even through refresh cycles where the live site itself returns
+    # nothing (e.g. during a genuine data gap on KHU's site).
+    # Keyed by (league_short, home_team, away_team, date) via match_key so
+    # re-uploading the same or an updated PDF just upserts, never duplicates.
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS pdf_fixtures_store (
+            match_key    TEXT PRIMARY KEY,
+            data_json    TEXT NOT NULL,
+            uploaded_at  TEXT NOT NULL,
+            source_file  TEXT
+        )
+    """)
+
     # ── Circuit breaker state — survives backend restarts ──
     cur.execute("""
         CREATE TABLE IF NOT EXISTS circuit_breaker (
@@ -141,6 +159,62 @@ def load_fixtures_results():
     data["_cache_scraped_at"] = row["scraped_at"]
     data["_cache_success"] = bool(row["success"])
     return data
+
+
+def _pdf_match_key(match: dict) -> str:
+    """Same identity rule as pdf_fixtures.merge_pdf_fixtures_into_scraped's
+    sig() — league + both teams + calendar date (not kickoff time), so a
+    re-uploaded/corrected PDF updates the existing row instead of duplicating."""
+    date_part = (match.get("date") or "")[:10]
+    return "|".join([
+        match.get("league_short", "").strip().upper(),
+        match.get("home_team", "").strip().lower(),
+        match.get("away_team", "").strip().lower(),
+        date_part,
+    ])
+
+
+def save_pdf_fixtures(matches: list, source_file: str = ""):
+    """
+    Upsert PDF-sourced fixtures into permanent storage (separate from the
+    live-scrape cache). Uploading a new/updated PDF calls this — existing
+    rows with a matching key get overwritten (e.g. a venue or time
+    correction in a new PDF version), everything else is added.
+    """
+    conn = get_connection()
+    cur = conn.cursor()
+    now = datetime.now().isoformat()
+    for m in matches:
+        key = _pdf_match_key(m)
+        cur.execute("""
+            INSERT INTO pdf_fixtures_store (match_key, data_json, uploaded_at, source_file)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(match_key) DO UPDATE SET
+                data_json = excluded.data_json,
+                uploaded_at = excluded.uploaded_at,
+                source_file = excluded.source_file
+        """, (key, json.dumps(m), now, source_file))
+    conn.commit()
+    conn.close()
+
+
+def load_pdf_fixtures() -> list:
+    """Load every PDF-sourced fixture ever uploaded. Returns [] if none."""
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute("SELECT data_json FROM pdf_fixtures_store")
+    rows = cur.fetchall()
+    conn.close()
+    return [json.loads(row["data_json"]) for row in rows]
+
+
+def clear_pdf_fixtures():
+    """Wipe all stored PDF fixtures. Useful if a bad PDF got uploaded by mistake."""
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute("DELETE FROM pdf_fixtures_store")
+    conn.commit()
+    conn.close()
 
 
 def cache_age_seconds(scraped_at_iso: str) -> float:

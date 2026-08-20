@@ -1,2 +1,24 @@
 .vercel
 .env*
+
+# Python
+venv/
+.venv/
+env/
+ENV/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# SQLite cache — regenerated on every deploy, never needs to be in git
+khu_cache.db
+*.db
+*.sqlite3
+
+*.log
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
