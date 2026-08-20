@@ -10,7 +10,7 @@ Strategy (matches how ESPN/SofaScore/FotMob handle unreliable upstream sources):
      and tell the frontend exactly how stale it is
 """
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, UploadFile, File, Header
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional
@@ -18,6 +18,7 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from datetime import datetime
 import logging
 import os
+import tempfile
 
 from scraper import (
     scrape_standings,
@@ -25,11 +26,18 @@ from scraper import (
     scrape_team_profile,
     scrape_match_detail,
     _parse_match_date,
+    _group_and_sort_matches,
     LEAGUES,
     LEAGUE_DISPLAY_ORDER,
 )
+from pdf_fixtures import parse_pdf_fixtures, merge_pdf_fixtures_into_scraped
 import database as db
 import push
+
+# Shared-secret gate for the PDF-upload admin endpoint. Set this in
+# your .env / Render environment — never hardcode a real value here.
+# If unset, the endpoint refuses all requests (fails closed, not open).
+ADMIN_TOKEN = os.environ.get("ADMIN_TOKEN", "")
 
 
 class PushKeys(BaseModel):
@@ -550,6 +558,79 @@ def manual_refresh():
         "status": cache["status"],
         "last_refresh_success": cache["last_refresh_success"],
         "circuit_breaker_state": breaker_state["state"],
+    }
+
+
+@app.post("/api/admin/fixtures/upload-pdf")
+async def upload_fixtures_pdf(
+    file: UploadFile = File(...),
+    x_admin_token: str = Header(default=""),
+):
+    """
+    Admin-only: upload KHU's official season-calendar PDF and merge any
+    fixtures it contains into the live cache. Fills gaps the site's own
+    JoomSport calendar doesn't have yet — never overwrites data already
+    scraped live from kenyahockeyunion.org (see merge_pdf_fixtures_into_scraped
+    in pdf_fixtures.py for the exact dedup rule).
+
+    Gated behind ADMIN_TOKEN (set in environment) since this writes to
+    the shared cache everyone's app instance reads from.
+    """
+    if not ADMIN_TOKEN or x_admin_token != ADMIN_TOKEN:
+        raise HTTPException(status_code=401, detail="Missing or invalid admin token.")
+
+    if not file.filename.lower().endswith(".pdf"):
+        raise HTTPException(status_code=400, detail="Please upload a .pdf file.")
+
+    # Write to a temp file — pdfplumber needs a real file path/handle.
+    with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
+        tmp.write(await file.read())
+        tmp_path = tmp.name
+
+    try:
+        pdf_result = parse_pdf_fixtures(tmp_path)
+    except Exception as e:
+        raise HTTPException(status_code=422, detail=f"Could not parse PDF: {e}")
+    finally:
+        os.unlink(tmp_path)
+
+    if pdf_result["total"] == 0:
+        return {
+            "message": "PDF parsed but no recognizable fixture rows were found — nothing merged.",
+            "parsed_from_pdf": 0,
+            "skipped_rows": pdf_result["skipped_rows"],
+        }
+
+    current = cache.get("fixtures_results") or {}
+    existing_fixtures = current.get("fixtures", [])
+
+    merged_fixtures = merge_pdf_fixtures_into_scraped(existing_fixtures, pdf_result["matches"])
+    added_count = len(merged_fixtures) - len(existing_fixtures)
+
+    merged_fixtures = _group_and_sort_matches(merged_fixtures)
+
+    updated = dict(current)
+    updated["fixtures"] = merged_fixtures
+    updated["total_fixtures"] = len(merged_fixtures)
+    # Keep results/live untouched — the PDF only ever contains fixtures.
+    updated.setdefault("results", current.get("results", []))
+    updated.setdefault("live", current.get("live", []))
+    updated["scraped_at"] = current.get("scraped_at", datetime.now().isoformat())
+
+    db.save_fixtures_results(updated, success=True)
+    updated["_cache_scraped_at"] = datetime.now().isoformat()
+    updated["_cache_success"] = True
+    cache["fixtures_results"] = updated
+
+    logger.info(f"PDF upload merged {added_count} new fixtures from {file.filename}")
+
+    return {
+        "message": f"Merged {added_count} new fixtures from PDF.",
+        "parsed_from_pdf": pdf_result["total"],
+        "already_present": pdf_result["total"] - added_count,
+        "newly_added": added_count,
+        "total_fixtures_now": len(merged_fixtures),
+        "skipped_rows": pdf_result["skipped_rows"],
     }
 
 
