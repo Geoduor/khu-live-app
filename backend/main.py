@@ -19,6 +19,7 @@ from datetime import datetime
 import logging
 import os
 import json
+import re
 import tempfile
 import requests
 
@@ -128,10 +129,42 @@ def seed_pdf_fixtures_from_file():
 
 
 def _normalize_team_name(name: str) -> str:
-    """Loose match key for logo lookups — lowercase, collapse whitespace.
-    Deliberately simple (no fuzzy matching) so we only ever backfill a
-    logo when we're confident it's the same team, never a guess."""
-    return " ".join((name or "").strip().lower().split())
+    """Loose match key for logo lookups — lowercase, collapse whitespace,
+    normalize dash variants. KHU's site inconsistently uses a hyphen
+    ("USIU-A") in some views and an en-dash with spaces ("USIU – A") in
+    others for the exact same team, so dash variants are folded together
+    here. Deliberately simple otherwise (no fuzzy matching) so we only
+    ever backfill a logo when we're confident it's the same team, never
+    a guess."""
+    n = (name or "").strip().lower()
+    n = n.replace("\u2013", "-").replace("\u2014", "-")  # en-dash, em-dash -> hyphen
+    n = re.sub(r"\s*-\s*", "-", n)  # "usiu - a" -> "usiu-a"
+    return " ".join(n.split())
+
+
+# Known cases where KHU's OWN SITE displays a different name for the
+# same team depending on which page you're on — e.g. the standings
+# table shows the short club nickname ("Warriors"), while the fixtures/
+# calendar view shows the fuller registered name ("Butali Warriors").
+# This isn't a scraper bug to "fix" (both are real, KHU-published
+# names) — it's a genuine site inconsistency, so it's handled here as a
+# curated list rather than guessed at automatically. Each inner set is
+# a group of interchangeable names for one team; add a new group
+# whenever this same short-name/long-name split turns up for another
+# club.
+LOGO_NAME_ALIAS_GROUPS = [
+    {"warriors", "butali warriors"},
+]
+
+
+def _alias_group_for(normalized_name: str) -> set:
+    """Every normalized name known to refer to the same team as the
+    given one, including itself. Returns just {normalized_name} if it's
+    not part of any known alias group."""
+    for group in LOGO_NAME_ALIAS_GROUPS:
+        if normalized_name in group:
+            return group
+    return {normalized_name}
 
 
 def build_team_logo_lookup() -> dict:
@@ -145,6 +178,10 @@ def build_team_logo_lookup() -> dict:
     This lookup lets us fill those gaps with the real logo we already
     have on file for that team, rather than leaving it blank or showing
     a broken image icon.
+
+    Every known alias for a team (see LOGO_NAME_ALIAS_GROUPS) is
+    registered against the same logo, so it doesn't matter which name
+    variant a fixture happens to use.
     """
     lookup = {}
     for league_data in cache["standings"].values():
@@ -152,7 +189,8 @@ def build_team_logo_lookup() -> dict:
             logo = team.get("team_logo_url")
             name = team.get("team")
             if logo and name:
-                lookup.setdefault(_normalize_team_name(name), logo)
+                for alias in _alias_group_for(_normalize_team_name(name)):
+                    lookup.setdefault(alias, logo)
     return lookup
 
 

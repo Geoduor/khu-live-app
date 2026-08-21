@@ -60,6 +60,14 @@ PDF_NAME_CORRECTIONS = {
     # guessed around, since disambiguating would require inventing a rule
     # not actually present in the document.
     "Lakers": "Lakers Hockey Club Ladies",
+    # KHU's own PDF is inconsistent about capitalizing "Men"/"men" for
+    # this team across different pages of the SAME document (confirmed:
+    # "USIU-A Men" on some rows, "USIU-A men" on others) — both need
+    # their own entry since the lookup below is case-sensitive by design
+    # (case-INsensitive matching risks silently merging two genuinely
+    # different teams whose names only differ by case, which we'd
+    # rather never do automatically).
+    "USIU-A men": "USIU-A",
 }
 
 
