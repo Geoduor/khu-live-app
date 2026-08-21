@@ -18,6 +18,7 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from datetime import datetime
 import logging
 import os
+import json
 import tempfile
 import requests
 
@@ -90,6 +91,40 @@ cache = {
 }
 
 STALE_THRESHOLD_SECONDS = 60 * 30  # 30 minutes
+
+# Path to the git-committed PDF fixtures seed — see export_pdf_seed
+# endpoint and seed_pdf_fixtures_from_file() below for the full story.
+PDF_SEED_PATH = os.path.join(os.path.dirname(__file__), "pdf_fixtures_seed.json")
+
+
+def seed_pdf_fixtures_from_file():
+    """
+    Reload PDF-sourced fixtures from backend/pdf_fixtures_seed.json (if
+    it exists) into pdf_fixtures_store on every startup.
+
+    WHY: Render's free tier wipes the local SQLite file on every cold
+    start after inactivity (ephemeral filesystem — confirmed in Render's
+    own docs). Without this, every spin-down/spin-up cycle would silently
+    lose all PDF-uploaded fixtures, forcing a re-upload via curl every
+    single time. This file, by contrast, is part of the deployed CODE
+    (checked into git), so it survives every restart/redeploy — this
+    function just re-populates the (freshly wiped) database from it on
+    boot. Safe to call even if the file doesn't exist yet (first-ever
+    deploy, or before any PDF has been uploaded) — it just does nothing.
+    """
+    if not os.path.exists(PDF_SEED_PATH):
+        logger.info("No pdf_fixtures_seed.json found — skipping PDF fixture seed (none uploaded yet, or not exported).")
+        return
+
+    try:
+        with open(PDF_SEED_PATH, "r") as f:
+            seed_data = json.load(f)
+        matches = seed_data.get("matches", [])
+        if matches:
+            db.save_pdf_fixtures(matches, source_file="pdf_fixtures_seed.json")
+            logger.info(f"Re-seeded {len(matches)} PDF fixture(s) from pdf_fixtures_seed.json (survives Render's ephemeral filesystem)")
+    except Exception as e:
+        logger.error(f"Failed to load pdf_fixtures_seed.json: {e}")
 
 
 def _normalize_team_name(name: str) -> str:
@@ -330,6 +365,7 @@ scheduler.start()
 @app.on_event("startup")
 async def startup_event():
     db.init_db()
+    seed_pdf_fixtures_from_file()
     push.init_push_table()
     load_from_cache_on_boot()
     logger.info("KHU API starting up — kicking off first live scrape...")
@@ -692,6 +728,31 @@ def manual_refresh():
         "last_refresh_success": cache["last_refresh_success"],
         "circuit_breaker_state": breaker_state["state"],
     }
+
+
+@app.get("/api/admin/fixtures/export-pdf-seed")
+def export_pdf_seed(x_admin_token: str = Header(default="")):
+    """
+    Export every currently-stored PDF fixture as JSON — meant to be
+    saved as backend/pdf_fixtures_seed.json and committed to git.
+
+    WHY THIS EXISTS: Render's free tier has an ephemeral filesystem —
+    the SQLite database (including pdf_fixtures_store) gets wiped every
+    time the service spins down from inactivity and cold-starts again.
+    Re-running the upload-pdf curl command every time that happens isn't
+    a real fix. Instead: run this export ONCE after uploading a PDF,
+    save the result as backend/pdf_fixtures_seed.json, commit + push it.
+    From then on, seed_pdf_fixtures_from_file() (called on every startup,
+    see below) reloads it automatically — surviving every future cold
+    start, redeploy, or restart, permanently, at zero cost. You only
+    need to repeat upload → export → commit when KHU actually publishes
+    a NEW or updated PDF, not on routine inactivity wake-ups.
+    """
+    if not ADMIN_TOKEN or x_admin_token != ADMIN_TOKEN:
+        raise HTTPException(status_code=401, detail="Missing or invalid admin token.")
+
+    matches = db.load_pdf_fixtures()
+    return {"matches": matches, "exported_at": datetime.now().isoformat(), "count": len(matches)}
 
 
 @app.post("/api/admin/fixtures/upload-pdf")
