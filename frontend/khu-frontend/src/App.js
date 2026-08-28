@@ -13,6 +13,7 @@ import MatchDetail from "./components/MatchDetail";
 import PlayoffBracket from "./components/PlayoffBracket";
 import OnboardingPicker from "./components/OnboardingPicker";
 import TeamLogo from "./components/TeamLogo";
+import InstallBanner from "./components/InstallBanner";
 
 const TABS = [
   { id: "home", icon: "🏠", label: "Home" },
@@ -232,6 +233,7 @@ function App() {
             <div className="logo-text">
               <div className="logo-khu">KHU</div>
               <div className="logo-full">Kenya Hockey Union</div>
+              <div className="logo-disclaimer">Unofficial Fan App</div>
             </div>
           </div>
           <div className="header-right">
@@ -288,6 +290,8 @@ function App() {
           )}
         </div>
       </div>
+
+      <InstallBanner />
 
       {/* Content */}
       <div className="main">

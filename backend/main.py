@@ -194,21 +194,262 @@ def build_team_logo_lookup() -> dict:
     return lookup
 
 
-def backfill_match_logos(matches: list, logo_lookup: dict) -> int:
+# ── Fuzzy fallback matching ──
+# Exact/alias matching (above) handles every mismatch we've actually
+# found and confirmed by hand. This fallback exists for the mismatches
+# we HAVEN'T found yet — KHU's site uses inconsistent short/long team
+# names across different pages (standings vs fixtures vs PDF), and new
+# instances of that will keep turning up as more teams/leagues are used.
+# Rather than requiring a bug report + manual fix for each one, this
+# catches the general PATTERN safely.
+#
+# Safety rules (deliberately conservative — a wrong logo is worse than
+# a missing one):
+#   1. Gender must match exactly. "Daystar University" (men, no suffix)
+#      must NEVER match "Daystar University Ladies" — even though every
+#      one of its words is contained in the longer name, they're
+#      DIFFERENT teams. KHU's convention is that men's teams carry no
+#      gender suffix while women's teams are suffixed "Ladies"/"Women"/
+#      "Girls", so "no gender word present" is treated as its own
+#      distinct bucket, not a wildcard that matches everything.
+#   2. Only "hockey"/"club"/"hc" are treated as noise words to ignore —
+#      every other word (including university/college names) must
+#      genuinely appear in both.
+#   3. Only applied when EXACTLY ONE standings team satisfies the
+#      match — if two different teams' names could both plausibly match,
+#      we skip rather than guess which one is right.
+_GENDER_TOKENS = {"ladies": "women", "women": "women", "girls": "women", "men": "men", "boys": "men"}
+_NOISE_TOKENS = {"hockey", "club", "hc"}
+
+
+def _team_token_set(name: str) -> set:
+    return set(_normalize_team_name(name).split())
+
+
+def _gender_bucket(tokens: set) -> str:
+    for t in tokens:
+        if t in _GENDER_TOKENS:
+            return _GENDER_TOKENS[t]
+    return "unspecified"
+
+
+def build_fuzzy_team_records() -> list:
+    """One record per standings team: {tokens, gender, logo, name} —
+    used only as a fallback when build_team_logo_lookup()'s exact/alias
+    lookup finds nothing for a given match."""
+    records = []
+    for league_data in cache["standings"].values():
+        for team in league_data.get("standings", []):
+            logo = team.get("team_logo_url")
+            name = team.get("team")
+            if logo and name:
+                tokens = _team_token_set(name)
+                records.append({
+                    "tokens": tokens - _NOISE_TOKENS,
+                    "gender": _gender_bucket(tokens),
+                    "logo": logo,
+                    "name": name,
+                })
+    return records
+
+
+def fuzzy_match_logo(team_name: str, fuzzy_records: list):
+    """Try to find exactly one standings team whose significant word
+    tokens are a subset (in either direction) of team_name's tokens,
+    with matching gender. Returns the logo URL, or None if there's no
+    match or more than one equally-plausible match (never guesses)."""
+    if not team_name or not fuzzy_records:
+        return None
+
+    raw_tokens = _team_token_set(team_name)
+    tokens = raw_tokens - _NOISE_TOKENS
+    if not tokens:
+        return None
+    gender = _gender_bucket(raw_tokens)
+
+    matches = []
+    for rec in fuzzy_records:
+        if rec["gender"] != gender:
+            continue
+        if not rec["tokens"] or not tokens:
+            continue
+        if rec["tokens"].issubset(tokens) or tokens.issubset(rec["tokens"]):
+            matches.append(rec)
+
+    if len(matches) == 1:
+        return matches[0]["logo"]
+    return None  # zero or ambiguous (2+) matches — don't guess
+
+
+# ── Team profile, built from data we already trust ──
+# The naive approach — re-scraping a team's own page for match history —
+# turned out to have a real bug: KHU's team pages show match history
+# mixed across EVERY season the team has ever played (confirmed by
+# direct inspection: 2022, 2023, and 2026 matches all appear on the
+# same page, in no particular filtered order, spread across pagination
+# we weren't even following). That risks showing a 2022 result as if it
+# were "recent."
+#
+# Instead, a team's profile is built entirely from data already sitting
+# in cache — this season's standings (position, form, logo) and this
+# season's fixtures/results (already correctly scoped to the current
+# season by scrape_league_calendar's season-specific URLs). No extra
+# scraping, no season-mixing risk, and it's consistent with whatever
+# the Table/Fixtures/Results tabs are already showing.
+def _team_matches_fixture_side(team_name: str, team_url: str, side_name: str, side_url: str) -> bool:
+    """Same identity question as the logo/standings matchers: is this
+    fixture's home or away team actually this team? URL match is
+    checked first (exact, unambiguous when both sides have one — live-
+    scraped matches do, PDF-sourced ones don't). Falls back to the same
+    exact/alias/fuzzy name matching used everywhere else in this file."""
+    if team_url and side_url and team_url == side_url:
+        return True
+    if not side_name or not team_name:
+        return False
+
+    target_aliases = _alias_group_for(_normalize_team_name(team_name))
+    if _normalize_team_name(side_name) in target_aliases:
+        return True
+
+    raw_a = _team_token_set(team_name)
+    tokens_a = raw_a - _NOISE_TOKENS
+    raw_b = _team_token_set(side_name)
+    tokens_b = raw_b - _NOISE_TOKENS
+    if not tokens_a or not tokens_b:
+        return False
+    if _gender_bucket(raw_a) != _gender_bucket(raw_b):
+        return False
+    return tokens_b.issubset(tokens_a) or tokens_a.issubset(tokens_b)
+
+
+def _find_standings_entry_for_team(team_name: str, team_url: str = ""):
+    """Find this team's own row in whatever standings are currently
+    cached, across every league (a team could plausibly be looked up
+    before we know which league it's in). URL match first, then
+    exact/alias name match, then the same fuzzy fallback used for logos
+    — only when exactly one candidate qualifies. Returns None if the
+    team genuinely isn't in any cached standings yet."""
+    if team_url:
+        for league_data in cache["standings"].values():
+            for team in league_data.get("standings", []):
+                if team.get("team_url") and team["team_url"] == team_url:
+                    return team
+
+    if not team_name:
+        return None
+
+    target_aliases = _alias_group_for(_normalize_team_name(team_name))
+    for league_data in cache["standings"].values():
+        for team in league_data.get("standings", []):
+            if _normalize_team_name(team.get("team", "")) in target_aliases:
+                return team
+
+    raw_a = _team_token_set(team_name)
+    tokens_a = raw_a - _NOISE_TOKENS
+    if not tokens_a:
+        return None
+    gender_a = _gender_bucket(raw_a)
+
+    fuzzy_matches = []
+    for league_data in cache["standings"].values():
+        for team in league_data.get("standings", []):
+            raw_b = _team_token_set(team.get("team", ""))
+            tokens_b = raw_b - _NOISE_TOKENS
+            if not tokens_b or _gender_bucket(raw_b) != gender_a:
+                continue
+            if tokens_b.issubset(tokens_a) or tokens_a.issubset(tokens_b):
+                fuzzy_matches.append(team)
+
+    return fuzzy_matches[0] if len(fuzzy_matches) == 1 else None
+
+
+def build_team_profile_from_cache(team_name: str, team_url: str = "") -> dict:
+    """Build a team profile entirely from already-cached, already-
+    current-season data — see module docstring above for why this
+    replaced a fresh page scrape."""
+    standings_entry = _find_standings_entry_for_team(team_name, team_url)
+    canonical_name = (standings_entry or {}).get("team") or team_name
+
+    result = {
+        "team_name": canonical_name or "",
+        "logo_url": (standings_entry or {}).get("team_logo_url", ""),
+        "position": (standings_entry or {}).get("position"),
+        "form": (standings_entry or {}).get("form", []),
+        "recent_results": [],
+        "upcoming_fixtures": [],
+        "scraped_at": datetime.now().isoformat(),
+    }
+
+    fr = cache.get("fixtures_results") or {}
+
+    def side_for(m):
+        if _team_matches_fixture_side(canonical_name, team_url, m.get("home_team", ""), m.get("home_team_url", "")):
+            return "home"
+        if _team_matches_fixture_side(canonical_name, team_url, m.get("away_team", ""), m.get("away_team_url", "")):
+            return "away"
+        return None
+
+    upcoming, results = [], []
+
+    for m in fr.get("fixtures", []):
+        side = side_for(m)
+        if not side:
+            continue
+        upcoming.append({
+            "date": m.get("date", ""),
+            "opponent": m["away_team"] if side == "home" else m["home_team"],
+            "venue": "H" if side == "home" else "A",
+            "match_url": m.get("match_url", ""),
+        })
+
+    for m in fr.get("results", []):
+        side = side_for(m)
+        if not side:
+            continue
+        hs, aws = m.get("home_score"), m.get("away_score")
+        results.append({
+            "date": m.get("date", ""),
+            "opponent": m["away_team"] if side == "home" else m["home_team"],
+            "venue": "H" if side == "home" else "A",
+            "result": f"{hs} - {aws}" if hs is not None and aws is not None else "",
+            "match_url": m.get("match_url", ""),
+        })
+
+    upcoming.sort(key=lambda x: _parse_match_date(x["date"]))
+    results.sort(key=lambda x: _parse_match_date(x["date"]), reverse=True)
+
+    result["upcoming_fixtures"] = upcoming[:8]
+    result["recent_results"] = results[:8]
+
+    if not standings_entry and not upcoming and not results:
+        result["error"] = (
+            "Could not find this team in this season's data yet — "
+            "it may be newly added, or standings/fixtures haven't been scraped yet."
+        )
+
+    return result
+
+
+def backfill_match_logos(matches: list, logo_lookup: dict, fuzzy_records: list = None) -> int:
     """Fill in home_logo_url/away_logo_url on any match missing one,
-    using the standings-derived lookup. Never overwrites a logo a match
+    using the standings-derived lookup first (exact/alias match), then
+    falling back to fuzzy_match_logo() if that finds nothing (see its
+    docstring for the safety rules). Never overwrites a logo a match
     already has (e.g. from a genuinely successful live scrape) — only
     fills genuine gaps. Returns how many logo fields were filled, purely
     for logging."""
+    fuzzy_records = fuzzy_records or []
     filled = 0
     for m in matches:
         if not m.get("home_logo_url"):
-            logo = logo_lookup.get(_normalize_team_name(m.get("home_team", "")))
+            home_name = m.get("home_team", "")
+            logo = logo_lookup.get(_normalize_team_name(home_name)) or fuzzy_match_logo(home_name, fuzzy_records)
             if logo:
                 m["home_logo_url"] = logo
                 filled += 1
         if not m.get("away_logo_url"):
-            logo = logo_lookup.get(_normalize_team_name(m.get("away_team", "")))
+            away_name = m.get("away_team", "")
+            logo = logo_lookup.get(_normalize_team_name(away_name)) or fuzzy_match_logo(away_name, fuzzy_records)
             if logo:
                 m["away_logo_url"] = logo
                 filled += 1
@@ -264,10 +505,11 @@ def refresh_fixtures_results():
         # a logo a match already has.
         logo_lookup = build_team_logo_lookup()
         if logo_lookup:
+            fuzzy_records = build_fuzzy_team_records()
             filled = 0
-            filled += backfill_match_logos(data.get("fixtures", []), logo_lookup)
-            filled += backfill_match_logos(data.get("results", []), logo_lookup)
-            filled += backfill_match_logos(data.get("live", []), logo_lookup)
+            filled += backfill_match_logos(data.get("fixtures", []), logo_lookup, fuzzy_records)
+            filled += backfill_match_logos(data.get("results", []), logo_lookup, fuzzy_records)
+            filled += backfill_match_logos(data.get("live", []), logo_lookup, fuzzy_records)
             if filled:
                 logger.info(f"Backfilled {filled} missing team logo(s) from standings data")
 
@@ -851,7 +1093,7 @@ async def upload_fixtures_pdf(
     # scheduled refresh to see them) — same lookup/rule as refresh_fixtures_results.
     logo_lookup = build_team_logo_lookup()
     if logo_lookup:
-        backfill_match_logos(merged_fixtures, logo_lookup)
+        backfill_match_logos(merged_fixtures, logo_lookup, build_fuzzy_team_records())
 
     updated = dict(current)
     updated["fixtures"] = merged_fixtures
@@ -976,28 +1218,32 @@ _match_cache = {}  # match_url -> (data, fetched_at)
 
 
 @app.get("/api/team")
-def get_team_profile(url: str, name: str = ""):
+def get_team_profile(url: str = "", name: str = ""):
     """
-    Fetch a team's profile page (position, form, results, fixtures).
-    'url' must be a real kenyahockeyunion.org team page URL, which the
-    frontend gets from the 'team_url' field already present in standings
-    and match data — never guessed or constructed.
+    Build a team's profile (position, form, recent results, upcoming
+    fixtures) entirely from data we've already scraped and trust for
+    this season — see build_team_profile_from_cache's docstring for why
+    this replaced scraping the team's own page fresh (that page mixes
+    match history from every season the team has ever played, with no
+    filter — confirmed by direct inspection, not a hypothetical).
 
-    'name' is optional — if the frontend already knows the team's name
-    (e.g. from the standings row or match card the user tapped), pass
-    it here. This avoids re-scraping the name from the page itself,
-    which proved unreliable (the page's first <h1> is the site's own
-    masthead, not the team name).
+    'url' should be a real kenyahockeyunion.org team page URL (used as
+    a reliable match key alongside the name), which the frontend already
+    has from the 'team_url' field present in standings and match data.
+    'name' is the team name as already known from wherever the user
+    tapped through from (standings row, match card, etc).
     """
-    if "kenyahockeyunion.org" not in url:
+    if url and "kenyahockeyunion.org" not in url:
         raise HTTPException(status_code=400, detail="Invalid team URL — must be a kenyahockeyunion.org link")
+    if not url and not name:
+        raise HTTPException(status_code=400, detail="Need at least a team name or URL to look up a profile")
 
     cache_key = f"{url}::{name}"
     cached = _team_cache.get(cache_key)
     if cached and (time.time() - cached[1]) < TEAM_CACHE_TTL:
         return cached[0]
 
-    data = scrape_team_profile(url, known_team_name=name)
+    data = build_team_profile_from_cache(name, url)
     if not data.get("error"):
         _team_cache[cache_key] = (data, time.time())
     return data

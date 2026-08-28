@@ -736,6 +736,13 @@ def scrape_league_calendar(league_key: str) -> dict:
             "match_url":  match_url,
             "league":     league["name"],
             "league_short": league["short"],
+            # KHU's live calendar view doesn't include venue at all (confirmed
+            # from their own JoomSport source structure — see this function's
+            # docstring). Left empty rather than guessed; PDF-sourced fixtures
+            # DO carry a real venue (see pdf_fixtures.py), so this stays blank
+            # only until the live site's data for this match is eventually
+            # available, or until this specific match came from a PDF.
+            "venue": "",
         })
 
     return {

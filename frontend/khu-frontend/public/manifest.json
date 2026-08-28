@@ -1,6 +1,6 @@
 {
-  "short_name": "KHU",
-  "name": "Kenya Hockey Union — Official App",
+  "short_name": "KHU Live",
+  "name": "KHU Live — Fan Scores & Fixtures (Unofficial)",
   "icons": [
     {
       "src": "icon-192.png",
@@ -18,5 +18,5 @@
   "orientation": "portrait",
   "theme_color": "#0D1117",
   "background_color": "#0D1117",
-  "description": "Live standings, fixtures, and results for Kenya Hockey Union — direct from kenyahockeyunion.org"
+  "description": "Unofficial fan app for live standings, fixtures, and results — sourced from kenyahockeyunion.org, not affiliated with or endorsed by Kenya Hockey Union."
 }

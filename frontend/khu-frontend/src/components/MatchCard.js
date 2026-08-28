@@ -95,6 +95,10 @@ export default function MatchCard({ match, onOpenMatch, onOpenTeam, isFavorite, 
           </div>
         </div>
       </div>
+
+      {match.venue && (
+        <div className="match-location">📍 {match.venue}</div>
+      )}
     </div>
   );
 }
