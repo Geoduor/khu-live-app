@@ -547,27 +547,6 @@ function HomeView({ leagues, loadingLeagues, onSelectLeague, fixtures, results, 
 
       <div className="section">
         <div className="sec-head">
-          <span className="sec-title">Recent Results</span>
-        </div>
-        {loadingResults ? (
-          <LoadingState message="Loading results..." />
-        ) : results?.error ? (
-          <ErrorState title="Could not load results" message={results.error} compact />
-        ) : results?.results?.length > 0 ? (
-          <div className="match-list">
-            {(results.most_recent || results.results).slice(0, 3).map((m, i) => <MatchCard key={i} match={m} onOpenMatch={onOpenMatch} onOpenTeam={onOpenTeam} isFavorite={isFavorite} toggleFavorite={toggleFavorite} />)}
-          </div>
-        ) : (
-          <ErrorState
-            title="No results parsed yet"
-            message="The homepage scraper could not identify match result blocks. This needs scraper refinement."
-            compact
-          />
-        )}
-      </div>
-
-      <div className="section">
-        <div className="sec-head">
           <span className="sec-title">Upcoming Fixtures</span>
         </div>
         {loadingFixtures ? (
