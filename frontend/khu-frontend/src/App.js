@@ -321,6 +321,7 @@ function App() {
             isFavorite={isFavorite}
             toggleFavorite={toggleFavorite}
             onOpenBracket={openBracket}
+            onGoToResults={() => setTab("results")}
           />
         )}
 
@@ -362,17 +363,30 @@ function App() {
 // ══════════════════════════════════════════════════
 // HOME VIEW
 // ══════════════════════════════════════════════════
-function HomeView({ leagues, loadingLeagues, onSelectLeague, fixtures, results, live, loadingFixtures, loadingResults, onOpenMatch, onOpenTeam, favoriteList, isFavorite, toggleFavorite, onOpenBracket }) {
+function HomeView({ leagues, loadingLeagues, onSelectLeague, fixtures, results, live, loadingFixtures, loadingResults, onOpenMatch, onOpenTeam, favoriteList, isFavorite, toggleFavorite, onOpenBracket, onGoToResults }) {
   const liveMatches = live?.live || [];
   const nextFixture = fixtures?.fixtures?.[0];
   const mostRecentResult = (results?.most_recent || results?.results || [])[0];
 
   // The scoreboard hero shows, in priority order: a live match right
-  // now, otherwise the soonest upcoming fixture, otherwise the most
-  // recent result — always something concrete and current, never a
-  // generic tagline with nothing real behind it.
-  const heroMatch = liveMatches[0] || nextFixture || mostRecentResult;
-  const heroState = liveMatches[0] ? "LIVE" : nextFixture ? "NS" : "FT";
+  // now, otherwise the most recent result, otherwise the soonest
+  // upcoming fixture — always something concrete and current, never a
+  // generic tagline with nothing real behind it. Results take priority
+  // over fixtures here because "what just happened" is what people
+  // check the home screen for most — an upcoming fixture that's still
+  // days or weeks away isn't nearly as compelling as this weekend's
+  // actual score. Results-first only wins when there's actually a
+  // meaningful before/after choice; a genuinely live match always
+  // still comes first, no matter what.
+  const heroMatch = liveMatches[0] || mostRecentResult || nextFixture;
+  const heroState = liveMatches[0] ? "LIVE" : mostRecentResult ? "FT" : "NS";
+
+  const allRecentResults = results?.most_recent || results?.results || [];
+  // If the hero card up top is already showing the single most recent
+  // result, skip it here so it's not duplicated — otherwise (hero is
+  // showing a live match or upcoming fixture instead) show it as the
+  // first item in this list too.
+  const recentResultsList = heroState === "FT" ? allRecentResults.slice(1, 5) : allRecentResults.slice(0, 4);
 
   // League tiers, visually distinguished by actual importance in
   // Kenyan hockey's real league structure — Premier League is the
@@ -456,6 +470,18 @@ function HomeView({ leagues, loadingLeagues, onSelectLeague, fixtures, results, 
           </div>
           <div className="match-list">
             {liveMatches.slice(1).map((m, i) => <MatchCard key={i} match={m} onOpenMatch={onOpenMatch} onOpenTeam={onOpenTeam} isFavorite={isFavorite} toggleFavorite={toggleFavorite} />)}
+          </div>
+        </div>
+      )}
+
+      {recentResultsList.length > 0 && (
+        <div className="section">
+          <div className="sec-head">
+            <span className="sec-title">Recent Results</span>
+            <button className="see-all-link" onClick={onGoToResults}>See all</button>
+          </div>
+          <div className="match-list">
+            {recentResultsList.map((m, i) => <MatchCard key={i} match={m} onOpenMatch={onOpenMatch} onOpenTeam={onOpenTeam} isFavorite={isFavorite} toggleFavorite={toggleFavorite} />)}
           </div>
         </div>
       )}
