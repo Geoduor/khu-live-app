@@ -40,26 +40,45 @@ KNOWN_LEAGUE_SHORTS = {"PLM", "PLW", "SLM", "SLW", "NLM-EZ", "NLM-CZ", "NLM-WZ",
 # page against its fixture table. New abbreviations in future PDFs will
 # need to be added here the same way — this is expected to grow, same
 # as TEAM_NAME_CORRECTIONS does.
+#
+# IMPORTANT: these target names were originally guessed from the PDF's
+# OWN "LEAGUES AND TEAMS" roster page — which turned out to not always
+# match what KHU's live site actually displays (e.g. the roster page
+# says "Kenyatta University" for a team the live standings table
+# actually shows as "Kenyatta University Ladies"). Several entries below
+# were corrected after directly checking the live site's real standings
+# pages — always prefer the LIVE SITE's exact display text over the
+# PDF roster page's wording when the two disagree, since matching the
+# live site is what makes logo backfill (main.py) actually work.
 PDF_NAME_CORRECTIONS = {
-    "KU Ladies": "Kenyatta University",
-    "UoN Ladies": "University Of Nairobi",
+    "KU Ladies": "Kenyatta University Ladies",
     "MSC Ladies": "Mombasa Sports Club",
     "MSC Men": "Mombasa Sports Club",
     "Sliders": "Sliders Hockey Club",
     "Amira Sailors": "Amira Sailors Hockey Club",
     "Blazers": "Blazers Hockey Club",
-    "Strathmore Uni Ladies": "Strathmore University",
-    "Daystar Uni Ladies": "Daystar University",
+    "Strathmore Uni Ladies": "Strathmore University Ladies",
+    "Daystar Uni Ladies": "Daystar University Ladies",
     "Daystar Uni Men": "Daystar University",
     "Swans": "Swans Hockey Club",
     "USIU-A Men": "USIU-A",
-    # NOTE: "Lakers" (unqualified) only ever appears in PLW rows in the
+    # "UoN Ladies" is intentionally NOT corrected — the live site's own
+    # standings table displays it as "UON Ladies" verbatim (confirmed by
+    # direct fetch), which is exactly what the PDF already says. An
+    # earlier version of this map incorrectly expanded it to
+    # "University Of Nairobi", which broke logo matching by turning a
+    # name that already matched the live site into one that didn't.
+    #
+    # "Lakers" (unqualified) only ever appears in PLW rows in the
     # source PDF used to build this map, so it's resolved to the women's
-    # club. If a future PDF uses bare "Lakers" for a MEN's fixture too,
-    # this mapping will silently mis-tag it — flagged here rather than
-    # guessed around, since disambiguating would require inventing a rule
-    # not actually present in the document.
-    "Lakers": "Lakers Hockey Club Ladies",
+    # club — confirmed the live site displays this specific team as
+    # bare "Lakers Hockey Club" (no "Ladies" suffix, unlike the PDF's own
+    # roster page which does add one). If a future PDF uses bare
+    # "Lakers" for a MEN's fixture too, this mapping will silently
+    # mis-tag it — flagged here rather than guessed around, since
+    # disambiguating would require inventing a rule not actually present
+    # in the document.
+    "Lakers": "Lakers Hockey Club",
     # KHU's own PDF is inconsistent about capitalizing "Men"/"men" for
     # this team across different pages of the SAME document (confirmed:
     # "USIU-A Men" on some rows, "USIU-A men" on others) — both need
