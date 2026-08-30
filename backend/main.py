@@ -799,9 +799,30 @@ def get_fixtures():
     if not data:
         raise HTTPException(status_code=503, detail="No fixtures data available yet — try again shortly.")
     data = annotate_staleness(dict(data))
+
+    # Drop any fixture whose scheduled kickoff has already passed — a
+    # match that was supposed to start hours ago shouldn't keep sitting
+    # under "Upcoming" just because the cache hasn't refreshed since
+    # then, or because KHU hasn't yet moved it into their results/live
+    # data. Filtered fresh on every request (not just at refresh time)
+    # so it's accurate to the actual current moment, not to whenever
+    # the last scheduled scrape happened to run.
+    #
+    # Fixtures with an unparseable/missing date are deliberately KEPT
+    # rather than hidden — we can't confidently say they're in the
+    # past, and silently dropping data we're unsure about is worse than
+    # occasionally showing something that should've been filtered.
+    now = datetime.now()
+    all_fixtures = data.get("fixtures", [])
+    upcoming_only = [
+        m for m in all_fixtures
+        if _parse_match_date(m.get("date", "")) == datetime.min
+        or _parse_match_date(m.get("date", "")) >= now
+    ]
+
     return {
-        "fixtures": data.get("fixtures", []),
-        "total": data.get("total_fixtures", 0),
+        "fixtures": upcoming_only,
+        "total": len(upcoming_only),
         "source": "kenyahockeyunion.org",
         "scraped_at": data.get("_cache_scraped_at"),
         "is_stale": data.get("_is_stale", False),
