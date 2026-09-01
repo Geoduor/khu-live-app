@@ -515,6 +515,10 @@ body{
 .mini-match-opp{ font-weight:700;flex:1; }
 .mini-match-venue{ color:var(--muted);font-size:11px; }
 .mini-match-result{ color:var(--amber);font-weight:800; }
+.mini-match-venue-inline{ color:var(--muted);font-weight:500;font-size:11px; }
+.profile-block-empty{
+  color:var(--muted);font-size:13px;padding:14px 2px;line-height:1.4;
+}
 
 /* ── MATCH DETAIL ── */
 .match-detail-card{

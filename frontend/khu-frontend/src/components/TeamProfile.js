@@ -72,17 +72,31 @@ export default function TeamProfile({ teamUrl, teamName, onBack, onOpenTeam, isF
             </div>
           )}
 
-          {data.recent_results && data.recent_results.length > 0 && (
+          {data.recent_results && data.recent_results.length > 0 ? (
             <div className="profile-block">
               <div className="profile-block-title">Recent Results</div>
               <div className="match-list">
                 {data.recent_results.map((r, i) => (
                   <div key={i} className="mini-match-row">
+                    {r.outcome && (
+                      <div className={`form-dot form-${r.outcome}`} style={{ width: 22, height: 22, fontSize: 11, flexShrink: 0 }}>
+                        {r.outcome}
+                      </div>
+                    )}
                     <div className="mini-match-date">{r.date}</div>
-                    <div className="mini-match-opp">vs {r.opponent}</div>
+                    <div className="mini-match-opp">
+                      vs {r.opponent} <span className="mini-match-venue-inline">({r.venue})</span>
+                    </div>
                     <div className="mini-match-result">{r.result}</div>
                   </div>
                 ))}
+              </div>
+            </div>
+          ) : (
+            <div className="profile-block">
+              <div className="profile-block-title">Recent Results</div>
+              <div className="profile-block-empty">
+                No completed matches recorded for {data.team_name || "this team"} yet this season.
               </div>
             </div>
           )}
@@ -91,7 +105,7 @@ export default function TeamProfile({ teamUrl, teamName, onBack, onOpenTeam, isF
            (!data.recent_results || data.recent_results.length === 0) && (
             <ErrorState
               title="No match history found"
-              message="This team's profile page didn't have parseable fixture/result blocks yet."
+              message="No fixtures or results are available for this team yet — check back once the season is further underway."
               compact
             />
           )}

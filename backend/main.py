@@ -391,7 +391,7 @@ def build_team_profile_from_cache(team_name: str, team_url: str = "") -> dict:
 
     upcoming, results = [], []
 
-    for m in fr.get("fixtures", []):
+    for m in _filter_future_fixtures(fr.get("fixtures", [])):
         side = side_for(m)
         if not side:
             continue
@@ -407,11 +407,29 @@ def build_team_profile_from_cache(team_name: str, team_url: str = "") -> dict:
         if not side:
             continue
         hs, aws = m.get("home_score"), m.get("away_score")
+
+        # Outcome from THIS team's perspective (W/D/L) — computed here,
+        # once, from the actual integer scores, rather than leaving the
+        # frontend to re-derive it by parsing a "3 - 0" string and
+        # remembering which side was home. Same W/D/L letters as
+        # "Current Form" above, so the two sections read consistently.
+        outcome = ""
+        if hs is not None and aws is not None:
+            team_score = hs if side == "home" else aws
+            opp_score = aws if side == "home" else hs
+            if team_score > opp_score:
+                outcome = "W"
+            elif team_score < opp_score:
+                outcome = "L"
+            else:
+                outcome = "D"
+
         results.append({
             "date": m.get("date", ""),
             "opponent": m["away_team"] if side == "home" else m["home_team"],
             "venue": "H" if side == "home" else "A",
             "result": f"{hs} - {aws}" if hs is not None and aws is not None else "",
+            "outcome": outcome,
             "match_url": m.get("match_url", ""),
         })
 
@@ -793,32 +811,37 @@ def get_live_matches():
     }
 
 
+def _filter_future_fixtures(fixtures: list) -> list:
+    """
+    Drop any fixture whose scheduled kickoff has already passed. Shared
+    by every place that shows an "upcoming" list — the main /api/fixtures
+    endpoint AND team profiles — so a match that's passed disappears
+    from BOTH consistently, not just one of them. (Originally this lived
+    only inside get_fixtures(), which meant team profiles kept showing
+    stale "upcoming" matches even after the main Fixtures tab was fixed.)
+
+    Checked fresh every time this is called (not just at refresh time),
+    so it's accurate to the actual current moment. Fixtures with an
+    unparseable/missing date are deliberately KEPT rather than hidden —
+    we can't confidently say they're in the past, and silently dropping
+    data we're unsure about is worse than occasionally showing something
+    that should've been filtered.
+    """
+    now = datetime.now()
+    return [
+        m for m in fixtures
+        if _parse_match_date(m.get("date", "")) == datetime.min
+        or _parse_match_date(m.get("date", "")) >= now
+    ]
+
+
 @app.get("/api/fixtures")
 def get_fixtures():
     data = cache.get("fixtures_results")
     if not data:
         raise HTTPException(status_code=503, detail="No fixtures data available yet — try again shortly.")
     data = annotate_staleness(dict(data))
-
-    # Drop any fixture whose scheduled kickoff has already passed — a
-    # match that was supposed to start hours ago shouldn't keep sitting
-    # under "Upcoming" just because the cache hasn't refreshed since
-    # then, or because KHU hasn't yet moved it into their results/live
-    # data. Filtered fresh on every request (not just at refresh time)
-    # so it's accurate to the actual current moment, not to whenever
-    # the last scheduled scrape happened to run.
-    #
-    # Fixtures with an unparseable/missing date are deliberately KEPT
-    # rather than hidden — we can't confidently say they're in the
-    # past, and silently dropping data we're unsure about is worse than
-    # occasionally showing something that should've been filtered.
-    now = datetime.now()
-    all_fixtures = data.get("fixtures", [])
-    upcoming_only = [
-        m for m in all_fixtures
-        if _parse_match_date(m.get("date", "")) == datetime.min
-        or _parse_match_date(m.get("date", "")) >= now
-    ]
+    upcoming_only = _filter_future_fixtures(data.get("fixtures", []))
 
     return {
         "fixtures": upcoming_only,
