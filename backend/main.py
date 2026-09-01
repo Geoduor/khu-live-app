@@ -28,6 +28,7 @@ from scraper import (
     scrape_all_fixtures_and_results,
     scrape_team_profile,
     scrape_match_detail,
+    scrape_league_results_via_teams,
     _parse_match_date,
     _group_and_sort_matches,
     LEAGUES,
@@ -495,13 +496,51 @@ def refresh_standings_for(league_key: str):
 
 def refresh_fixtures_results():
     """
-    Scrape fixtures/results/live using the per-league calendar scraper.
-    Also detects newly-LIVE matches (weren't live last refresh) and
-    triggers a push notification — same pattern FotMob uses for
-    "match started" alerts.
+    Scrape fixtures/results/live for every league by visiting each
+    team's own page (filtered to the current season), NOT via the
+    old per-league calendar URL. Also detects newly-LIVE matches
+    (weren't live last refresh) and triggers a push notification —
+    same pattern FotMob uses for "match started" alerts.
+
+    WHY team pages instead of the league calendar: directly verified
+    that {season_url}/?action=calendar returns the exact same
+    standings-only HTML as the plain season URL — no match data at
+    all server-side. See scraper.py's "TEAM-PAGE-BASED RESULTS
+    SCRAPING" section for the full story. This depends on standings
+    having already been refreshed THIS cycle (refresh_all_data() does
+    standings before fixtures/results, so this is always true in
+    practice) — each league's team list (with real team_url values)
+    comes from cache["standings"], never guessed.
     """
     try:
-        data = scrape_all_fixtures_and_results()
+        all_matches = []
+        errors = []
+
+        for league_key in LEAGUES:
+            standings_data = cache["standings"].get(league_key)
+            teams = standings_data.get("standings", []) if standings_data else []
+            if not teams:
+                errors.append({"league": league_key, "error": "No standings cached yet for this league — can't determine its team list."})
+                continue
+            result = scrape_league_results_via_teams(league_key, teams)
+            if result.get("error"):
+                errors.append({"league": league_key, "error": result["error"]})
+            all_matches.extend(result.get("matches", []))
+
+        fixtures = _group_and_sort_matches([m for m in all_matches if m["state"] == "NS"])
+        results = _group_and_sort_matches([m for m in all_matches if m["state"] == "FT"])
+        live = _group_and_sort_matches([m for m in all_matches if m["state"] == "LIVE"])
+
+        data = {
+            "fixtures": fixtures,
+            "results": results,
+            "live": live,
+            "total_fixtures": len(fixtures),
+            "total_results": len(results),
+            "total_live": len(live),
+            "leagues_with_errors": errors,
+            "scraped_at": datetime.now().isoformat(),
+        }
 
         # ── Re-apply any PDF-sourced fixtures on EVERY refresh ──
         # Without this, a scheduled scrape (every 15 min) would overwrite

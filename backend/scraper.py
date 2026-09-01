@@ -15,6 +15,7 @@ import requests
 from bs4 import BeautifulSoup
 import logging
 import re
+import time
 from datetime import datetime
 
 logging.basicConfig(level=logging.INFO)
@@ -201,6 +202,13 @@ LEAGUES = {
         "gender": "men",
         "tier": 1,
         "url": f"{BASE_URL}/joomsport_season/premier-league-men-plm-2026/",
+        # Confirmed real season ID by direct inspection of KHU's site —
+        # see "PLM 2026 PROVISIONAL STANDINGS" widget links, e.g.
+        # .../joomsport_team/butali-warriors/?sid=3622. Used by
+        # scrape_league_results_via_teams() to pull each team's match
+        # history filtered to THIS season specifically (team pages mix
+        # every season together by default — sid is what filters that).
+        "sid": "3622",
     },
     "super_league_men": {
         "name": "Super League Men",
@@ -208,6 +216,7 @@ LEAGUES = {
         "gender": "men",
         "tier": 2,
         "url": f"{BASE_URL}/joomsport_season/super-league-men-slm-2026/",
+        "sid": "3624",
     },
     "national_league_men_ez": {
         "name": "National League Men — Eastern Zone",
@@ -216,6 +225,7 @@ LEAGUES = {
         "tier": 3,
         "zone": "EZ",
         "url": f"{BASE_URL}/joomsport_season/national-league-men-_-ez-nlm-ez-2026/",
+        "sid": "3626",
     },
     "national_league_men_cz": {
         "name": "National League Men — Central Zone",
@@ -224,6 +234,7 @@ LEAGUES = {
         "tier": 3,
         "zone": "CZ",
         "url": f"{BASE_URL}/joomsport_season/national-league-men-_-cz-nlm-cz-2026/",
+        "sid": "3628",
     },
     "national_league_men_wz": {
         "name": "National League Men — Western Zone",
@@ -232,6 +243,7 @@ LEAGUES = {
         "tier": 3,
         "zone": "WZ",
         "url": f"{BASE_URL}/joomsport_season/national-league-men-wz-nlm-wz-2026/",
+        "sid": "3632",
     },
     "national_league_men_sz": {
         "name": "National League Men — Southern Zone",
@@ -240,6 +252,7 @@ LEAGUES = {
         "tier": 3,
         "zone": "SZ",
         "url": f"{BASE_URL}/joomsport_season/national-league-men-sz-nlm-sz-2026/",
+        "sid": "3634",
     },
     # ── WOMEN'S SECTION (Tier 1 → 2) ──
     "premier_league_women": {
@@ -248,6 +261,7 @@ LEAGUES = {
         "gender": "women",
         "tier": 1,
         "url": f"{BASE_URL}/joomsport_season/premier-league-women-plw-2026/",
+        "sid": "3623",
     },
     "super_league_women": {
         "name": "Super League Women",
@@ -255,6 +269,7 @@ LEAGUES = {
         "gender": "women",
         "tier": 2,
         "url": f"{BASE_URL}/joomsport_season/super-league-women-slw-2026/",
+        "sid": "3625",
     },
 }
 
@@ -819,6 +834,202 @@ def _group_and_sort_matches(matches: list) -> list:
         return (league_index, date_key)
 
     return sorted(matches, key=sort_key)
+
+
+# ══════════════════════════════════════════════════════
+# TEAM-PAGE-BASED RESULTS SCRAPING
+# ══════════════════════════════════════════════════════
+# WHY THIS EXISTS: scrape_league_calendar() fetches {season_url}/?action=calendar,
+# based on JoomSport's tab links using that URL pattern. Directly verified
+# by fetching that exact URL: it returns the IDENTICAL standings-only
+# page as the base season URL — no match list at all in the server-
+# rendered HTML. The "Calendar" tab's content is not something a
+# plain HTTP GET to that URL ever receives.
+#
+# What DOES reliably carry full match history (fixtures AND results,
+# confirmed by direct inspection) is each TEAM's own page — but its
+# default view mixes every season the team has ever played. The fix
+# isn't to abandon team pages, it's to filter them properly: every
+# team page accepts a `?sid=<season_id>` query param that scopes the
+# match list to one specific season. The exact sid for each of KHU's
+# current 2026 leagues was confirmed directly from their own site (see
+# the "sid" key on each LEAGUES entry above) via the standings-widget
+# links every team page displays.
+#
+# This does mean one HTTP request per TEAM instead of one per LEAGUE —
+# meaningfully more requests per refresh cycle. Kept polite by reusing
+# the same fetch_page() (2-attempt retry, browser-like headers) as
+# everywhere else, and by requesting a large page size (jslimit=100)
+# so one request per team is enough for a full season rather than
+# needing to also walk pagination.
+
+def _parse_match_rows(soup, sid: str = "") -> list:
+    """
+    Parse every jstable-row match block on a page into RAW match dicts
+    (home_name, away_name, date_str, score_text, has_live, match_url,
+    home_logo, away_logo) — the same proven row structure used by
+    scrape_league_calendar() and scrape_team_profile(). Shared here so
+    both the league-calendar path and the team-page path stay in sync
+    if JoomSport's markup ever changes.
+
+    If sid is given, only rows whose match_url actually contains that
+    season's slug fragment are kept — an extra safety net in case a
+    team's page ever renders rows outside the requested season despite
+    the ?sid= filter (defense in depth, not the primary filter).
+    """
+    rows = []
+    row_divs = soup.find_all("div", class_="jstable-row")
+
+    for row in row_divs:
+        if "js-mdname" in row.get("class", []):
+            continue  # matchday header row, not an actual match
+
+        time_cell = row.find(class_="jsMatchDivTime")
+        date_str = ""
+        if time_cell:
+            inner = time_cell.find(class_="jsDivLineEmbl")
+            date_str = (inner or time_cell).get_text(strip=True)
+
+        home_cell = row.find(class_="jsMatchDivHome")
+        home_name = ""
+        if home_cell:
+            inner = home_cell.find(class_="jsDivLineEmbl")
+            home_name = correct_team_name((inner or home_cell).get_text(strip=True))
+
+        home_embl_cell = row.find(class_="jsMatchDivHomeEmbl")
+        home_logo = _extract_img_src(home_embl_cell.find("img")) if home_embl_cell else ""
+
+        away_cell = row.find(class_="jsMatchDivAway")
+        away_name = ""
+        if away_cell:
+            inner = away_cell.find(class_="jsDivLineEmbl")
+            away_name = correct_team_name((inner or away_cell).get_text(strip=True))
+
+        away_embl_cell = row.find(class_="jsMatchDivAwayEmbl")
+        away_logo = _extract_img_src(away_embl_cell.find("img")) if away_embl_cell else ""
+
+        if not home_name and not away_name:
+            continue
+
+        score_cell = row.find(class_="jsMatchDivScore")
+        score_text = ""
+        has_live = False
+        match_url = ""
+        if score_cell:
+            has_live = score_cell.find(class_=re.compile(r"jscalendarLive")) is not None
+            score_text = score_cell.get_text(separator=" ", strip=True)
+            score_link = score_cell.find("a")
+            if score_link:
+                match_url = score_link.get("href", "")
+                if match_url.startswith("/"):
+                    match_url = BASE_URL + match_url
+
+        rows.append({
+            "date_str": date_str,
+            "home_name": home_name,
+            "away_name": away_name,
+            "home_logo": home_logo,
+            "away_logo": away_logo,
+            "score_text": score_text,
+            "has_live": has_live,
+            "match_url": match_url,
+        })
+
+    return rows
+
+
+def scrape_team_matches_for_season(team_url: str, sid: str, league: dict) -> list:
+    """
+    Fetch ONE team's match history, filtered to a specific season via
+    ?sid=, and return it in the SAME match dict schema as
+    scrape_league_calendar()'s output — so results from this path merge
+    into the app exactly like results from anywhere else.
+
+    jslimit=100 requests a larger page size in one shot (JoomSport's own
+    "Display" dropdown offers 100/All — a full KHU season is well under
+    100 matches per team) rather than needing to also walk pagination.
+    """
+    if not team_url or not sid:
+        return []
+
+    url = team_url.rstrip("/") + f"/?sid={sid}&jslimit=100&jscurtab=stab_matches"
+    soup = fetch_page(url)
+    if not soup:
+        return []
+
+    raw_rows = _parse_match_rows(soup, sid=sid)
+    matches = []
+
+    for r in raw_rows:
+        has_digit_score = bool(re.search(r"\d+\s*[-:]\s*\d+", r["score_text"]))
+        state = MATCH_STATE_LIVE if r["has_live"] else (MATCH_STATE_FINISHED if has_digit_score else MATCH_STATE_NOT_STARTED)
+
+        home_score, away_score = None, None
+        m = re.search(r"(\d+)\s*[-:]\s*(\d+)", r["score_text"])
+        if m:
+            home_score, away_score = int(m.group(1)), int(m.group(2))
+
+        matches.append({
+            "matchday": "",
+            "date": r["date_str"],
+            "home_team": r["home_name"],
+            "home_team_url": "",
+            "home_logo_url": r["home_logo"],
+            "away_team": r["away_name"],
+            "away_team_url": "",
+            "away_logo_url": r["away_logo"],
+            "home_score": home_score,
+            "away_score": away_score,
+            "state": state,
+            "match_url": r["match_url"],
+            "league": league["name"],
+            "league_short": league["short"],
+            "venue": "",
+        })
+
+    return matches
+
+
+def scrape_league_results_via_teams(league_key: str, teams: list) -> dict:
+    """
+    Build a league's full match list (fixtures + results + live) by
+    visiting every team's own page (filtered to the current season via
+    sid) instead of the league-level calendar view, which doesn't
+    actually deliver match data server-side (see module docstring
+    above). `teams` is the already-scraped standings list for this
+    league — each team's real page URL comes from there, never guessed.
+
+    Matches are deduplicated by match_url, since a round-robin match
+    appears on BOTH participating teams' pages. Matches with no
+    match_url (shouldn't normally happen, but defensively handled) are
+    deduplicated by (home, away, date) instead.
+    """
+    league = LEAGUES.get(league_key)
+    sid = league.get("sid") if league else None
+    if not league or not sid:
+        return {"matches": [], "error": f"No season ID configured for {league_key}"}
+
+    seen = set()
+    all_matches = []
+
+    for team in teams:
+        team_url = team.get("team_url")
+        if not team_url:
+            continue
+        for m in scrape_team_matches_for_season(team_url, sid, league):
+            key = m["match_url"] or (m["home_team"], m["away_team"], m["date"])
+            if key in seen:
+                continue
+            seen.add(key)
+            all_matches.append(m)
+        # A brief, polite pause between requests — this approach makes
+        # one HTTP request per team instead of one per league (a real
+        # increase in request volume), so a small delay here reduces
+        # burst load on KHU's server rather than hammering it with
+        # back-to-back requests.
+        time.sleep(0.3)
+
+    return {"matches": all_matches, "total": len(all_matches)}
 
 
 def scrape_all_fixtures_and_results() -> dict:
