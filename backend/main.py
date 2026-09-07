@@ -222,6 +222,20 @@ def build_team_logo_lookup() -> dict:
 _GENDER_TOKENS = {"ladies": "women", "women": "women", "girls": "women", "men": "men", "boys": "men"}
 _NOISE_TOKENS = {"hockey", "club", "hc"}
 
+# Same class of problem as gender, different cause: a "Dev"/"II"/"B"/
+# "Reserve" suffix marks a genuinely DIFFERENT team (a development or
+# reserve squad) from its senior-team namesake — not just an alternate
+# name for the same team. Confirmed a real, concrete case: "Western
+# Jaguars" (PLM) and "Western Jaguars Dev" (NLM-WZ) are two separate
+# teams that would otherwise satisfy the fuzzy subset-match check
+# (every word in "Western Jaguars" also appears in "Western Jaguars
+# Dev") and incorrectly get merged. Same fix pattern as _gender_bucket:
+# require this to match too before allowing a fuzzy match.
+_SQUAD_QUALIFIER_TOKENS = {
+    "dev", "development", "reserve", "reserves", "ii", "iii",
+    "youth", "colts", "academy", "juniors", "legacy",
+}
+
 
 def _team_token_set(name: str) -> set:
     return set(_normalize_team_name(name).split())
@@ -234,8 +248,27 @@ def _gender_bucket(tokens: set) -> str:
     return "unspecified"
 
 
+def _squad_qualifier(tokens: set) -> str:
+    """Returns a tag like 'dev' if this name marks a distinct
+    development/reserve/youth squad rather than the senior team,
+    otherwise "" (meaning "the senior/primary team"). Also catches
+    hyphen-glued suffixes like "club-b" — _normalize_team_name collapses
+    "Club - B" into a single "club-b" token, so a plain word-membership
+    check alone would miss it. "-a" is deliberately excluded from this
+    pattern since it's core to some teams' actual names (e.g. USIU-A)
+    rather than a reserve-team marker — every other trailing single
+    letter after a hyphen ("-b", "-c", ...) is treated as one."""
+    for t in tokens:
+        if t in _SQUAD_QUALIFIER_TOKENS:
+            return t
+        m = re.match(r".+-([a-z])$", t)
+        if m and m.group(1) != "a":
+            return f"squad-{m.group(1)}"
+    return ""
+
+
 def build_fuzzy_team_records() -> list:
-    """One record per standings team: {tokens, gender, logo, name} —
+    """One record per standings team: {tokens, gender, squad, logo, name} —
     used only as a fallback when build_team_logo_lookup()'s exact/alias
     lookup finds nothing for a given match."""
     records = []
@@ -248,6 +281,7 @@ def build_fuzzy_team_records() -> list:
                 records.append({
                     "tokens": tokens - _NOISE_TOKENS,
                     "gender": _gender_bucket(tokens),
+                    "squad": _squad_qualifier(tokens),
                     "logo": logo,
                     "name": name,
                 })
@@ -257,8 +291,10 @@ def build_fuzzy_team_records() -> list:
 def fuzzy_match_logo(team_name: str, fuzzy_records: list):
     """Try to find exactly one standings team whose significant word
     tokens are a subset (in either direction) of team_name's tokens,
-    with matching gender. Returns the logo URL, or None if there's no
-    match or more than one equally-plausible match (never guesses)."""
+    with matching gender AND matching squad qualifier (senior team vs
+    a Dev/Reserve/B-team namesake — see _squad_qualifier's docstring).
+    Returns the logo URL, or None if there's no match or more than one
+    equally-plausible match (never guesses)."""
     if not team_name or not fuzzy_records:
         return None
 
@@ -267,10 +303,11 @@ def fuzzy_match_logo(team_name: str, fuzzy_records: list):
     if not tokens:
         return None
     gender = _gender_bucket(raw_tokens)
+    squad = _squad_qualifier(raw_tokens)
 
     matches = []
     for rec in fuzzy_records:
-        if rec["gender"] != gender:
+        if rec["gender"] != gender or rec["squad"] != squad:
             continue
         if not rec["tokens"] or not tokens:
             continue
@@ -320,6 +357,8 @@ def _team_matches_fixture_side(team_name: str, team_url: str, side_name: str, si
         return False
     if _gender_bucket(raw_a) != _gender_bucket(raw_b):
         return False
+    if _squad_qualifier(raw_a) != _squad_qualifier(raw_b):
+        return False
     return tokens_b.issubset(tokens_a) or tokens_a.issubset(tokens_b)
 
 
@@ -350,13 +389,14 @@ def _find_standings_entry_for_team(team_name: str, team_url: str = ""):
     if not tokens_a:
         return None
     gender_a = _gender_bucket(raw_a)
+    squad_a = _squad_qualifier(raw_a)
 
     fuzzy_matches = []
     for league_data in cache["standings"].values():
         for team in league_data.get("standings", []):
             raw_b = _team_token_set(team.get("team", ""))
             tokens_b = raw_b - _NOISE_TOKENS
-            if not tokens_b or _gender_bucket(raw_b) != gender_a:
+            if not tokens_b or _gender_bucket(raw_b) != gender_a or _squad_qualifier(raw_b) != squad_a:
                 continue
             if tokens_b.issubset(tokens_a) or tokens_a.issubset(tokens_b):
                 fuzzy_matches.append(team)
