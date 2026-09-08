@@ -164,8 +164,11 @@ def load_fixtures_results():
 def _pdf_match_key(match: dict) -> str:
     """Same identity rule as pdf_fixtures.merge_pdf_fixtures_into_scraped's
     sig() — league + both teams + calendar date (not kickoff time), so a
-    re-uploaded/corrected PDF updates the existing row instead of duplicating."""
-    date_part = (match.get("date") or "")[:10]
+    re-uploaded/corrected PDF updates the existing row instead of duplicating.
+    Dates are normalized to YYYY-MM-DD so DD-MM-YYYY live scrapes and
+    YYYY-MM-DD PDF rows share the same key."""
+    from scraper import match_calendar_date_key
+    date_part = match_calendar_date_key(match.get("date") or "")
     return "|".join([
         match.get("league_short", "").strip().upper(),
         match.get("home_team", "").strip().lower(),
@@ -199,13 +202,24 @@ def save_pdf_fixtures(matches: list, source_file: str = ""):
 
 
 def load_pdf_fixtures() -> list:
-    """Load every PDF-sourced fixture ever uploaded. Returns [] if none."""
+    """Load every PDF-sourced fixture ever uploaded. Returns [] if none.
+    Older stored rows may use the league short code as the display name —
+    normalize those to the full league name for consistent UI grouping."""
+    from scraper import LEAGUES
+    short_to_name = {info["short"]: info["name"] for info in LEAGUES.values()}
     conn = get_connection()
     cur = conn.cursor()
     cur.execute("SELECT data_json FROM pdf_fixtures_store")
     rows = cur.fetchall()
     conn.close()
-    return [json.loads(row["data_json"]) for row in rows]
+    matches = []
+    for row in rows:
+        m = json.loads(row["data_json"])
+        short = (m.get("league_short") or "").strip()
+        if short and m.get("league") == short:
+            m["league"] = short_to_name.get(short, m["league"])
+        matches.append(m)
+    return matches
 
 
 def clear_pdf_fixtures():

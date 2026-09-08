@@ -23,11 +23,14 @@ from datetime import datetime
 
 import pdfplumber
 
+from scraper import LEAGUES, match_calendar_date_key
+
 logger = logging.getLogger(__name__)
 
 # League short codes as they appear in the PDF's LEAGUE column —
 # confirmed to match scraper.LEAGUES[*]["short"] exactly.
 KNOWN_LEAGUE_SHORTS = {"PLM", "PLW", "SLM", "SLW", "NLM-EZ", "NLM-CZ", "NLM-WZ", "NLM-SZ"}
+LEAGUE_SHORT_TO_NAME = {info["short"]: info["name"] for info in LEAGUES.values()}
 
 # ── PDF-specific team name corrections ──
 # The PDF's fixture table uses shorthand names that don't always match
@@ -182,7 +185,7 @@ def parse_pdf_fixtures(pdf_path: str) -> dict:
                         "away_score": None,
                         "state": "NS",  # PDF only ever lists upcoming/scheduled fixtures
                         "match_url": "",
-                        "league": league_cell,
+                        "league": LEAGUE_SHORT_TO_NAME.get(league_cell, league_cell),
                         "league_short": league_cell,
                         "venue": venue_cell,
                         "match_no": match_no,
@@ -210,12 +213,11 @@ def merge_pdf_fixtures_into_scraped(scraped_fixtures: list, pdf_matches: list) -
     GAPS the live site doesn't have yet, never overwrite live data.
     """
     def sig(m):
-        date_part = (m.get("date") or "")[:10]  # just the date, not time
         return (
             m.get("league_short", "").strip().upper(),
             m.get("home_team", "").strip().lower(),
             m.get("away_team", "").strip().lower(),
-            date_part,
+            match_calendar_date_key(m.get("date", "")),
         )
 
     existing_sigs = {sig(m) for m in scraped_fixtures}

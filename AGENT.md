@@ -117,9 +117,9 @@ duplicates, corrections to time/venue/etc. take effect automatically.
   wrapper + inner span tags will double-count form results if you don't.
 - **VAPID keys:** must be raw base64url (32-byte private key), **not**
   PEM-armored. Passing PEM causes "ASN.1 parsing error: invalid length" in
-  `py_vapid`. (Note: the Render env var is still named
-  `VAPID_PRIVATE_KEY_PEM` for historical reasons even though it holds a raw
-  value — don't let the name mislead you.)
+  `py_vapid`. Prefer env var `VAPID_PRIVATE_KEY_RAW_B64URL`; the legacy
+  name `VAPID_PRIVATE_KEY_PEM` is still read as a fallback (same raw
+  value — don't let the old name mislead you into pasting PEM).
 - **Render + Python version:** must set `PYTHON_VERSION: 3.11.9` (or your
   pinned version) explicitly in `render.yaml`. Render ignores `runtime.txt`
   (that's a Heroku convention). Newer Python defaults can break
@@ -150,7 +150,7 @@ See `backend/env.example` for the full template. Notable ones:
 | Var | Purpose |
 |---|---|
 | `ADMIN_TOKEN` | Gates `POST /api/admin/fixtures/upload-pdf`. Fails closed if unset. |
-| `VAPID_PRIVATE_KEY_PEM` / `VAPID_PUBLIC_KEY_B64URL` | Web Push — raw base64url, not PEM despite the var name. |
+| `VAPID_PRIVATE_KEY_RAW_B64URL` / `VAPID_PUBLIC_KEY_B64URL` | Web Push — raw base64url, not PEM. `VAPID_PRIVATE_KEY_PEM` is still accepted as a legacy alias (same raw format). |
 | `VAPID_CONTACT_EMAIL` | Required by the Web Push protocol. |
 | `ALLOWED_ORIGINS` | CORS — must include the Vercel frontend URL. |
 | `PYTHON_VERSION` | Must be pinned in `render.yaml`, not `runtime.txt`. |

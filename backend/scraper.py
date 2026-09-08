@@ -803,12 +803,25 @@ def _parse_match_date(date_str: str):
     return datetime.min
 
 
-def _group_and_sort_matches(matches: list) -> list:
+def match_calendar_date_key(date_str: str) -> str:
+    """
+    Normalize a match date string to YYYY-MM-DD for identity/dedup.
+    Live scrapes use DD-MM-YYYY; PDF fixtures use YYYY-MM-DD — comparing
+    raw prefixes would treat the same kickoff as two different matches.
+    """
+    parsed = _parse_match_date(date_str)
+    if parsed != datetime.min:
+        return parsed.strftime("%Y-%m-%d")
+    return (date_str or "").strip()[:10]
+
+
+def _group_and_sort_matches(matches: list, soonest_first: bool = False) -> list:
     """
     Group matches by league in LEAGUE_DISPLAY_ORDER, and within each
-    league group, sort by date descending (most recent first) — e.g.
-    for Results, the latest final score appears at the top of its
-    league's section; for Fixtures, the soonest upcoming match leads.
+    league group, sort by date. Results/live use most-recent-first
+    (soonest_first=False); fixtures use soonest-upcoming-first
+    (soonest_first=True) so Home "next up" and league sections lead
+    with the next kickoff, not the furthest future date.
     Leagues not present in LEAGUE_DISPLAY_ORDER (shouldn't normally
     happen) are appended at the end, so nothing silently disappears.
     Matches with an unparseable date sink to the bottom of their
@@ -826,10 +839,13 @@ def _group_and_sort_matches(matches: list) -> list:
         )
 
         parsed_date = _parse_match_date(match.get("date", ""))
-        # Negate the timestamp so ascending sort = most-recent-first.
-        # Unparseable dates (datetime.min) get a neutral 0, which sorts
-        # after any real modern date's large negative key.
-        date_key = -parsed_date.timestamp() if parsed_date != datetime.min else 0
+        if parsed_date == datetime.min:
+            date_key = float("inf") if soonest_first else 0
+        elif soonest_first:
+            date_key = parsed_date.timestamp()
+        else:
+            # Negate so ascending sort = most-recent-first.
+            date_key = -parsed_date.timestamp()
 
         return (league_index, date_key)
 
@@ -892,18 +908,30 @@ def _parse_match_rows(soup, sid: str = "") -> list:
 
         home_cell = row.find(class_="jsMatchDivHome")
         home_name = ""
+        home_team_url = ""
         if home_cell:
             inner = home_cell.find(class_="jsDivLineEmbl")
             home_name = correct_team_name((inner or home_cell).get_text(strip=True))
+            link_tag = home_cell.find("a")
+            if link_tag:
+                home_team_url = link_tag.get("href", "")
+                if home_team_url.startswith("/"):
+                    home_team_url = BASE_URL + home_team_url
 
         home_embl_cell = row.find(class_="jsMatchDivHomeEmbl")
         home_logo = _extract_img_src(home_embl_cell.find("img")) if home_embl_cell else ""
 
         away_cell = row.find(class_="jsMatchDivAway")
         away_name = ""
+        away_team_url = ""
         if away_cell:
             inner = away_cell.find(class_="jsDivLineEmbl")
             away_name = correct_team_name((inner or away_cell).get_text(strip=True))
+            link_tag = away_cell.find("a")
+            if link_tag:
+                away_team_url = link_tag.get("href", "")
+                if away_team_url.startswith("/"):
+                    away_team_url = BASE_URL + away_team_url
 
         away_embl_cell = row.find(class_="jsMatchDivAwayEmbl")
         away_logo = _extract_img_src(away_embl_cell.find("img")) if away_embl_cell else ""
@@ -928,6 +956,8 @@ def _parse_match_rows(soup, sid: str = "") -> list:
             "date_str": date_str,
             "home_name": home_name,
             "away_name": away_name,
+            "home_team_url": home_team_url,
+            "away_team_url": away_team_url,
             "home_logo": home_logo,
             "away_logo": away_logo,
             "score_text": score_text,
@@ -973,10 +1003,10 @@ def scrape_team_matches_for_season(team_url: str, sid: str, league: dict) -> lis
             "matchday": "",
             "date": r["date_str"],
             "home_team": r["home_name"],
-            "home_team_url": "",
+            "home_team_url": r.get("home_team_url", ""),
             "home_logo_url": r["home_logo"],
             "away_team": r["away_name"],
-            "away_team_url": "",
+            "away_team_url": r.get("away_team_url", ""),
             "away_logo_url": r["away_logo"],
             "home_score": home_score,
             "away_score": away_score,
@@ -1055,7 +1085,7 @@ def scrape_all_fixtures_and_results() -> dict:
     results  = [m for m in all_matches if m["state"] == MATCH_STATE_FINISHED]
     live     = [m for m in all_matches if m["state"] == MATCH_STATE_LIVE]
 
-    fixtures = _group_and_sort_matches(fixtures)
+    fixtures = _group_and_sort_matches(fixtures, soonest_first=True)
     results  = _group_and_sort_matches(results)
     live     = _group_and_sort_matches(live)
 
@@ -1244,6 +1274,7 @@ def scrape_match_detail(match_url: str) -> dict:
     result = {
         "date": "", "matchday": "", "venue": "",
         "home_team": "", "away_team": "",
+        "home_team_url": "", "away_team_url": "",
         "home_score": None, "away_score": None,
         "is_live": False,
         "source_url": match_url,
@@ -1266,11 +1297,23 @@ def scrape_match_detail(match_url: str) -> dict:
     if home_tag:
         name_tag = home_tag.find(class_="jsMatchPartName")
         result["home_team"] = correct_team_name((name_tag or home_tag).get_text(strip=True))
+        link_tag = home_tag.find("a")
+        if link_tag:
+            href = link_tag.get("href", "")
+            if href.startswith("/"):
+                href = BASE_URL + href
+            result["home_team_url"] = href
 
     away_tag = soup.find(class_="jsMatchAwayTeam")
     if away_tag:
         name_tag = away_tag.find(class_="jsMatchPartName")
         result["away_team"] = correct_team_name((name_tag or away_tag).get_text(strip=True))
+        link_tag = away_tag.find("a")
+        if link_tag:
+            href = link_tag.get("href", "")
+            if href.startswith("/"):
+                href = BASE_URL + href
+            result["away_team_url"] = href
 
     score_tag = soup.find(class_="jsMatchScore")
     if score_tag:
@@ -1282,119 +1325,6 @@ def scrape_match_detail(match_url: str) -> dict:
         result["is_live"] = bool(score_tag.find(class_=re.compile(r"jscalendarLive")))
 
     return result
-
-
-
-
-
-    """
-    Scrape upcoming fixtures and recent results from the KHU homepage.
-    Uses a retry + longer timeout since homepage sometimes drops connections.
-    """
-    # Try homepage with longer timeout and retry
-    soup = None
-    for attempt in range(3):
-        try:
-            logger.info(f"Fetching homepage (attempt {attempt+1})")
-            resp = requests.get(
-                BASE_URL + "/",
-                headers=HEADERS,
-                timeout=25
-            )
-            if resp.status_code == 200:
-                soup = BeautifulSoup(resp.text, "lxml")
-                logger.info(f"Homepage OK — {len(resp.text)} bytes")
-                break
-        except Exception as e:
-            logger.warning(f"Homepage attempt {attempt+1} failed: {e}")
-
-    if not soup:
-        return {
-            "fixtures": [], "results": [],
-            "total_fixtures": 0, "total_results": 0,
-            "error": "Homepage unreachable after 3 attempts",
-            "scraped_at": datetime.now().isoformat(),
-        }
-
-    fixtures = []
-    results  = []
-
-    # Try known JoomSport event class names
-    event_blocks = []
-    for cls in [
-        "jsEvent", "jssEvent", "jsMatch",
-        "joomSport-event", "event-row", "match-row",
-        "jss-event", "js-event"
-    ]:
-        found = soup.find_all(["div", "tr", "li"], class_=cls)
-        if found:
-            logger.info(f"Found {len(found)} events with class='{cls}'")
-            event_blocks = found
-            break
-
-    # Fallback: look inside joomsport containers
-    if not event_blocks:
-        for container_id in ["joomsport-container", "jssContainer", "jsContainer"]:
-            container = soup.find(id=container_id)
-            if container:
-                event_blocks = container.find_all("tr")
-                if event_blocks:
-                    logger.info(f"Found {len(event_blocks)} rows in #{container_id}")
-                    break
-
-    # Last fallback: all table rows
-    if not event_blocks:
-        logger.info("Using all table rows as fallback...")
-        event_blocks = [
-            row for row in soup.find_all("tr")
-            if len(row.find_all("td")) >= 4
-        ]
-
-    for block in event_blocks[:200]:
-        # Extract fields using regex-based class matching
-        date_tag   = block.find(class_=re.compile(r"date",    re.I))
-        time_tag   = block.find(class_=re.compile(r"time",    re.I))
-        score_tag  = block.find(class_=re.compile(r"score|result",  re.I))
-        venue_tag  = block.find(class_=re.compile(r"venue|location|ground|stadium", re.I))
-        league_tag = block.find(class_=re.compile(r"league|season|competition", re.I))
-
-        date_str    = date_tag.get_text(strip=True)   if date_tag   else ""
-        time_str    = time_tag.get_text(strip=True)   if time_tag   else ""
-        score       = score_tag.get_text(strip=True)  if score_tag  else ""
-        venue       = venue_tag.get_text(strip=True)  if venue_tag  else ""
-        league_name = league_tag.get_text(strip=True) if league_tag else ""
-
-        # Extract team names
-        team_tags = block.find_all(class_=re.compile(r"team", re.I))
-        home_team = team_tags[0].get_text(strip=True) if len(team_tags) > 0 else ""
-        away_team = team_tags[1].get_text(strip=True) if len(team_tags) > 1 else ""
-
-        if not home_team and not away_team:
-            continue
-
-        entry = {
-            "date":      date_str,
-            "time":      time_str,
-            "home_team": home_team,
-            "away_team": away_team,
-            "score":     score,
-            "venue":     venue,
-            "league":    league_name,
-        }
-
-        if score and re.search(r"\d", score):
-            results.append(entry)
-        else:
-            fixtures.append(entry)
-
-    return {
-        "fixtures":       fixtures,
-        "results":        results,
-        "total_fixtures": len(fixtures),
-        "total_results":  len(results),
-        "scraped_at":     datetime.now().isoformat(),
-        "source_url":     BASE_URL,
-    }
 
 
 def scrape_all_standings() -> dict:

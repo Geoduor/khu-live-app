@@ -559,8 +559,8 @@ function HomeView({ leagues, loadingLeagues, onSelectLeague, fixtures, results, 
           </div>
         ) : (
           <ErrorState
-            title="No fixtures parsed yet"
-            message="The homepage scraper could not identify fixture blocks. This needs scraper refinement."
+            title="No fixtures yet"
+            message="No upcoming fixtures are available right now. Pull to refresh, or check back after the next schedule update."
             compact
           />
         )}
@@ -792,7 +792,7 @@ function FixturesView({ fixtures, leagues, loading, onOpenMatch, onOpenTeam, isF
       ) : (
         <ErrorState
           title="No fixtures found"
-          message="The KHU homepage scraper didn't identify structured fixture data. See README about refining the homepage scraper selectors."
+          message="No upcoming fixtures are available right now. Pull to refresh after the next schedule update from KHU."
         />
       )}
     </div>
@@ -821,7 +821,7 @@ function ResultsView({ results, loading, onOpenMatch, onOpenTeam, isFavorite, to
       ) : (
         <ErrorState
           title="No results found"
-          message="The KHU homepage scraper didn't identify structured result data. See README about refining the homepage scraper selectors."
+          message="No finished matches are available right now. Pull to refresh once results are published."
         />
       )}
     </div>

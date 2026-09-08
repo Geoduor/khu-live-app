@@ -54,16 +54,29 @@ DB_PATH = Path(__file__).parent / "khu_cache.db"
 #   print(base64.urlsafe_b64encode(raw).decode().rstrip('='))
 #   "
 
-VAPID_PRIVATE_KEY_RAW_B64URL = os.environ.get("VAPID_PRIVATE_KEY_RAW_B64URL", "").strip()
-VAPID_PUBLIC_KEY_B64URL = os.environ.get("VAPID_PUBLIC_KEY_B64URL", "")
+# Prefer the correctly named var; fall back to the historical Render name
+# VAPID_PRIVATE_KEY_PEM (which still holds raw base64url, NOT a PEM block —
+# see AGENT.md). Never pass a "-----BEGIN..." PEM string into py_vapid.
+VAPID_PRIVATE_KEY_RAW_B64URL = (
+    os.environ.get("VAPID_PRIVATE_KEY_RAW_B64URL", "").strip()
+    or os.environ.get("VAPID_PRIVATE_KEY_PEM", "").strip()
+)
+VAPID_PUBLIC_KEY_B64URL = os.environ.get("VAPID_PUBLIC_KEY_B64URL", "").strip()
 VAPID_CLAIMS = {
     "sub": f"mailto:{os.environ.get('VAPID_CONTACT_EMAIL', 'khu-app@example.com')}"
 }
 
+if VAPID_PRIVATE_KEY_RAW_B64URL.startswith("-----BEGIN"):
+    logger.error(
+        "VAPID private key looks like PEM. py_vapid needs raw base64url only — "
+        "push notifications will fail until the key is regenerated in the correct format."
+    )
+    VAPID_PRIVATE_KEY_RAW_B64URL = ""
+
 if not VAPID_PRIVATE_KEY_RAW_B64URL or not VAPID_PUBLIC_KEY_B64URL:
     logger.warning(
         "⚠️ VAPID keys not found in environment. Push notifications will not work. "
-        "Copy .env.example to .env and fill in real keys."
+        "Copy env.example to .env and fill in real keys (VAPID_PRIVATE_KEY_RAW_B64URL)."
     )
 
 

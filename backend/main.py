@@ -16,17 +16,17 @@ from pydantic import BaseModel
 from typing import Optional
 from apscheduler.schedulers.background import BackgroundScheduler
 from datetime import datetime
+from urllib.parse import urlparse
 import logging
 import os
 import json
 import re
 import tempfile
+import threading
 import requests
 
 from scraper import (
     scrape_standings,
-    scrape_all_fixtures_and_results,
-    scrape_team_profile,
     scrape_match_detail,
     scrape_league_results_via_teams,
     _parse_match_date,
@@ -45,16 +45,20 @@ import push
 # If unset, the endpoint refuses all requests (fails closed, not open).
 ADMIN_TOKEN = os.environ.get("ADMIN_TOKEN", "")
 
-
-class PushKeys(BaseModel):
-    p256dh: str
-    auth: str
+ALLOWED_KHU_HOSTS = {"kenyahockeyunion.org", "www.kenyahockeyunion.org"}
 
 
-class PushSubscription(BaseModel):
-    endpoint: str
-    keys: PushKeys
-    expirationTime: Optional[float] = None
+def _is_allowed_khu_url(url: str) -> bool:
+    """Strict host allowlist — substring checks are not enough (SSRF)."""
+    try:
+        parsed = urlparse(url)
+    except Exception:
+        return False
+    if parsed.scheme not in ("http", "https"):
+        return False
+    host = (parsed.hostname or "").lower()
+    return host in ALLOWED_KHU_HOSTS
+
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -74,11 +78,13 @@ allowed_origins = (
     if _allowed_origins_env
     else ["*"]  # local dev fallback — fine for testing, tighten in production
 )
+# Browsers reject credentials + wildcard origins; this API doesn't use cookies.
+_allow_credentials = allowed_origins != ["*"]
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=allowed_origins,
-    allow_credentials=True,
+    allow_credentials=_allow_credentials,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -91,6 +97,8 @@ cache = {
     "last_refresh_success": None,
     "status": "starting",
 }
+
+_refresh_lock = threading.Lock()
 
 STALE_THRESHOLD_SECONDS = 60 * 30  # 30 minutes
 
@@ -515,19 +523,55 @@ def backfill_match_logos(matches: list, logo_lookup: dict, fuzzy_records: list =
     return filled
 
 
+def build_team_url_lookup() -> dict:
+    """{normalized_team_name: team_url} from cached standings — used to
+    backfill match team URLs (needed for favorites/push targeting and
+    opening TeamProfile from MatchCard)."""
+    lookup = {}
+    for league_data in cache["standings"].values():
+        for team in league_data.get("standings", []):
+            url = team.get("team_url")
+            name = team.get("team")
+            if url and name:
+                for alias in _alias_group_for(_normalize_team_name(name)):
+                    lookup.setdefault(alias, url)
+    return lookup
+
+
+def backfill_match_team_urls(matches: list, url_lookup: dict) -> int:
+    """Fill missing home_team_url/away_team_url from standings. Returns
+    count of URL fields filled."""
+    filled = 0
+    for m in matches:
+        if not m.get("home_team_url"):
+            url = url_lookup.get(_normalize_team_name(m.get("home_team", "")))
+            if url:
+                m["home_team_url"] = url
+                filled += 1
+        if not m.get("away_team_url"):
+            url = url_lookup.get(_normalize_team_name(m.get("away_team", "")))
+            if url:
+                m["away_team_url"] = url
+                filled += 1
+    return filled
+
+
 def refresh_standings_for(league_key: str):
-    """Scrape one league; save to DB regardless of success; update in-memory cache."""
+    """Scrape one league. Only overwrite last-known-good cache on success."""
     try:
         data = scrape_standings(league_key)
         success = not bool(data.get("error"))
-        db.save_standings(league_key, data, success=success)
-        data["_cache_scraped_at"] = datetime.now().isoformat()
-        data["_cache_success"] = success
-        cache["standings"][league_key] = data
         if success:
+            db.save_standings(league_key, data, success=True)
+            data["_cache_scraped_at"] = datetime.now().isoformat()
+            data["_cache_success"] = True
+            cache["standings"][league_key] = data
             logger.info(f"✅ {league_key}: {data.get('total_teams', 0)} teams")
         else:
-            logger.warning(f"⚠️ {league_key}: scrape failed — {data.get('error')}")
+            logger.warning(
+                f"⚠️ {league_key}: scrape failed — {data.get('error')} "
+                "(keeping previous cache if any)"
+            )
         return success
     except Exception as e:
         logger.error(f"❌ {league_key}: exception during scrape — {e}")
@@ -567,7 +611,9 @@ def refresh_fixtures_results():
                 errors.append({"league": league_key, "error": result["error"]})
             all_matches.extend(result.get("matches", []))
 
-        fixtures = _group_and_sort_matches([m for m in all_matches if m["state"] == "NS"])
+        fixtures = _group_and_sort_matches(
+            [m for m in all_matches if m["state"] == "NS"], soonest_first=True
+        )
         results = _group_and_sort_matches([m for m in all_matches if m["state"] == "FT"])
         live = _group_and_sort_matches([m for m in all_matches if m["state"] == "LIVE"])
 
@@ -592,26 +638,36 @@ def refresh_fixtures_results():
         pdf_matches = db.load_pdf_fixtures()
         if pdf_matches:
             merged = merge_pdf_fixtures_into_scraped(data.get("fixtures", []), pdf_matches)
-            data["fixtures"] = _group_and_sort_matches(merged)
+            data["fixtures"] = _group_and_sort_matches(merged, soonest_first=True)
             data["total_fixtures"] = len(data["fixtures"])
 
-        # ── Backfill missing team logos from standings data ──
-        # Standings scrapes reliably carry real logo URLs; fixtures/results
-        # scrapes and PDF-sourced fixtures often don't. This fills the gap
-        # using whatever we already have on file, without ever overwriting
-        # a logo a match already has.
+        # ── Backfill missing team logos / URLs from standings data ──
         logo_lookup = build_team_logo_lookup()
-        if logo_lookup:
-            fuzzy_records = build_fuzzy_team_records()
-            filled = 0
-            filled += backfill_match_logos(data.get("fixtures", []), logo_lookup, fuzzy_records)
-            filled += backfill_match_logos(data.get("results", []), logo_lookup, fuzzy_records)
-            filled += backfill_match_logos(data.get("live", []), logo_lookup, fuzzy_records)
-            if filled:
-                logger.info(f"Backfilled {filled} missing team logo(s) from standings data")
+        url_lookup = build_team_url_lookup()
+        fuzzy_records = build_fuzzy_team_records() if logo_lookup else []
+        for bucket in ("fixtures", "results", "live"):
+            bucket_matches = data.get(bucket, [])
+            if logo_lookup:
+                filled = backfill_match_logos(bucket_matches, logo_lookup, fuzzy_records)
+                if filled:
+                    logger.info(f"Backfilled {filled} missing team logo(s) in {bucket}")
+            if url_lookup:
+                filled_urls = backfill_match_team_urls(bucket_matches, url_lookup)
+                if filled_urls:
+                    logger.info(f"Backfilled {filled_urls} missing team URL(s) in {bucket}")
 
+        live_scrape_ok = len(all_matches) > 0
         total = data.get("total_fixtures", 0) + data.get("total_results", 0) + data.get("total_live", 0)
-        success = total > 0
+        # Persist when the live scrape produced matches, or when bootstrapping
+        # with PDF-only fixtures and no prior cache exists yet.
+        should_persist = live_scrape_ok or (not cache.get("fixtures_results") and total > 0)
+
+        if not should_persist:
+            logger.warning(
+                "⚠️ fixtures/results scrape returned nothing useful — "
+                "keeping previous cache if any"
+            )
+            return False
 
         # ── Detect newly-live matches vs the previous snapshot ──
         prev_live_keys = set()
@@ -628,9 +684,9 @@ def refresh_fixtures_results():
             if key not in prev_live_keys:
                 new_live.append(m)
 
-        db.save_fixtures_results(data, success=success)
+        db.save_fixtures_results(data, success=True)
         data["_cache_scraped_at"] = datetime.now().isoformat()
-        data["_cache_success"] = success
+        data["_cache_success"] = True
         cache["fixtures_results"] = data
 
         # ── Fire push notifications for newly-live matches ──
@@ -649,15 +705,12 @@ def refresh_fixtures_results():
             except Exception as e:
                 logger.error(f"Push notification failed for {m}: {e}")
 
-        if success:
-            logger.info(
-                f"✅ fixtures/results: {data.get('total_live',0)} live, "
-                f"{data.get('total_fixtures',0)} fixtures, {data.get('total_results',0)} results"
-                + (f" | {len(new_live)} newly live -> notified" if new_live else "")
-            )
-        else:
-            logger.warning("⚠️ fixtures/results scrape returned nothing useful")
-        return success
+        logger.info(
+            f"✅ fixtures/results: {data.get('total_live',0)} live, "
+            f"{data.get('total_fixtures',0)} fixtures, {data.get('total_results',0)} results"
+            + (f" | {len(new_live)} newly live -> notified" if new_live else "")
+        )
+        return True
     except Exception as e:
         logger.error(f"❌ fixtures/results: exception — {e}")
         return False
@@ -665,7 +718,7 @@ def refresh_fixtures_results():
 
 def refresh_all_data(force: bool = False):
     """
-    Refresh every league + homepage. Called on startup, every 15 minutes
+    Refresh every league + fixtures/results. Called on startup, every 15 minutes
     (scheduled/automatic), and on manual refresh (force=True).
 
     Circuit breaker behavior:
@@ -676,40 +729,47 @@ def refresh_all_data(force: bool = False):
         user action is a stronger signal than a scheduled guess — this
         matches how Gmail/Twitter/FotMob treat pull-to-refresh.
     """
-    logger.info("═" * 50)
-
-    if not force and not db.should_attempt_scrape(cooldown_seconds=300):
-        logger.info("⚪ Skipping scheduled refresh — circuit breaker OPEN, serving cache only")
-        cache["status"] = "cached" if cache["standings"] else cache["status"]
+    if not _refresh_lock.acquire(blocking=False):
+        logger.info("⚪ Refresh already in progress — skipping overlapping run")
         return
 
-    logger.info(f"Starting full data refresh... (force={force})")
-    cache["last_refresh_attempt"] = datetime.now().isoformat()
+    try:
+        logger.info("═" * 50)
 
-    results = []
-    for league_key in LEAGUES:
-        results.append(refresh_standings_for(league_key))
-    results.append(refresh_fixtures_results())
+        if not force and not db.should_attempt_scrape(cooldown_seconds=300):
+            logger.info("⚪ Skipping scheduled refresh — circuit breaker OPEN, serving cache only")
+            cache["status"] = "cached" if cache["standings"] else cache["status"]
+            return
 
-    any_success = any(results)
-    all_success = all(results)
+        logger.info(f"Starting full data refresh... (force={force})")
+        cache["last_refresh_attempt"] = datetime.now().isoformat()
 
-    # Update circuit breaker based on this cycle's overall outcome
-    db.record_scrape_result(success=any_success, failure_threshold=3)
+        results = []
+        for league_key in LEAGUES:
+            results.append(refresh_standings_for(league_key))
+        results.append(refresh_fixtures_results())
 
-    if all_success:
-        cache["status"] = "live"
-    elif any_success:
-        cache["status"] = "partial"
-    else:
-        cache["status"] = "error"
+        any_success = any(results)
+        all_success = all(results)
 
-    if any_success:
-        cache["last_refresh_success"] = datetime.now().isoformat()
+        # Update circuit breaker based on this cycle's overall outcome
+        db.record_scrape_result(success=any_success, failure_threshold=3)
 
-    breaker_state = db.get_circuit_state()
-    logger.info(f"Refresh complete — status: {cache['status']} | circuit: {breaker_state['state']}")
-    logger.info("═" * 50)
+        if all_success:
+            cache["status"] = "live"
+        elif any_success:
+            cache["status"] = "partial"
+        else:
+            cache["status"] = "error"
+
+        if any_success:
+            cache["last_refresh_success"] = datetime.now().isoformat()
+
+        breaker_state = db.get_circuit_state()
+        logger.info(f"Refresh complete — status: {cache['status']} | circuit: {breaker_state['state']}")
+        logger.info("═" * 50)
+    finally:
+        _refresh_lock.release()
 
 
 def load_from_cache_on_boot():
@@ -745,8 +805,9 @@ async def startup_event():
     seed_pdf_fixtures_from_file()
     push.init_push_table()
     load_from_cache_on_boot()
-    logger.info("KHU API starting up — kicking off first live scrape...")
-    refresh_all_data()
+    logger.info("KHU API starting up — kicking off first live scrape in background...")
+    # Background so Render health checks aren't blocked by a long first scrape.
+    threading.Thread(target=refresh_all_data, daemon=True, name="startup-refresh").start()
 
 
 # ══════════════════════════════════════════════════════
@@ -826,7 +887,7 @@ def proxy_logo(url: str):
     on kenyahockeyunion.org's own domain — this is NOT a general-purpose
     open proxy, just a narrow fix for one specific image-loading problem.
     """
-    if not url or KHU_BASE_URL.replace("https://", "").replace("www.", "") not in url:
+    if not url or not _is_allowed_khu_url(url):
         raise HTTPException(status_code=400, detail="Only kenyahockeyunion.org image URLs are allowed.")
 
     if url in _LOGO_CACHE:
@@ -1210,13 +1271,16 @@ async def upload_fixtures_pdf(
     merged_fixtures = merge_pdf_fixtures_into_scraped(existing_fixtures, pdf_result["matches"])
     added_count = len(merged_fixtures) - len(existing_fixtures)
 
-    merged_fixtures = _group_and_sort_matches(merged_fixtures)
+    merged_fixtures = _group_and_sort_matches(merged_fixtures, soonest_first=True)
 
     # Backfill logos immediately (don't make the user wait for the next
     # scheduled refresh to see them) — same lookup/rule as refresh_fixtures_results.
     logo_lookup = build_team_logo_lookup()
     if logo_lookup:
         backfill_match_logos(merged_fixtures, logo_lookup, build_fuzzy_team_records())
+    url_lookup = build_team_url_lookup()
+    if url_lookup:
+        backfill_match_team_urls(merged_fixtures, url_lookup)
 
     updated = dict(current)
     updated["fixtures"] = merged_fixtures
@@ -1356,7 +1420,7 @@ def get_team_profile(url: str = "", name: str = ""):
     'name' is the team name as already known from wherever the user
     tapped through from (standings row, match card, etc).
     """
-    if url and "kenyahockeyunion.org" not in url:
+    if url and not _is_allowed_khu_url(url):
         raise HTTPException(status_code=400, detail="Invalid team URL — must be a kenyahockeyunion.org link")
     if not url and not name:
         raise HTTPException(status_code=400, detail="Need at least a team name or URL to look up a profile")
@@ -1379,7 +1443,7 @@ def get_match_detail(url: str):
     'url' comes from the 'match_url' field already present in fixtures/results
     data — never guessed or constructed.
     """
-    if "kenyahockeyunion.org" not in url:
+    if not _is_allowed_khu_url(url):
         raise HTTPException(status_code=400, detail="Invalid match URL — must be a kenyahockeyunion.org link")
 
     cached = _match_cache.get(url)
