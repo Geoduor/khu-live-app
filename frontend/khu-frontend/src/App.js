@@ -721,6 +721,42 @@ function DateGroupedMatchList({ matches, onOpenMatch, onOpenTeam, isFavorite, to
   );
 }
 
+/**
+ * GroupedMatchList — groups matches by LEAGUE, inserting a header
+ * whenever the league changes. Used for Results: the backend already
+ * sorts each league's matches most-recent-first (see
+ * _group_and_sort_matches in scraper.py — it sorts by
+ * (league_display_order, -date_timestamp) internally), so this just
+ * needs to walk the list in the order it already arrives and add
+ * headers — no re-sorting needed here.
+ */
+function GroupedMatchList({ matches, onOpenMatch, onOpenTeam, isFavorite, toggleFavorite }) {
+  let lastLeague = null;
+
+  return (
+    <div className="match-list">
+      {matches.map((m, i) => {
+        const showHeader = m.league !== lastLeague;
+        lastLeague = m.league;
+        return (
+          <div key={i}>
+            {showHeader && (
+              <div className="league-group-header">{m.league}</div>
+            )}
+            <MatchCard
+              match={m}
+              onOpenMatch={onOpenMatch}
+              onOpenTeam={onOpenTeam}
+              isFavorite={isFavorite}
+              toggleFavorite={toggleFavorite}
+            />
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function FixturesView({ fixtures, leagues, loading, onOpenMatch, onOpenTeam, isFavorite, toggleFavorite }) {
   const [leagueFilter, setLeagueFilter] = useState("");
 
@@ -797,7 +833,7 @@ function ResultsView({ results, leagues, loading, onOpenMatch, onOpenTeam, isFav
       ) : results?.error ? (
         <ErrorState title="Could not load results" message={results.error} />
       ) : filtered.length > 0 ? (
-        <DateGroupedMatchList
+        <GroupedMatchList
           matches={filtered}
           onOpenMatch={onOpenMatch}
           onOpenTeam={onOpenTeam}
