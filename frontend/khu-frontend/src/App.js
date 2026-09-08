@@ -343,7 +343,7 @@ function App() {
         )}
 
         {!overlay && tab === "results" && (
-          <ResultsView results={results} loading={loadingResults} onOpenMatch={openMatch} onOpenTeam={openTeam} isFavorite={isFavorite} toggleFavorite={toggleFavorite} />
+          <ResultsView results={results} leagues={leagues} loading={loadingResults} onOpenMatch={openMatch} onOpenTeam={openTeam} isFavorite={isFavorite} toggleFavorite={toggleFavorite} />
         )}
       </div>
 
@@ -721,36 +721,6 @@ function DateGroupedMatchList({ matches, onOpenMatch, onOpenTeam, isFavorite, to
   );
 }
 
-function GroupedMatchList({ matches, onOpenMatch, onOpenTeam, isFavorite, toggleFavorite }) {
-  // Matches arrive pre-sorted by league from the backend (see
-  // LEAGUE_DISPLAY_ORDER in scraper.py) — we just need to insert a
-  // header whenever the league changes as we walk down the list.
-  let lastLeague = null;
-
-  return (
-    <div className="match-list">
-      {matches.map((m, i) => {
-        const showHeader = m.league !== lastLeague;
-        lastLeague = m.league;
-        return (
-          <div key={i}>
-            {showHeader && (
-              <div className="league-group-header">{m.league}</div>
-            )}
-            <MatchCard
-              match={m}
-              onOpenMatch={onOpenMatch}
-              onOpenTeam={onOpenTeam}
-              isFavorite={isFavorite}
-              toggleFavorite={toggleFavorite}
-            />
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
 function FixturesView({ fixtures, leagues, loading, onOpenMatch, onOpenTeam, isFavorite, toggleFavorite }) {
   const [leagueFilter, setLeagueFilter] = useState("");
 
@@ -802,21 +772,43 @@ function FixturesView({ fixtures, leagues, loading, onOpenMatch, onOpenTeam, isF
 // ══════════════════════════════════════════════════
 // RESULTS VIEW
 // ══════════════════════════════════════════════════
-function ResultsView({ results, loading, onOpenMatch, onOpenTeam, isFavorite, toggleFavorite }) {
+function ResultsView({ results, leagues, loading, onOpenMatch, onOpenTeam, isFavorite, toggleFavorite }) {
+  const [leagueFilter, setLeagueFilter] = useState("");
+
+  const allResults = results?.results || [];
+  const filtered = leagueFilter
+    ? allResults.filter((m) => m.league_short === leagueFilter)
+    : allResults;
+
+  const filteredLeagueName = leagueFilter
+    ? leagues.find((l) => l.short === leagueFilter)?.name
+    : null;
+
   return (
     <div className="section">
-      <div className="sec-head"><span className="sec-title">Results</span></div>
+      <div className="sec-head">
+        <span className="sec-title">Results</span>
+        {leagues?.length > 0 && (
+          <LeagueFilterSelect leagues={leagues} value={leagueFilter} onChange={setLeagueFilter} />
+        )}
+      </div>
       {loading ? (
         <LoadingState message="Loading results..." />
       ) : results?.error ? (
         <ErrorState title="Could not load results" message={results.error} />
-      ) : results?.results?.length > 0 ? (
-        <GroupedMatchList
-          matches={results.results}
+      ) : filtered.length > 0 ? (
+        <DateGroupedMatchList
+          matches={filtered}
           onOpenMatch={onOpenMatch}
           onOpenTeam={onOpenTeam}
           isFavorite={isFavorite}
           toggleFavorite={toggleFavorite}
+        />
+      ) : allResults.length > 0 ? (
+        <ErrorState
+          title="No results yet"
+          message={`No completed matches found for ${filteredLeagueName || "this league"} right now.`}
+          compact
         />
       ) : (
         <ErrorState
