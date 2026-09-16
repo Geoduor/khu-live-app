@@ -1,0 +1,349 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>KHU Live — Admin: Manual Results</title>
+<meta name="robots" content="noindex, nofollow" />
+<style>
+  :root {
+    --red: #BB0000; --green: #006600; --bg: #0D0709; --card: #1a1214;
+    --border: rgba(255,255,255,0.12); --text: #F5F0F0; --muted: #9A8688; --amber: #F0A500;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    background: var(--bg); color: var(--text); padding: 16px; max-width: 560px; margin: 0 auto;
+  }
+  h1 { font-size: 18px; margin-bottom: 4px; }
+  .subtitle { color: var(--muted); font-size: 12px; margin-bottom: 20px; }
+  .card {
+    background: var(--card); border: 1px solid var(--border); border-radius: 12px;
+    padding: 16px; margin-bottom: 16px;
+  }
+  label { display: block; font-size: 12px; color: var(--muted); margin: 10px 0 4px; font-weight: 600; }
+  input, select {
+    width: 100%; padding: 10px; border-radius: 8px; border: 1px solid var(--border);
+    background: rgba(255,255,255,0.05); color: var(--text); font-size: 14px;
+  }
+  input:focus, select:focus { outline: none; border-color: var(--amber); }
+  .row { display: flex; gap: 10px; }
+  .row > div { flex: 1; }
+  button {
+    width: 100%; padding: 12px; border-radius: 8px; border: none;
+    background: var(--red); color: #fff; font-weight: 700; font-size: 14px;
+    cursor: pointer; margin-top: 16px;
+  }
+  button:hover { opacity: 0.9; }
+  button:disabled { opacity: 0.5; cursor: not-allowed; }
+  .msg { padding: 10px 12px; border-radius: 8px; font-size: 13px; margin-top: 12px; display: none; }
+  .msg.success { background: rgba(0,102,0,0.2); border: 1px solid var(--green); display: block; }
+  .msg.error { background: rgba(187,0,0,0.2); border: 1px solid var(--red); display: block; }
+  .result-row {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 10px 0; border-bottom: 1px solid var(--border); font-size: 13px;
+  }
+  .result-row:last-child { border-bottom: none; }
+  .result-meta { color: var(--muted); font-size: 11px; }
+  .del-btn {
+    width: auto; padding: 6px 10px; font-size: 12px; margin: 0;
+    background: transparent; border: 1px solid var(--red); color: var(--red);
+  }
+  .empty-note { color: var(--muted); font-size: 13px; text-align: center; padding: 16px 0; }
+  .section-title { font-size: 14px; font-weight: 700; margin-bottom: 8px; }
+</style>
+</head>
+<body>
+
+<h1>KHU Live — Manual Results</h1>
+<div class="subtitle">Admin only. Fills gaps the live scraper hasn't caught yet — never overwrites a result the scraper already found.</div>
+
+<div class="card">
+  <label>Backend URL</label>
+  <input id="apiBase" placeholder="https://khu-backend.onrender.com" />
+
+  <label>Admin Token</label>
+  <input id="adminToken" type="password" placeholder="Your ADMIN_TOKEN" />
+</div>
+
+<div class="card">
+  <div class="section-title">Add a Result</div>
+
+  <label>League</label>
+  <select id="league">
+    <option value="PLM">Premier League Men</option>
+    <option value="PLW">Premier League Women</option>
+    <option value="SLM">Super League Men</option>
+    <option value="SLW">Super League Women</option>
+    <option value="NLM-EZ">National League Men — Eastern Zone</option>
+    <option value="NLM-CZ">National League Men — Central Zone</option>
+    <option value="NLM-WZ">National League Men — Western Zone</option>
+    <option value="NLM-SZ">National League Men — Southern Zone</option>
+  </select>
+
+  <div class="row">
+    <div>
+      <label>Home Team</label>
+      <input id="homeTeam" placeholder="e.g. Butali Warriors" />
+    </div>
+    <div>
+      <label>Away Team</label>
+      <input id="awayTeam" placeholder="e.g. Kenya Police" />
+    </div>
+  </div>
+
+  <div class="row">
+    <div>
+      <label>Home Score</label>
+      <input id="homeScore" type="number" min="0" placeholder="0" />
+    </div>
+    <div>
+      <label>Away Score</label>
+      <input id="awayScore" type="number" min="0" placeholder="0" />
+    </div>
+  </div>
+
+  <div class="row">
+    <div>
+      <label>Date</label>
+      <input id="matchDate" type="date" />
+    </div>
+    <div>
+      <label>Time</label>
+      <input id="matchTime" type="time" />
+    </div>
+  </div>
+
+  <label>Venue (optional)</label>
+  <input id="venue" placeholder="e.g. Dashmesh Stadium" />
+
+  <button id="submitBtn" onclick="submitResult()">Add Result</button>
+  <div id="addMsg" class="msg"></div>
+</div>
+
+<div class="card">
+  <div class="section-title">Currently Stored Manual Results</div>
+  <div id="resultsList"><div class="empty-note">Enter your backend URL and token above, then this loads automatically.</div></div>
+</div>
+
+<div class="card">
+  <div class="section-title">Agents</div>
+  <div class="row">
+    <div><label>Username</label><input id="agentUsername" placeholder="e.g. john_k" /></div>
+    <div><label>Display Name</label><input id="agentDisplayName" placeholder="e.g. John Kamau" /></div>
+  </div>
+  <label>Password (min 6 characters)</label>
+  <input id="agentPassword" type="password" placeholder="Give this to the agent directly" />
+  <button id="createAgentBtn" onclick="createAgent()">Add Agent</button>
+  <div id="agentMsg" class="msg"></div>
+
+  <div id="agentsList" style="margin-top: 16px;"></div>
+</div>
+
+<script>
+  const $ = (id) => document.getElementById(id);
+
+
+  // Remember backend URL + token locally so you don't retype them every visit.
+  $('apiBase').value = localStorage.getItem('khu_admin_api_base') || '';
+  $('adminToken').value = localStorage.getItem('khu_admin_token') || '';
+  $('apiBase').addEventListener('change', () => { localStorage.setItem('khu_admin_api_base', $('apiBase').value.trim()); loadResults(); loadAgents(); });
+  $('adminToken').addEventListener('change', () => { localStorage.setItem('khu_admin_token', $('adminToken').value.trim()); loadResults(); loadAgents(); });
+
+  function apiBase() { return $('apiBase').value.trim().replace(/\/$/, ''); }
+  function token() { return $('adminToken').value.trim(); }
+
+  function showMsg(el, text, isError) {
+    el.textContent = text;
+    el.className = 'msg ' + (isError ? 'error' : 'success');
+  }
+
+  async function submitResult() {
+    const btn = $('submitBtn');
+    const msg = $('addMsg');
+    msg.className = 'msg';
+
+    if (!apiBase() || !token()) {
+      showMsg(msg, 'Enter your backend URL and admin token first.', true);
+      return;
+    }
+    const homeTeam = $('homeTeam').value.trim();
+    const awayTeam = $('awayTeam').value.trim();
+    const homeScore = $('homeScore').value;
+    const awayScore = $('awayScore').value;
+    const date = $('matchDate').value;
+    const time = $('matchTime').value || '00:00';
+
+    if (!homeTeam || !awayTeam || homeScore === '' || awayScore === '' || !date) {
+      showMsg(msg, 'Fill in home/away team, both scores, and the date.', true);
+      return;
+    }
+
+    btn.disabled = true;
+    btn.textContent = 'Adding...';
+
+    try {
+      const res = await fetch(`${apiBase()}/api/admin/results/add`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-admin-token': token() },
+        body: JSON.stringify({
+          league_short: $('league').value,
+          home_team: homeTeam,
+          away_team: awayTeam,
+          home_score: parseInt(homeScore, 10),
+          away_score: parseInt(awayScore, 10),
+          date: `${date} ${time}`,
+          venue: $('venue').value.trim(),
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || 'Something went wrong.');
+
+      showMsg(msg, `Added: ${homeTeam} ${homeScore} - ${awayScore} ${awayTeam}`, false);
+      ['homeTeam', 'awayTeam', 'homeScore', 'awayScore', 'venue'].forEach((id) => $(id).value = '');
+      loadResults();
+    } catch (e) {
+      showMsg(msg, e.message, true);
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Add Result';
+    }
+  }
+
+  async function loadResults() {
+    const container = $('resultsList');
+    if (!apiBase() || !token()) return;
+
+    try {
+      const res = await fetch(`${apiBase()}/api/admin/results/list`, {
+        headers: { 'x-admin-token': token() },
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || 'Could not load results.');
+
+      if (!data.results.length) {
+        container.innerHTML = '<div class="empty-note">No manual results entered yet.</div>';
+        return;
+      }
+
+      container.innerHTML = data.results.map((r) => `
+        <div class="result-row">
+          <div>
+            <div><strong>${r.home_team}</strong> ${r.home_score} - ${r.away_score} <strong>${r.away_team}</strong></div>
+            <div class="result-meta">${r.league_short} · ${r.date}${r.venue ? ' · ' + r.venue : ''}</div>
+          </div>
+          <button class="del-btn" onclick="deleteResult('${r.match_key}')">Delete</button>
+        </div>
+      `).join('');
+    } catch (e) {
+      container.innerHTML = `<div class="empty-note">${e.message}</div>`;
+    }
+  }
+
+  async function deleteResult(matchKey) {
+    if (!confirm('Delete this result?')) return;
+    try {
+      const res = await fetch(`${apiBase()}/api/admin/results/${encodeURIComponent(matchKey)}`, {
+        method: 'DELETE',
+        headers: { 'x-admin-token': token() },
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || 'Could not delete.');
+      loadResults();
+    } catch (e) {
+      alert(e.message);
+    }
+  }
+
+  async function createAgent() {
+    const btn = $('createAgentBtn');
+    const msg = $('agentMsg');
+    msg.className = 'msg';
+
+    const username = $('agentUsername').value.trim();
+    const displayName = $('agentDisplayName').value.trim();
+    const password = $('agentPassword').value;
+
+    if (!apiBase() || !token()) {
+      showMsg(msg, 'Enter your backend URL and admin token first.', true);
+      return;
+    }
+    if (!username || !displayName || password.length < 6) {
+      showMsg(msg, 'Fill in username, display name, and a password of at least 6 characters.', true);
+      return;
+    }
+
+    btn.disabled = true;
+    btn.textContent = 'Adding...';
+
+    try {
+      const res = await fetch(`${apiBase()}/api/admin/agents/create`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-admin-token': token() },
+        body: JSON.stringify({ username, password, display_name: displayName }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || 'Could not create agent.');
+
+      showMsg(msg, `Agent '${displayName}' created. Share their username and password with them directly — this isn't shown again.`, false);
+      ['agentUsername', 'agentDisplayName', 'agentPassword'].forEach((id) => $(id).value = '');
+      loadAgents();
+    } catch (e) {
+      showMsg(msg, e.message, true);
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Add Agent';
+    }
+  }
+
+  async function loadAgents() {
+    const container = $('agentsList');
+    if (!apiBase() || !token()) return;
+
+    try {
+      const res = await fetch(`${apiBase()}/api/admin/agents/list`, {
+        headers: { 'x-admin-token': token() },
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || 'Could not load agents.');
+
+      if (!data.agents.length) {
+        container.innerHTML = '<div class="empty-note">No agents added yet.</div>';
+        return;
+      }
+
+      container.innerHTML = data.agents.map((a) => `
+        <div class="result-row">
+          <div>
+            <div><strong>${a.display_name}</strong> (${a.username}) ${a.active ? '' : ' — <span style="color: var(--red)">deactivated</span>'}</div>
+            <div class="result-meta">Added ${a.created_at.slice(0, 10)}</div>
+          </div>
+          <button class="del-btn" onclick="toggleAgent('${a.username}', ${a.active})">${a.active ? 'Deactivate' : 'Reactivate'}</button>
+        </div>
+      `).join('');
+    } catch (e) {
+      container.innerHTML = `<div class="empty-note">${e.message}</div>`;
+    }
+  }
+
+  async function toggleAgent(username, currentlyActive) {
+    const action = currentlyActive ? 'deactivate' : 'reactivate';
+    try {
+      const res = await fetch(`${apiBase()}/api/admin/agents/${encodeURIComponent(username)}/${action}`, {
+        method: 'POST',
+        headers: { 'x-admin-token': token() },
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || 'Could not update agent.');
+      loadAgents();
+    } catch (e) {
+      alert(e.message);
+    }
+  }
+
+  loadResults();
+  loadAgents();
+</script>
+
+</body>
+</html>

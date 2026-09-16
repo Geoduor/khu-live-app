@@ -16,19 +16,20 @@ from pydantic import BaseModel
 from typing import Optional
 from apscheduler.schedulers.background import BackgroundScheduler
 from datetime import datetime
-from urllib.parse import urlparse
 import logging
 import os
 import json
 import re
 import tempfile
-import threading
 import requests
 
 from scraper import (
     scrape_standings,
+    scrape_all_fixtures_and_results,
+    scrape_team_profile,
     scrape_match_detail,
     scrape_league_results_via_teams,
+    correct_team_name,
     _parse_match_date,
     _group_and_sort_matches,
     LEAGUES,
@@ -40,25 +41,76 @@ from pdf_fixtures import parse_pdf_fixtures, merge_pdf_fixtures_into_scraped
 import database as db
 import push
 
+# league_short (e.g. "PLM") -> that league's full LEAGUES entry —
+# built once here since several places (manual results, admin
+# endpoints) need to go from a short code back to the full league
+# name/key, and LEAGUES itself is keyed the other way around.
+LEAGUES_BY_SHORT = {league["short"]: {**league, "key": key} for key, league in LEAGUES.items()}
+
 # Shared-secret gate for the PDF-upload admin endpoint. Set this in
 # your .env / Render environment — never hardcode a real value here.
 # If unset, the endpoint refuses all requests (fails closed, not open).
 ADMIN_TOKEN = os.environ.get("ADMIN_TOKEN", "")
 
-ALLOWED_KHU_HOSTS = {"kenyahockeyunion.org", "www.kenyahockeyunion.org"}
+
+def _authorize_writer(x_admin_token: str = "", x_agent_token: str = "") -> str:
+    """
+    Shared auth check for anything that adds/edits a manual result:
+    accepts EITHER the master ADMIN_TOKEN (that's you) OR a valid,
+    still-active agent session token. Returns a display name to
+    attribute the write to ("Admin", or the agent's real name) — never
+    raises silently, always either returns a name or raises 401.
+    Checked fresh on every request (via db.verify_agent_session), so
+    deactivating an agent takes effect immediately, not just for their
+    next login.
+    """
+    if ADMIN_TOKEN and x_admin_token == ADMIN_TOKEN:
+        return "Admin"
+    if x_agent_token:
+        session = db.verify_agent_session(x_agent_token)
+        if session:
+            return session["display_name"]
+    raise HTTPException(status_code=401, detail="Missing or invalid admin token / agent session.")
 
 
-def _is_allowed_khu_url(url: str) -> bool:
-    """Strict host allowlist — substring checks are not enough (SSRF)."""
-    try:
-        parsed = urlparse(url)
-    except Exception:
-        return False
-    if parsed.scheme not in ("http", "https"):
-        return False
-    host = (parsed.hostname or "").lower()
-    return host in ALLOWED_KHU_HOSTS
+class PushKeys(BaseModel):
+    p256dh: str
+    auth: str
 
+
+class ManualResultInput(BaseModel):
+    """
+    A human-entered match result — fills a gap the live scraper hasn't
+    (or can't) confirm yet. league_short must be one of the real KHU
+    league codes (PLM, PLW, SLM, SLW, NLM-EZ, NLM-CZ, NLM-WZ, NLM-SZ) —
+    validated against LEAGUES below, never guessed. date should be
+    "YYYY-MM-DD HH:MM" to match every other date format already used
+    across this app.
+    """
+    league_short: str
+    home_team: str
+    away_team: str
+    home_score: int
+    away_score: int
+    date: str
+    venue: Optional[str] = ""
+
+
+class AgentCreateInput(BaseModel):
+    username: str
+    password: str
+    display_name: str
+
+
+class AgentLoginInput(BaseModel):
+    username: str
+    password: str
+
+
+class PushSubscription(BaseModel):
+    endpoint: str
+    keys: PushKeys
+    expirationTime: Optional[float] = None
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -78,13 +130,11 @@ allowed_origins = (
     if _allowed_origins_env
     else ["*"]  # local dev fallback — fine for testing, tighten in production
 )
-# Browsers reject credentials + wildcard origins; this API doesn't use cookies.
-_allow_credentials = allowed_origins != ["*"]
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=allowed_origins,
-    allow_credentials=_allow_credentials,
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -97,8 +147,6 @@ cache = {
     "last_refresh_success": None,
     "status": "starting",
 }
-
-_refresh_lock = threading.Lock()
 
 STALE_THRESHOLD_SECONDS = 60 * 30  # 30 minutes
 
@@ -135,6 +183,84 @@ def seed_pdf_fixtures_from_file():
             logger.info(f"Re-seeded {len(matches)} PDF fixture(s) from pdf_fixtures_seed.json (survives Render's ephemeral filesystem)")
     except Exception as e:
         logger.error(f"Failed to load pdf_fixtures_seed.json: {e}")
+
+
+# Same git-committed-seed pattern as PDF fixtures, for manually-entered
+# results — see MANUAL_RESULTS_SEED_PATH's loader docstring below.
+MANUAL_RESULTS_SEED_PATH = os.path.join(os.path.dirname(__file__), "manual_results_seed.json")
+
+
+def seed_manual_results_from_file():
+    """
+    Reload manually-entered results from backend/manual_results_seed.json
+    (if it exists) into manual_results_store on every startup — same
+    reasoning as seed_pdf_fixtures_from_file(): Render's free tier wipes
+    local SQLite on every cold start, so anything that should survive
+    permanently needs to also live in a git-committed file, not just
+    the database. Run the admin export endpoint after adding/editing
+    results, save its output over this file, and commit it, to make
+    manual entries durable across every future restart.
+    """
+    if not os.path.exists(MANUAL_RESULTS_SEED_PATH):
+        logger.info("No manual_results_seed.json found — skipping manual results seed (none entered yet, or not exported).")
+        return
+
+    try:
+        with open(MANUAL_RESULTS_SEED_PATH, "r") as f:
+            seed_data = json.load(f)
+        results = seed_data.get("results", [])
+        for r in results:
+            db.save_manual_result(r)
+        if results:
+            logger.info(f"Re-seeded {len(results)} manual result(s) from manual_results_seed.json")
+    except Exception as e:
+        logger.error(f"Failed to load manual_results_seed.json: {e}")
+
+
+def merge_manual_results_into_scraped(scraped_results: list, manual_results: list) -> list:
+    """
+    Merge manually-entered results into an already-scraped results list.
+    Same "whichever source has it first wins, the other just fills
+    gaps" rule as merge_pdf_fixtures_into_scraped — a manual result is
+    only added if there's no live-scraped result for that same match
+    already; the live scrape is never overwritten by a manual entry
+    once it exists in this refresh's scraped output.
+    """
+    def sig(r):
+        date_part = (r.get("date") or "")[:10]
+        return (
+            r.get("league_short", "").strip().upper(),
+            r.get("home_team", "").strip().lower(),
+            r.get("away_team", "").strip().lower(),
+            date_part,
+        )
+
+    existing_sigs = {sig(r) for r in scraped_results}
+
+    merged = list(scraped_results)
+    added = 0
+    for r in manual_results:
+        if sig(r) in existing_sigs:
+            continue
+        entry = dict(r)
+        entry.pop("match_key", None)  # internal admin-UI field, not part of the match schema
+        entry.setdefault("matchday", "")
+        entry.setdefault("home_team_url", "")
+        entry.setdefault("home_logo_url", "")
+        entry.setdefault("away_team_url", "")
+        entry.setdefault("away_logo_url", "")
+        entry.setdefault("state", "FT")
+        entry.setdefault("match_url", "")
+        entry.setdefault("venue", "")
+        entry["source"] = "manual"
+        league = LEAGUES_BY_SHORT.get(entry.get("league_short", "").upper())
+        entry["league"] = league["name"] if league else entry.get("league_short", "")
+        merged.append(entry)
+        added += 1
+
+    if added:
+        logger.info(f"Merged {added} new manual result(s) ({len(manual_results) - added} were already covered by the live scrape)")
+    return merged
 
 
 def _normalize_team_name(name: str) -> str:
@@ -523,55 +649,19 @@ def backfill_match_logos(matches: list, logo_lookup: dict, fuzzy_records: list =
     return filled
 
 
-def build_team_url_lookup() -> dict:
-    """{normalized_team_name: team_url} from cached standings — used to
-    backfill match team URLs (needed for favorites/push targeting and
-    opening TeamProfile from MatchCard)."""
-    lookup = {}
-    for league_data in cache["standings"].values():
-        for team in league_data.get("standings", []):
-            url = team.get("team_url")
-            name = team.get("team")
-            if url and name:
-                for alias in _alias_group_for(_normalize_team_name(name)):
-                    lookup.setdefault(alias, url)
-    return lookup
-
-
-def backfill_match_team_urls(matches: list, url_lookup: dict) -> int:
-    """Fill missing home_team_url/away_team_url from standings. Returns
-    count of URL fields filled."""
-    filled = 0
-    for m in matches:
-        if not m.get("home_team_url"):
-            url = url_lookup.get(_normalize_team_name(m.get("home_team", "")))
-            if url:
-                m["home_team_url"] = url
-                filled += 1
-        if not m.get("away_team_url"):
-            url = url_lookup.get(_normalize_team_name(m.get("away_team", "")))
-            if url:
-                m["away_team_url"] = url
-                filled += 1
-    return filled
-
-
 def refresh_standings_for(league_key: str):
-    """Scrape one league. Only overwrite last-known-good cache on success."""
+    """Scrape one league; save to DB regardless of success; update in-memory cache."""
     try:
         data = scrape_standings(league_key)
         success = not bool(data.get("error"))
+        db.save_standings(league_key, data, success=success)
+        data["_cache_scraped_at"] = datetime.now().isoformat()
+        data["_cache_success"] = success
+        cache["standings"][league_key] = data
         if success:
-            db.save_standings(league_key, data, success=True)
-            data["_cache_scraped_at"] = datetime.now().isoformat()
-            data["_cache_success"] = True
-            cache["standings"][league_key] = data
             logger.info(f"✅ {league_key}: {data.get('total_teams', 0)} teams")
         else:
-            logger.warning(
-                f"⚠️ {league_key}: scrape failed — {data.get('error')} "
-                "(keeping previous cache if any)"
-            )
+            logger.warning(f"⚠️ {league_key}: scrape failed — {data.get('error')}")
         return success
     except Exception as e:
         logger.error(f"❌ {league_key}: exception during scrape — {e}")
@@ -611,9 +701,7 @@ def refresh_fixtures_results():
                 errors.append({"league": league_key, "error": result["error"]})
             all_matches.extend(result.get("matches", []))
 
-        fixtures = _group_and_sort_matches(
-            [m for m in all_matches if m["state"] == "NS"], soonest_first=True
-        )
+        fixtures = _group_and_sort_matches([m for m in all_matches if m["state"] == "NS"])
         results = _group_and_sort_matches([m for m in all_matches if m["state"] == "FT"])
         live = _group_and_sort_matches([m for m in all_matches if m["state"] == "LIVE"])
 
@@ -638,36 +726,40 @@ def refresh_fixtures_results():
         pdf_matches = db.load_pdf_fixtures()
         if pdf_matches:
             merged = merge_pdf_fixtures_into_scraped(data.get("fixtures", []), pdf_matches)
-            data["fixtures"] = _group_and_sort_matches(merged, soonest_first=True)
+            data["fixtures"] = _group_and_sort_matches(merged)
             data["total_fixtures"] = len(data["fixtures"])
 
-        # ── Backfill missing team logos / URLs from standings data ──
+        # ── Re-apply any manually-entered results on EVERY refresh ──
+        # Same reasoning as the PDF-fixtures merge above, applied to
+        # RESULTS: without this, a scheduled scrape would silently drop
+        # a manually-entered result the moment the live scrape runs
+        # again (since it rebuilds "results" from scratch each time).
+        # merge_manual_results_into_scraped only fills gaps — a result
+        # the live scrape already found for that match is never
+        # overwritten by a manual entry.
+        manual_results = db.load_manual_results()
+        if manual_results:
+            merged_results = merge_manual_results_into_scraped(data.get("results", []), manual_results)
+            data["results"] = _group_and_sort_matches(merged_results)
+            data["total_results"] = len(data["results"])
+
+        # ── Backfill missing team logos from standings data ──
+        # Standings scrapes reliably carry real logo URLs; fixtures/results
+        # scrapes and PDF-sourced fixtures often don't. This fills the gap
+        # using whatever we already have on file, without ever overwriting
+        # a logo a match already has.
         logo_lookup = build_team_logo_lookup()
-        url_lookup = build_team_url_lookup()
-        fuzzy_records = build_fuzzy_team_records() if logo_lookup else []
-        for bucket in ("fixtures", "results", "live"):
-            bucket_matches = data.get(bucket, [])
-            if logo_lookup:
-                filled = backfill_match_logos(bucket_matches, logo_lookup, fuzzy_records)
-                if filled:
-                    logger.info(f"Backfilled {filled} missing team logo(s) in {bucket}")
-            if url_lookup:
-                filled_urls = backfill_match_team_urls(bucket_matches, url_lookup)
-                if filled_urls:
-                    logger.info(f"Backfilled {filled_urls} missing team URL(s) in {bucket}")
+        if logo_lookup:
+            fuzzy_records = build_fuzzy_team_records()
+            filled = 0
+            filled += backfill_match_logos(data.get("fixtures", []), logo_lookup, fuzzy_records)
+            filled += backfill_match_logos(data.get("results", []), logo_lookup, fuzzy_records)
+            filled += backfill_match_logos(data.get("live", []), logo_lookup, fuzzy_records)
+            if filled:
+                logger.info(f"Backfilled {filled} missing team logo(s) from standings data")
 
-        live_scrape_ok = len(all_matches) > 0
         total = data.get("total_fixtures", 0) + data.get("total_results", 0) + data.get("total_live", 0)
-        # Persist when the live scrape produced matches, or when bootstrapping
-        # with PDF-only fixtures and no prior cache exists yet.
-        should_persist = live_scrape_ok or (not cache.get("fixtures_results") and total > 0)
-
-        if not should_persist:
-            logger.warning(
-                "⚠️ fixtures/results scrape returned nothing useful — "
-                "keeping previous cache if any"
-            )
-            return False
+        success = total > 0
 
         # ── Detect newly-live matches vs the previous snapshot ──
         prev_live_keys = set()
@@ -684,9 +776,9 @@ def refresh_fixtures_results():
             if key not in prev_live_keys:
                 new_live.append(m)
 
-        db.save_fixtures_results(data, success=True)
+        db.save_fixtures_results(data, success=success)
         data["_cache_scraped_at"] = datetime.now().isoformat()
-        data["_cache_success"] = True
+        data["_cache_success"] = success
         cache["fixtures_results"] = data
 
         # ── Fire push notifications for newly-live matches ──
@@ -705,12 +797,15 @@ def refresh_fixtures_results():
             except Exception as e:
                 logger.error(f"Push notification failed for {m}: {e}")
 
-        logger.info(
-            f"✅ fixtures/results: {data.get('total_live',0)} live, "
-            f"{data.get('total_fixtures',0)} fixtures, {data.get('total_results',0)} results"
-            + (f" | {len(new_live)} newly live -> notified" if new_live else "")
-        )
-        return True
+        if success:
+            logger.info(
+                f"✅ fixtures/results: {data.get('total_live',0)} live, "
+                f"{data.get('total_fixtures',0)} fixtures, {data.get('total_results',0)} results"
+                + (f" | {len(new_live)} newly live -> notified" if new_live else "")
+            )
+        else:
+            logger.warning("⚠️ fixtures/results scrape returned nothing useful")
+        return success
     except Exception as e:
         logger.error(f"❌ fixtures/results: exception — {e}")
         return False
@@ -718,7 +813,7 @@ def refresh_fixtures_results():
 
 def refresh_all_data(force: bool = False):
     """
-    Refresh every league + fixtures/results. Called on startup, every 15 minutes
+    Refresh every league + homepage. Called on startup, every 15 minutes
     (scheduled/automatic), and on manual refresh (force=True).
 
     Circuit breaker behavior:
@@ -729,47 +824,40 @@ def refresh_all_data(force: bool = False):
         user action is a stronger signal than a scheduled guess — this
         matches how Gmail/Twitter/FotMob treat pull-to-refresh.
     """
-    if not _refresh_lock.acquire(blocking=False):
-        logger.info("⚪ Refresh already in progress — skipping overlapping run")
+    logger.info("═" * 50)
+
+    if not force and not db.should_attempt_scrape(cooldown_seconds=300):
+        logger.info("⚪ Skipping scheduled refresh — circuit breaker OPEN, serving cache only")
+        cache["status"] = "cached" if cache["standings"] else cache["status"]
         return
 
-    try:
-        logger.info("═" * 50)
+    logger.info(f"Starting full data refresh... (force={force})")
+    cache["last_refresh_attempt"] = datetime.now().isoformat()
 
-        if not force and not db.should_attempt_scrape(cooldown_seconds=300):
-            logger.info("⚪ Skipping scheduled refresh — circuit breaker OPEN, serving cache only")
-            cache["status"] = "cached" if cache["standings"] else cache["status"]
-            return
+    results = []
+    for league_key in LEAGUES:
+        results.append(refresh_standings_for(league_key))
+    results.append(refresh_fixtures_results())
 
-        logger.info(f"Starting full data refresh... (force={force})")
-        cache["last_refresh_attempt"] = datetime.now().isoformat()
+    any_success = any(results)
+    all_success = all(results)
 
-        results = []
-        for league_key in LEAGUES:
-            results.append(refresh_standings_for(league_key))
-        results.append(refresh_fixtures_results())
+    # Update circuit breaker based on this cycle's overall outcome
+    db.record_scrape_result(success=any_success, failure_threshold=3)
 
-        any_success = any(results)
-        all_success = all(results)
+    if all_success:
+        cache["status"] = "live"
+    elif any_success:
+        cache["status"] = "partial"
+    else:
+        cache["status"] = "error"
 
-        # Update circuit breaker based on this cycle's overall outcome
-        db.record_scrape_result(success=any_success, failure_threshold=3)
+    if any_success:
+        cache["last_refresh_success"] = datetime.now().isoformat()
 
-        if all_success:
-            cache["status"] = "live"
-        elif any_success:
-            cache["status"] = "partial"
-        else:
-            cache["status"] = "error"
-
-        if any_success:
-            cache["last_refresh_success"] = datetime.now().isoformat()
-
-        breaker_state = db.get_circuit_state()
-        logger.info(f"Refresh complete — status: {cache['status']} | circuit: {breaker_state['state']}")
-        logger.info("═" * 50)
-    finally:
-        _refresh_lock.release()
+    breaker_state = db.get_circuit_state()
+    logger.info(f"Refresh complete — status: {cache['status']} | circuit: {breaker_state['state']}")
+    logger.info("═" * 50)
 
 
 def load_from_cache_on_boot():
@@ -803,11 +891,11 @@ scheduler.start()
 async def startup_event():
     db.init_db()
     seed_pdf_fixtures_from_file()
+    seed_manual_results_from_file()
     push.init_push_table()
     load_from_cache_on_boot()
-    logger.info("KHU API starting up — kicking off first live scrape in background...")
-    # Background so Render health checks aren't blocked by a long first scrape.
-    threading.Thread(target=refresh_all_data, daemon=True, name="startup-refresh").start()
+    logger.info("KHU API starting up — kicking off first live scrape...")
+    refresh_all_data()
 
 
 # ══════════════════════════════════════════════════════
@@ -887,7 +975,7 @@ def proxy_logo(url: str):
     on kenyahockeyunion.org's own domain — this is NOT a general-purpose
     open proxy, just a narrow fix for one specific image-loading problem.
     """
-    if not url or not _is_allowed_khu_url(url):
+    if not url or KHU_BASE_URL.replace("https://", "").replace("www.", "") not in url:
         raise HTTPException(status_code=400, detail="Only kenyahockeyunion.org image URLs are allowed.")
 
     if url in _LOGO_CACHE:
@@ -1271,16 +1359,13 @@ async def upload_fixtures_pdf(
     merged_fixtures = merge_pdf_fixtures_into_scraped(existing_fixtures, pdf_result["matches"])
     added_count = len(merged_fixtures) - len(existing_fixtures)
 
-    merged_fixtures = _group_and_sort_matches(merged_fixtures, soonest_first=True)
+    merged_fixtures = _group_and_sort_matches(merged_fixtures)
 
     # Backfill logos immediately (don't make the user wait for the next
     # scheduled refresh to see them) — same lookup/rule as refresh_fixtures_results.
     logo_lookup = build_team_logo_lookup()
     if logo_lookup:
         backfill_match_logos(merged_fixtures, logo_lookup, build_fuzzy_team_records())
-    url_lookup = build_team_url_lookup()
-    if url_lookup:
-        backfill_match_team_urls(merged_fixtures, url_lookup)
 
     updated = dict(current)
     updated["fixtures"] = merged_fixtures
@@ -1305,6 +1390,198 @@ async def upload_fixtures_pdf(
         "total_fixtures_now": len(merged_fixtures),
         "skipped_rows": pdf_result["skipped_rows"],
     }
+
+
+# ══════════════════════════════════════════════════════
+# MANUAL RESULTS — human-entered fallback for the scraper
+# ══════════════════════════════════════════════════════
+# See ManualResultInput's docstring and merge_manual_results_into_scraped
+# for the full "why this exists" and merge philosophy. All four
+# endpoints below are gated behind the same ADMIN_TOKEN as the PDF
+# upload endpoint.
+
+@app.post("/api/admin/results/add")
+def add_manual_result(
+    payload: ManualResultInput,
+    x_admin_token: str = Header(default=""),
+    x_agent_token: str = Header(default=""),
+):
+    """
+    Add (or correct, if re-submitted with the same teams/date/league)
+    one manually-entered result. Applied immediately to the live cache
+    — no need to wait for the next scheduled refresh — and persisted
+    permanently so it survives every future refresh and restart.
+
+    Callable by you (x-admin-token) OR any active agent (x-agent-token,
+    obtained from POST /api/agent/login) — either way, entered_by
+    records who actually did it.
+    """
+    entered_by = _authorize_writer(x_admin_token, x_agent_token)
+
+    league = LEAGUES_BY_SHORT.get(payload.league_short.strip().upper())
+    if not league:
+        valid = ", ".join(sorted(LEAGUES_BY_SHORT.keys()))
+        raise HTTPException(status_code=400, detail=f"Unknown league_short '{payload.league_short}'. Must be one of: {valid}")
+
+    if not _parse_match_date(payload.date) or _parse_match_date(payload.date).year == 1:
+        raise HTTPException(status_code=400, detail="date must be in 'YYYY-MM-DD HH:MM' format.")
+
+    result = {
+        "league_short": league["short"],
+        "league": league["name"],
+        "home_team": correct_team_name(payload.home_team.strip()),
+        "away_team": correct_team_name(payload.away_team.strip()),
+        "home_score": payload.home_score,
+        "away_score": payload.away_score,
+        "date": payload.date.strip(),
+        "venue": (payload.venue or "").strip(),
+        "matchday": "", "home_team_url": "", "home_logo_url": "",
+        "away_team_url": "", "away_logo_url": "", "state": "FT", "match_url": "",
+        "source": "manual",
+        "entered_by": entered_by,
+    }
+
+    match_key = db.save_manual_result(result)
+
+    # Apply immediately to the live cache, same as the PDF upload endpoint does.
+    current = cache.get("fixtures_results") or {}
+    existing_results = current.get("results", [])
+    merged_results = merge_manual_results_into_scraped(existing_results, [{**result, "match_key": match_key}])
+    merged_results = _group_and_sort_matches(merged_results)
+
+    logo_lookup = build_team_logo_lookup()
+    if logo_lookup:
+        backfill_match_logos(merged_results, logo_lookup, build_fuzzy_team_records())
+
+    updated = dict(current)
+    updated["results"] = merged_results
+    updated["total_results"] = len(merged_results)
+    updated.setdefault("fixtures", current.get("fixtures", []))
+    updated.setdefault("live", current.get("live", []))
+    updated["scraped_at"] = current.get("scraped_at", datetime.now().isoformat())
+
+    db.save_fixtures_results(updated, success=True)
+    updated["_cache_scraped_at"] = datetime.now().isoformat()
+    updated["_cache_success"] = True
+    cache["fixtures_results"] = updated
+
+    logger.info(f"Manual result added: {result['home_team']} {result['home_score']}-{result['away_score']} {result['away_team']} ({league['short']})")
+
+    return {"message": "Result added.", "match_key": match_key, "result": result}
+
+
+@app.get("/api/admin/results/list")
+def list_manual_results(x_admin_token: str = Header(default=""), x_agent_token: str = Header(default="")):
+    """List every manually-entered result currently stored — for review, or to find a match_key to delete. Callable by you or any active agent."""
+    _authorize_writer(x_admin_token, x_agent_token)
+    results = db.load_manual_results()
+    return {"results": results, "count": len(results)}
+
+
+@app.delete("/api/admin/results/{match_key}")
+def delete_manual_result(match_key: str, x_admin_token: str = Header(default=""), x_agent_token: str = Header(default="")):
+    """
+    Remove one manually-entered result (e.g. it was a mistake, or the
+    live scrape has now confirmed the real result and the manual entry
+    is no longer needed). Does NOT retroactively remove it from the
+    CURRENT in-memory cache — that happens naturally on the next
+    refresh, since a deleted entry won't be in db.load_manual_results()
+    anymore. Call POST /api/refresh afterward for it to disappear
+    immediately instead of waiting for the next scheduled cycle.
+
+    Callable by you or any active agent — not restricted to whoever
+    originally entered it, since a mistake often needs fixing by
+    whoever spots it, not just its original author.
+    """
+    _authorize_writer(x_admin_token, x_agent_token)
+    deleted = db.delete_manual_result(match_key)
+    if not deleted:
+        raise HTTPException(status_code=404, detail=f"No manual result found with match_key '{match_key}'.")
+    return {"message": "Deleted.", "match_key": match_key}
+
+
+@app.get("/api/admin/results/export-seed")
+def export_manual_results_seed(x_admin_token: str = Header(default="")):
+    """
+    Export every currently-stored manual result as JSON — meant to be
+    saved as backend/manual_results_seed.json and committed to git, so
+    it survives Render's ephemeral filesystem (same reasoning as
+    export_pdf_seed above). Run this after adding/editing/deleting
+    manual results if you want those changes to survive a future
+    cold start permanently.
+    """
+    if not ADMIN_TOKEN or x_admin_token != ADMIN_TOKEN:
+        raise HTTPException(status_code=401, detail="Missing or invalid admin token.")
+    results = db.load_manual_results()
+    return {"results": results, "exported_at": datetime.now().isoformat(), "count": len(results)}
+
+
+# ══════════════════════════════════════════════════════
+# AGENTS — accounts for people who help enter results
+# ══════════════════════════════════════════════════════
+
+@app.post("/api/admin/agents/create")
+def admin_create_agent(payload: AgentCreateInput, x_admin_token: str = Header(default="")):
+    """Create a new agent account. Admin-only — agents can't create other agents."""
+    if not ADMIN_TOKEN or x_admin_token != ADMIN_TOKEN:
+        raise HTTPException(status_code=401, detail="Missing or invalid admin token.")
+    if len(payload.password) < 6:
+        raise HTTPException(status_code=400, detail="Password must be at least 6 characters.")
+    created = db.create_agent(payload.username.strip(), payload.password, payload.display_name.strip())
+    if not created:
+        raise HTTPException(status_code=409, detail=f"Username '{payload.username}' already exists.")
+    return {"message": f"Agent '{payload.display_name}' created.", "username": payload.username}
+
+
+@app.get("/api/admin/agents/list")
+def admin_list_agents(x_admin_token: str = Header(default="")):
+    """List every agent account (active or deactivated). Admin-only."""
+    if not ADMIN_TOKEN or x_admin_token != ADMIN_TOKEN:
+        raise HTTPException(status_code=401, detail="Missing or invalid admin token.")
+    return {"agents": db.list_agents()}
+
+
+@app.post("/api/admin/agents/{username}/deactivate")
+def admin_deactivate_agent(username: str, x_admin_token: str = Header(default="")):
+    """
+    Deactivate an agent — takes effect immediately, including for any
+    session they're already logged into (every write re-checks
+    agents.active, not just login time). Doesn't delete their past
+    entered_by history. Admin-only.
+    """
+    if not ADMIN_TOKEN or x_admin_token != ADMIN_TOKEN:
+        raise HTTPException(status_code=401, detail="Missing or invalid admin token.")
+    updated = db.set_agent_active(username, False)
+    if not updated:
+        raise HTTPException(status_code=404, detail=f"No agent found with username '{username}'.")
+    return {"message": f"Agent '{username}' deactivated."}
+
+
+@app.post("/api/admin/agents/{username}/reactivate")
+def admin_reactivate_agent(username: str, x_admin_token: str = Header(default="")):
+    """Reactivate a previously-deactivated agent. Admin-only."""
+    if not ADMIN_TOKEN or x_admin_token != ADMIN_TOKEN:
+        raise HTTPException(status_code=401, detail="Missing or invalid admin token.")
+    updated = db.set_agent_active(username, True)
+    if not updated:
+        raise HTTPException(status_code=404, detail=f"No agent found with username '{username}'.")
+    return {"message": f"Agent '{username}' reactivated."}
+
+
+@app.post("/api/agent/login")
+def agent_login(payload: AgentLoginInput):
+    """
+    Public endpoint — an agent logs in with their username/password and
+    gets back a session token (valid 30 days) to use as the
+    x-agent-token header on every subsequent write. Deliberately gives
+    the same error for "no such user" and "wrong password" so a login
+    attempt can't be used to discover valid usernames.
+    """
+    display_name = db.verify_agent_login(payload.username.strip(), payload.password)
+    if not display_name:
+        raise HTTPException(status_code=401, detail="Incorrect username or password.")
+    token = db.create_agent_session(payload.username.strip())
+    return {"token": token, "display_name": display_name}
 
 
 # ══════════════════════════════════════════════════════
@@ -1420,7 +1697,7 @@ def get_team_profile(url: str = "", name: str = ""):
     'name' is the team name as already known from wherever the user
     tapped through from (standings row, match card, etc).
     """
-    if url and not _is_allowed_khu_url(url):
+    if url and "kenyahockeyunion.org" not in url:
         raise HTTPException(status_code=400, detail="Invalid team URL — must be a kenyahockeyunion.org link")
     if not url and not name:
         raise HTTPException(status_code=400, detail="Need at least a team name or URL to look up a profile")
@@ -1443,7 +1720,7 @@ def get_match_detail(url: str):
     'url' comes from the 'match_url' field already present in fixtures/results
     data — never guessed or constructed.
     """
-    if not _is_allowed_khu_url(url):
+    if "kenyahockeyunion.org" not in url:
         raise HTTPException(status_code=400, detail="Invalid match URL — must be a kenyahockeyunion.org link")
 
     cached = _match_cache.get(url)

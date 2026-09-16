@@ -8,7 +8,9 @@ and tell the frontend how old it is (exactly how ESPN/SofaScore behave).
 import sqlite3
 import json
 import logging
-from datetime import datetime
+import hashlib
+import secrets
+from datetime import datetime, timedelta
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -60,6 +62,57 @@ def init_db():
             data_json    TEXT NOT NULL,
             uploaded_at  TEXT NOT NULL,
             source_file  TEXT
+        )
+    """)
+
+    # ── Manually-entered results — same "fills gaps, never overwrites
+    # live data" philosophy as pdf_fixtures_store above, applied to
+    # RESULTS instead of fixtures. Exists because scraping results has
+    # repeatedly proven fragile (see main.py's refresh_fixtures_results
+    # docstring for the full history) — this gives a human a direct way
+    # to record a result KHU's site hasn't reflected yet, without
+    # waiting on scraper fixes. Whichever source (manual entry or live
+    # scrape) has a given match FIRST is what keeps showing — see
+    # merge_manual_results_into_scraped in main.py for the exact rule.
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS manual_results_store (
+            match_key    TEXT PRIMARY KEY,
+            data_json    TEXT NOT NULL,
+            entered_at   TEXT NOT NULL
+        )
+    """)
+
+    # ── Agents — people (besides you) allowed to add manual results. ──
+    # Each has their own login, so every result can be attributed to a
+    # real person instead of an anonymous shared token — useful for
+    # accountability and for tracking down a mistake later. Passwords
+    # are stored as salted PBKDF2-SHA256 hashes (Python's stdlib
+    # hashlib/secrets — no extra dependency to install or keep pinned
+    # on Render), never in plain text.
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS agents (
+            username      TEXT PRIMARY KEY,
+            display_name  TEXT NOT NULL,
+            password_hash TEXT NOT NULL,
+            password_salt TEXT NOT NULL,
+            active        INTEGER NOT NULL DEFAULT 1,
+            created_at    TEXT NOT NULL
+        )
+    """)
+
+    # ── Agent login sessions ──
+    # A logged-in agent gets an opaque session token (not a JWT — no
+    # extra dependency needed) valid for 30 days, checked against this
+    # table on every write. Deactivating an agent (see agents.active)
+    # doesn't need to touch existing sessions — the auth check joins
+    # against agents.active every time, so deactivation takes effect
+    # immediately even for someone already logged in.
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS agent_sessions (
+            token       TEXT PRIMARY KEY,
+            username    TEXT NOT NULL,
+            created_at  TEXT NOT NULL,
+            expires_at  TEXT NOT NULL
         )
     """)
 
@@ -164,11 +217,8 @@ def load_fixtures_results():
 def _pdf_match_key(match: dict) -> str:
     """Same identity rule as pdf_fixtures.merge_pdf_fixtures_into_scraped's
     sig() — league + both teams + calendar date (not kickoff time), so a
-    re-uploaded/corrected PDF updates the existing row instead of duplicating.
-    Dates are normalized to YYYY-MM-DD so DD-MM-YYYY live scrapes and
-    YYYY-MM-DD PDF rows share the same key."""
-    from scraper import match_calendar_date_key
-    date_part = match_calendar_date_key(match.get("date") or "")
+    re-uploaded/corrected PDF updates the existing row instead of duplicating."""
+    date_part = (match.get("date") or "")[:10]
     return "|".join([
         match.get("league_short", "").strip().upper(),
         match.get("home_team", "").strip().lower(),
@@ -202,24 +252,13 @@ def save_pdf_fixtures(matches: list, source_file: str = ""):
 
 
 def load_pdf_fixtures() -> list:
-    """Load every PDF-sourced fixture ever uploaded. Returns [] if none.
-    Older stored rows may use the league short code as the display name —
-    normalize those to the full league name for consistent UI grouping."""
-    from scraper import LEAGUES
-    short_to_name = {info["short"]: info["name"] for info in LEAGUES.values()}
+    """Load every PDF-sourced fixture ever uploaded. Returns [] if none."""
     conn = get_connection()
     cur = conn.cursor()
     cur.execute("SELECT data_json FROM pdf_fixtures_store")
     rows = cur.fetchall()
     conn.close()
-    matches = []
-    for row in rows:
-        m = json.loads(row["data_json"])
-        short = (m.get("league_short") or "").strip()
-        if short and m.get("league") == short:
-            m["league"] = short_to_name.get(short, m["league"])
-        matches.append(m)
-    return matches
+    return [json.loads(row["data_json"]) for row in rows]
 
 
 def clear_pdf_fixtures():
@@ -229,6 +268,191 @@ def clear_pdf_fixtures():
     cur.execute("DELETE FROM pdf_fixtures_store")
     conn.commit()
     conn.close()
+
+
+def _manual_result_key(result: dict) -> str:
+    """Same identity rule as _pdf_match_key — league + both teams +
+    calendar date (not kickoff time) — so re-submitting a correction
+    for the same match upserts instead of creating a duplicate."""
+    date_part = (result.get("date") or "")[:10]
+    return "|".join([
+        result.get("league_short", "").strip().upper(),
+        result.get("home_team", "").strip().lower(),
+        result.get("away_team", "").strip().lower(),
+        date_part,
+    ])
+
+
+def save_manual_result(result: dict) -> str:
+    """Upsert one manually-entered result. Returns its match_key (used
+    as the ID for later editing/deleting via the admin endpoints)."""
+    conn = get_connection()
+    cur = conn.cursor()
+    key = _manual_result_key(result)
+    cur.execute("""
+        INSERT INTO manual_results_store (match_key, data_json, entered_at)
+        VALUES (?, ?, ?)
+        ON CONFLICT(match_key) DO UPDATE SET
+            data_json = excluded.data_json,
+            entered_at = excluded.entered_at
+    """, (key, json.dumps(result), datetime.now().isoformat()))
+    conn.commit()
+    conn.close()
+    return key
+
+
+def load_manual_results() -> list:
+    """Load every manually-entered result. Returns [] if none. Each
+    dict includes its own match_key (added here, not stored inside
+    data_json) so the admin UI can reference it for deletion."""
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute("SELECT match_key, data_json FROM manual_results_store")
+    rows = cur.fetchall()
+    conn.close()
+    results = []
+    for row in rows:
+        r = json.loads(row["data_json"])
+        r["match_key"] = row["match_key"]
+        results.append(r)
+    return results
+
+
+def delete_manual_result(match_key: str) -> bool:
+    """Remove one manually-entered result (e.g. to fix a typo by
+    re-entering it, or because it was added in error). Returns True if
+    a row was actually deleted, False if that key didn't exist."""
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute("DELETE FROM manual_results_store WHERE match_key = ?", (match_key,))
+    deleted = cur.rowcount > 0
+    conn.commit()
+    conn.close()
+    return deleted
+
+
+# ══════════════════════════════════════════════════════
+# AGENTS — people allowed to log in and add manual results
+# ══════════════════════════════════════════════════════
+
+def _hash_password(password: str, salt: str = None) -> tuple:
+    """PBKDF2-SHA256 with a random per-user salt — stdlib only, no
+    bcrypt/argon2 dependency to install and keep working on Render.
+    100,000 iterations is a reasonable, unremarkable-to-guess cost for
+    this use case (small trusted group, not a public sign-up system)."""
+    if salt is None:
+        salt = secrets.token_hex(16)
+    hash_hex = hashlib.pbkdf2_hmac("sha256", password.encode(), salt.encode(), 100_000).hex()
+    return hash_hex, salt
+
+
+def create_agent(username: str, password: str, display_name: str) -> bool:
+    """Create a new agent account. Returns False if that username
+    already exists (never silently overwrites an existing account —
+    use deactivate_agent + create_agent again if you really mean to
+    replace one, so it's a deliberate two-step action)."""
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute("SELECT 1 FROM agents WHERE username = ?", (username,))
+    if cur.fetchone():
+        conn.close()
+        return False
+    password_hash, salt = _hash_password(password)
+    cur.execute("""
+        INSERT INTO agents (username, display_name, password_hash, password_salt, active, created_at)
+        VALUES (?, ?, ?, ?, 1, ?)
+    """, (username, display_name, password_hash, salt, datetime.now().isoformat()))
+    conn.commit()
+    conn.close()
+    return True
+
+
+def verify_agent_login(username: str, password: str):
+    """Check a username/password pair. Returns the agent's display_name
+    on success, or None if the username doesn't exist, is deactivated,
+    or the password is wrong. Deliberately returns the same None for
+    all three failure cases — never reveals WHICH part was wrong, so a
+    login form can't be used to enumerate valid usernames."""
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute("SELECT * FROM agents WHERE username = ? AND active = 1", (username,))
+    row = cur.fetchone()
+    conn.close()
+    if not row:
+        return None
+    computed_hash, _ = _hash_password(password, row["password_salt"])
+    if not secrets.compare_digest(computed_hash, row["password_hash"]):
+        return None
+    return row["display_name"]
+
+
+def list_agents() -> list:
+    """List every agent (active or not) — never includes password
+    hashes, only what an admin needs to manage accounts."""
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute("SELECT username, display_name, active, created_at FROM agents ORDER BY created_at")
+    rows = cur.fetchall()
+    conn.close()
+    return [{"username": r["username"], "display_name": r["display_name"],
+              "active": bool(r["active"]), "created_at": r["created_at"]} for r in rows]
+
+
+def set_agent_active(username: str, active: bool) -> bool:
+    """Deactivate (or reactivate) an agent — takes effect immediately
+    for future requests, even ones using an already-issued session
+    token, since session validation always re-checks agents.active.
+    Deactivating rather than deleting preserves their entered_by
+    history on past results. Returns False if that username doesn't exist."""
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute("UPDATE agents SET active = ? WHERE username = ?", (int(active), username))
+    updated = cur.rowcount > 0
+    conn.commit()
+    conn.close()
+    return updated
+
+
+def create_agent_session(username: str) -> str:
+    """Issue a new opaque session token for an already-authenticated
+    agent, valid 30 days."""
+    conn = get_connection()
+    cur = conn.cursor()
+    token = secrets.token_hex(32)
+    now = datetime.now()
+    cur.execute("""
+        INSERT INTO agent_sessions (token, username, created_at, expires_at)
+        VALUES (?, ?, ?, ?)
+    """, (token, username, now.isoformat(), (now + timedelta(days=30)).isoformat()))
+    conn.commit()
+    conn.close()
+    return token
+
+
+def verify_agent_session(token: str):
+    """Check a session token. Returns {"username", "display_name"} if
+    valid AND the agent is still active, else None. Expired sessions
+    are lazily cleaned up here rather than needing a separate cleanup job."""
+    if not token:
+        return None
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute("""
+        SELECT s.token, s.username, s.expires_at, a.display_name, a.active
+        FROM agent_sessions s JOIN agents a ON a.username = s.username
+        WHERE s.token = ?
+    """, (token,))
+    row = cur.fetchone()
+    if not row:
+        conn.close()
+        return None
+    if datetime.fromisoformat(row["expires_at"]) < datetime.now() or not row["active"]:
+        cur.execute("DELETE FROM agent_sessions WHERE token = ?", (token,))
+        conn.commit()
+        conn.close()
+        return None
+    conn.close()
+    return {"username": row["username"], "display_name": row["display_name"]}
 
 
 def cache_age_seconds(scraped_at_iso: str) -> float:
