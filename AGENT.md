@@ -1,176 +1,207 @@
 # AGENT.md — KHU Live App
 
-Context file for anyone (human or AI) picking up work on this repo. Read this
-before touching `scraper.py` or the fixtures pipeline — most of the "why is
-this written so weirdly" questions are answered below.
+Context file for anyone (human or AI) picking up work on this repo. Read
+this before touching `scraper.py`, the fixtures/results pipeline, or the
+matching system — most "why is this written so weirdly" questions are
+answered below. See also `PRD.md`, `ARCHITECTURE.md`, and `API.md` for
+deeper detail on each area.
 
 ---
 
 ## What this is
 
-A personal fan project providing live scores, standings, fixtures, and team
-info for **Kenya Hockey Union** leagues. Not affiliated with KHU.
+A personal fan project providing live scores, standings, fixtures, team
+info, and now manual-entry tooling for **Kenya Hockey Union** leagues.
+Not affiliated with KHU — clearly labeled "Unofficial Fan App"
+everywhere a user would see it.
 
-- **Backend:** FastAPI + BeautifulSoup, deployed on Render
+- **Backend:** FastAPI + BeautifulSoup, deployed on Render (free tier)
 - **Frontend:** React PWA, deployed on Vercel
-- **Data source:** `kenyahockeyunion.org` (runs JoomSport on WordPress) +
-  official KHU season-calendar PDFs (see "Dual-Source Fixtures" below)
+- **Data sources:** live scrape of `kenyahockeyunion.org` (team-page
+  based, not the season calendar view — see below), KHU's own published
+  season-calendar PDFs, and manually-entered results from admin/agents
 - **Repo:** `github.com/Geoduor/khu-live-app`
 
 ## Ground rule — read this first
 
-**No hallucinated data. Ever.** Every score, standing, and fixture shown in
-the app must trace back to something KHU actually published — either scraped
-from their live site or extracted from their own PDF. If a scraper can't find
-something, the correct behavior is to show an empty/error state, never to
-guess, interpolate, or carry over stale-looking-plausible data silently.
+**No hallucinated data. Ever.** Every score, standing, and fixture shown
+in the app must trace back to something KHU actually published. If a
+scraper can't find something, show an empty/error state — never guess,
+interpolate, or carry over stale-looking-plausible data silently.
 
 ---
 
-## Architecture
+## Architecture (see ARCHITECTURE.md for full detail)
 
 ```
 backend/
-  main.py           FastAPI app, routes, scheduler, in-memory cache layer
-  scraper.py         JoomSport HTML scraping (standings, fixtures, results, live)
-  pdf_fixtures.py    KHU season-calendar PDF parsing (see below)
-  database.py        SQLite persistence — survives backend restarts
-  push.py            Web Push / VAPID notifications
-  render.yaml         Render deploy config (repo root, not backend/)
+  main.py            FastAPI app, routes, scheduler, cache, merge/backfill logic, agent auth
+  scraper.py         All kenyahockeyunion.org scraping — standings, team-page-based results, name corrections
+  pdf_fixtures.py    KHU season-calendar PDF parsing
+  database.py        SQLite — cache, PDF fixtures, manual results, agent accounts/sessions
+  push.py            Web Push (VAPID) notifications
+  render.yaml        Render deploy config (repo root)
 
 frontend/khu-frontend/
-  src/App.js          Main app + views (Standings, Fixtures, Results, Team, Match)
-  ...React PWA, service worker, push subscription handling
+  src/App.js                        Main app, all views, navigation
+  src/api.js                        API client incl. logo-proxy rewriting
+  src/components/                   MatchCard, LeagueTable, TeamProfile, TeamLogo, InstallBanner, etc.
+  src/hooks/                        useTheme, useFavorites, usePushNotifications, useInstallPrompt
+  public/admin.html                 Master admin portal (PDF upload, manual results, agent management)
+  public/agent.html                 Agent login + result entry (no master token needed)
 ```
 
-### Data flow
+## The single most important thing to know: how results are actually scraped
 
-1. **Live scrape** (`scraper.py`) runs on startup, every 15 min (scheduled),
-   and on manual pull-to-refresh. Hits `kenyahockeyunion.org`'s JoomSport
-   tables and per-league `?action=calendar` pages.
-2. **PDF ingestion** (`pdf_fixtures.py`) runs only when an admin uploads a
-   PDF via `POST /api/admin/fixtures/upload-pdf`. Parsed matches are stored
-   **permanently** in a separate SQLite table (`pdf_fixtures_store`).
-3. **Every refresh cycle** (step 1) re-merges whatever's in
-   `pdf_fixtures_store` into the freshly-scraped fixtures before caching.
-   This is the important part — see below.
+**The obvious approach doesn't work.** `{season_url}/?action=calendar` —
+the URL JoomSport's own "Calendar" tab links to — was directly fetched
+and confirmed to return the *identical* standings-only HTML as the plain
+season URL. No match data exists in that server-rendered page at all.
+Whatever populates that tab client-side, a plain HTTP GET never receives.
 
----
+**What actually works**: each team's own page
+(`kenyahockeyunion.org/joomsport_team/<slug>/`) has real, complete match
+history — but mixes every season together by default. The fix is
+`?sid=<season_id>&jslimit=100&jscurtab=stab_matches`. The real sid for
+each of the 8 current leagues was pulled directly from KHU's own site
+(visible in standings-widget links) and is hardcoded in `LEAGUES` in
+`scraper.py`. `scrape_league_results_via_teams()` visits every team in a
+league, parses their match history, and deduplicates by match URL (a
+round-robin match appears on both participating teams' pages).
 
-## Dual-Source Fixtures — why this exists
+**Cost of this**: ~70-90 HTTP requests per refresh cycle instead of 8. A
+small courtesy delay is added between team fetches. Acceptable for a
+15-minute background job; would need reconsidering if request volume
+ever became a real concern for KHU's hosting.
 
-KHU **regularly** (confirmed recurring, not a one-off) publishes the season's
-fixture calendar as a PDF — sometimes before the live JoomSport site's
-calendar view is updated to match. Relying on the live scrape alone means the
-Fixtures tab can go empty for days even though KHU has already told the world
-the schedule.
+If you're ever tempted to "simplify" this back to the calendar URL —
+don't. It was tried, verified broken, and is why this exists.
 
-**Critical implementation detail:** `refresh_fixtures_results()` in
-`main.py` re-merges `db.load_pdf_fixtures()` into the scrape result on
-**every single refresh**, not just at upload time. If you ever refactor this
-function, preserve that merge step — without it, the next scheduled scrape
-(15 min later) will silently overwrite the cache with the live site's
-current state, wiping out any PDF-only fixtures. This was a real bug caught
-in production (Aug 2026) — the live site had zero fixtures listed during a
-KHU-published league break, and the schedulerkept re-caching that emptiness
-until the merge step was added.
+## Multi-source fixtures/results — the merge rule
 
-**Dedup rule** (`pdf_fixtures.merge_pdf_fixtures_into_scraped` /
-`database._pdf_match_key`): a PDF fixture is considered "the same match" as
-a scraped one if `league_short + home_team + away_team + date` (date only,
-not kickoff time) match. Live-scraped data always wins on conflict — PDF
-fixtures only fill gaps, never override live data.
+Three sources feed the same fixtures/results pool: **live scrape**
+(primary), **PDF fixtures** (KHU's own calendar PDF, sometimes ahead of
+the live site), and **manual entries** (admin/agent-confirmed). The rule
+is consistent across all three: **whichever source has a given match
+first is what's shown — no source overwrites another's existing entry.**
+See `merge_pdf_fixtures_into_scraped()` and
+`merge_manual_results_into_scraped()` in `main.py` — both implement the
+identical philosophy, just for fixtures vs. results respectively.
 
-### Team name shorthand in PDFs
+This is why `refresh_fixtures_results()` re-applies both merges on
+**every** refresh, not just once — without that, a scheduled scrape
+would silently overwrite the cache with the live site's current state
+(including nothing, during a genuine gap), wiping out PDF/manual data
+that was only ever recorded elsewhere.
 
-KHU's PDF fixture tables use different name shorthand than the live site
-(`"KU Ladies"` in the PDF vs `"Kenyatta University"` on the site). This is
-bridged by `PDF_NAME_CORRECTIONS` in `pdf_fixtures.py` — separate from
-`TEAM_NAME_CORRECTIONS` in `scraper.py`, which fixes actual site typos.
+## Render's ephemeral filesystem
 
-**Known blind spot:** bare `"Lakers"` in a PDF is currently always resolved
-to `Lakers Hockey Club Ladies`, because that's the only context it's
-appeared in so far. If a future PDF uses unqualified `"Lakers"` for a men's
-fixture, it'll mis-tag it. Don't guess a fix without evidence from an actual
-PDF — flag it and wait for the ambiguous case to actually occur.
+Free-tier Render wipes local disk (including SQLite) on every cold
+start after inactivity. Confirmed Render behavior, not a bug. The fix:
+pair every persistent table with a git-committed JSON seed file
+(`pdf_fixtures_seed.json`, `manual_results_seed.json`), reloaded
+automatically on every startup. After adding data you want to survive
+permanently, hit the matching `/api/admin/.../export-seed` endpoint,
+save the output over the seed file, and commit it.
 
-### Uploading a new PDF
+## Team name matching — layered, and deliberately conservative
 
-```bash
-curl -X POST \
-  -H "x-admin-token: $ADMIN_TOKEN" \
-  -F "file=@/path/to/calendar.pdf" \
-  https://<render-backend-url>/api/admin/fixtures/upload-pdf
-```
+KHU is not internally consistent about team names across its own pages
+(e.g. "Warriors" on standings, "Butali Warriors" on fixtures). Handled
+in `main.py` in this order: exact match → curated alias groups
+(`LOGO_NAME_ALIAS_GROUPS`) → conservative fuzzy match requiring:
 
-Re-uploading (e.g. a corrected "Ver 03" PDF) upserts by match key — no
-duplicates, corrections to time/venue/etc. take effect automatically.
+- **Gender agreement** (`_gender_bucket`) — "Daystar University" (men)
+  must never match "Daystar University Ladies."
+- **Squad-qualifier agreement** (`_squad_qualifier`) — "Western Jaguars"
+  must never match "Western Jaguars Dev"; hyphen-glued suffixes like
+  "Lakers Hockey Club - B" are also caught (with "-A" specifically
+  excluded, since it's core to USIU-A's actual name, not a reserve
+  marker).
+- **Uniqueness** — only acts when exactly one candidate qualifies.
 
----
+A missing logo/match is always preferred over a wrong one. Don't loosen
+these guards to "fix" a missing match without first checking whether
+it's genuinely two different teams.
+
+## Team profiles — built from cache, not scraped fresh
+
+An earlier version scraped a team's own page directly for its profile.
+That page mixes every season together with zero filter — confirmed by
+direct inspection (2022 and 2026 matches on the same page). Team
+profiles are now built entirely from already-scraped, already-trusted
+data: position/form/logo from standings, fixtures/results from the same
+merged pool everything else uses. See `build_team_profile_from_cache()`.
+
+## Logo proxy
+
+Team crests load through `GET /api/logo`, not directly from KHU's site —
+direct browser loading was unreliable (suspected hotlink protection,
+though this couldn't be conclusively proven from the dev sandbox, whose
+own network restrictions produced a similar-looking failure). The
+backend fetches server-side (proven to work — that's how the scraper
+functions at all) and streams the image back under the app's own domain.
+`TeamLogo.js` falls back to a generated initials avatar when no logo is
+available — never a broken-image icon.
+
+## Manual entry & agents
+
+Two static HTML admin surfaces, served alongside the React build with
+zero build-step coupling:
+
+- `public/admin.html` — master control (PDF upload, manual results,
+  agent account management). Gated by `ADMIN_TOKEN`.
+- `public/agent.html` — lightweight login for people helping enter
+  results. Passwords are salted PBKDF2-SHA256 (stdlib only, no new
+  dependency). Deactivating an agent takes effect immediately, even for
+  an already-issued session — every write re-checks `agents.active`.
+
+Every manual result records `entered_by`.
 
 ## Known gotchas / hard-won fixes
 
-- **JoomSport table selectors:** class `cansorttbl`, id `jstable_1`. Column
-  order: `#/Teams/Pl/W/D/L/Diff/GD/Pts/Current Form`. Per-league calendar
-  uses `?action=calendar` URLs.
+- **JoomSport table selectors:** class `cansorttbl`, id `jstable_1` on
+  standings; team-page match rows use `jstable-row` /
+  `jsMatchDivTime` / `jsMatchDivHome(Embl)` / `jsMatchDivScore` /
+  `jsMatchDivAway(Embl)`.
 - **Form-parsing double-count bug:** use leaf-only tag matching — nested
-  wrapper + inner span tags will double-count form results if you don't.
-- **VAPID keys:** must be raw base64url (32-byte private key), **not**
-  PEM-armored. Passing PEM causes "ASN.1 parsing error: invalid length" in
-  `py_vapid`. Prefer env var `VAPID_PRIVATE_KEY_RAW_B64URL`; the legacy
-  name `VAPID_PRIVATE_KEY_PEM` is still read as a fallback (same raw
-  value — don't let the old name mislead you into pasting PEM).
-- **Render + Python version:** must set `PYTHON_VERSION: 3.11.9` (or your
-  pinned version) explicitly in `render.yaml`. Render ignores `runtime.txt`
-  (that's a Heroku convention). Newer Python defaults can break
-  `pydantic-core` wheel availability.
-- **Vercel CI:** `CI=true` treats unused variables as build errors. Strip
-  unused destructured variables before every commit.
-- **Team name corrections** (`scraper.TEAM_NAME_CORRECTIONS`): e.g.
-  `"Kisumu Youngsters"` → `"Kisumu Youngstars"` — confirmed site typo.
-- **League exclusions** (`scraper.LEAGUE_EXCLUSIONS`): e.g. Kenyatta
-  University Ladies excluded from Super League Women — confirmed KHU site
-  error, not a scraper bug.
-- **Placeholder teams:** Kisii University Ladies added as an honest
-  placeholder in SLW via `inject_placeholder_teams()` — auto-removes once
-  KHU publishes the real entry.
-- **Service worker:** network-first, not cache-first. Cache-first caused
-  blank screens on refresh after deployments.
-- **Sandbox/CI network allowlists:** `kenyahockeyunion.org` is typically
-  NOT on a sandboxed dev environment's network allowlist. Don't assume a
-  live-scrape test will work in CI/sandbox without checking egress rules
-  first — verify against a real deploy instead.
-
----
-
-## Environment variables (backend)
-
-See `backend/env.example` for the full template. Notable ones:
-
-| Var | Purpose |
-|---|---|
-| `ADMIN_TOKEN` | Gates `POST /api/admin/fixtures/upload-pdf`. Fails closed if unset. |
-| `VAPID_PRIVATE_KEY_RAW_B64URL` / `VAPID_PUBLIC_KEY_B64URL` | Web Push — raw base64url, not PEM. `VAPID_PRIVATE_KEY_PEM` is still accepted as a legacy alias (same raw format). |
-| `VAPID_CONTACT_EMAIL` | Required by the Web Push protocol. |
-| `ALLOWED_ORIGINS` | CORS — must include the Vercel frontend URL. |
-| `PYTHON_VERSION` | Must be pinned in `render.yaml`, not `runtime.txt`. |
-
-`render.yaml` lives at the **repo root**, not inside `backend/`.
-
----
+  wrapper + inner span tags will double-count form results otherwise.
+- **VAPID keys:** must be raw base64url, not PEM-armored. The Render env
+  var is still named `VAPID_PRIVATE_KEY_PEM` for historical reasons even
+  though it holds a raw value — don't let the name mislead you.
+- **Render + Python version:** pin `PYTHON_VERSION` explicitly in
+  `render.yaml` — Render ignores `runtime.txt` (a Heroku convention).
+- **Vercel CI:** `CI=true` treats ESLint warnings (including unused
+  variables/functions) as build-breaking errors. Always test with
+  `CI=true npm run build` before pushing, not plain `npm run build`.
+- **Team name corrections were originally guessed from the PDF's own
+  roster page** and several were wrong — always prefer the *live site's*
+  exact display text over the PDF's wording when the two disagree (see
+  `pdf_fixtures.py`'s `PDF_NAME_CORRECTIONS` comments for the specific
+  corrections this caused: Kenyatta University Ladies, UON Ladies,
+  Strathmore University Ladies, Daystar University Ladies, Lakers
+  Hockey Club).
+- **Sandbox/CI network allowlists:** a sandboxed dev environment
+  blocking `kenyahockeyunion.org` produces a 403 that looks identical to
+  a real site-side block. Don't conclude the live site is broken without
+  testing from an environment that can actually reach it (e.g. the
+  deployed Render backend, or a tool with real external network access).
 
 ## Deployment checklist
 
-1. Backend changes → push → Render auto-deploys from `backend/` (`rootDir`
-   set in `render.yaml`).
+1. Backend changes → push → Render auto-deploys from `backend/`
+   (`rootDir` in `render.yaml`).
 2. Frontend changes → push → Vercel auto-deploys.
-3. New env vars → add to **both** `render.yaml` (as `sync: false` if
-   secret) **and** the Render dashboard (`sync: false` means Render won't
-   auto-populate it — you must type the value in manually once).
-4. After any change to `scraper.py` or `pdf_fixtures.py`'s output schema,
-   re-check `main.py`'s `_group_and_sort_matches` and the frontend's
-   `MatchCard`/`GroupedMatchList` still agree on field names.
+3. New env vars → add to both `render.yaml` (`sync: false` if secret)
+   and the Render dashboard directly (Render won't auto-populate a
+   `sync: false` value — you type it in once).
+4. After changing `scraper.py` or `pdf_fixtures.py`'s output schema,
+   re-check `main.py`'s merge functions and the frontend's `MatchCard`
+   still agree on field names.
+5. After adding PDF fixtures or manual results you want to persist
+   permanently, export and commit the matching seed file (see above).
 
 ---
 
-*Last updated: August 2026, during the PDF-fixtures dual-source pipeline build.*
+*Last updated: September 2026, after the team-page-based scraping
+rewrite, multi-source results merging, and the agent/manual-entry system.*
