@@ -1,6 +1,31 @@
 import React from "react";
 import TeamLogo from "./TeamLogo";
 
+const CARD_ICON = { green: "🟩", yellow: "🟨", red: "🟥" };
+
+/** Combines repeated entries for the same scorer into one line, e.g.
+ * a brace/hat-trick shows as "James Otieno 12', 45'" instead of two
+ * separate lines for the same player. */
+function formatScorers(scorers) {
+  if (!scorers || scorers.length === 0) return null;
+  const byPlayer = new Map();
+  scorers.forEach((s) => {
+    const key = `${s.team}|${s.player_name}`;
+    if (!byPlayer.has(key)) byPlayer.set(key, { name: s.player_name, minutes: [] });
+    if (s.minute != null) byPlayer.get(key).minutes.push(s.minute);
+  });
+  return Array.from(byPlayer.values())
+    .map((p) => (p.minutes.length ? `${p.name} ${p.minutes.sort((a, b) => a - b).map((m) => `${m}'`).join(", ")}` : p.name))
+    .join(" · ");
+}
+
+function formatCards(cards) {
+  if (!cards || cards.length === 0) return null;
+  return cards
+    .map((c) => `${CARD_ICON[c.card_type] || "🟨"} ${c.player_name}${c.minute != null ? ` ${c.minute}'` : ""}`)
+    .join("  ");
+}
+
 /**
  * MatchCard — renders a single match using JoomSport's real match state machine:
  *   NS   = not started (upcoming fixture)
@@ -98,6 +123,14 @@ export default function MatchCard({ match, onOpenMatch, onOpenTeam, isFavorite, 
 
       {match.venue && (
         <div className="match-location">📍 {match.venue}</div>
+      )}
+
+      {formatScorers(match.scorers) && (
+        <div className="match-scorers">⚽ {formatScorers(match.scorers)}</div>
+      )}
+
+      {formatCards(match.cards) && (
+        <div className="match-cards">{formatCards(match.cards)}</div>
       )}
     </div>
   );

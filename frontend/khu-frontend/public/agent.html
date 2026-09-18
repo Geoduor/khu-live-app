@@ -50,6 +50,22 @@
     background: transparent; border: 1px solid var(--red); color: var(--red);
   }
   .empty-note { color: var(--muted); font-size: 13px; text-align: center; padding: 16px 0; }
+  .subsection { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--border); }
+  .subsection-title { font-size: 12px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: 0.3px; margin-bottom: 8px; }
+  .optional-tag { font-weight: 400; text-transform: none; opacity: 0.7; }
+  .dyn-row { display: flex; gap: 6px; align-items: center; margin-bottom: 8px; }
+  .dyn-row select { flex: 1.1; padding: 8px; font-size: 13px; }
+  .dyn-row input[type=text], .dyn-row input:not([type]) { flex: 1.4; padding: 8px; font-size: 13px; }
+  .dyn-row input[type=number] { flex: 0.6; padding: 8px; font-size: 13px; }
+  .dyn-row .remove-row-btn {
+    width: auto; margin: 0; padding: 6px 9px; font-size: 12px; flex-shrink: 0;
+    background: transparent; border: 1px solid var(--border); color: var(--muted);
+  }
+  .add-row-btn {
+    width: auto; margin: 0; padding: 7px 14px; font-size: 12px; font-weight: 600;
+    background: transparent; border: 1px dashed var(--border); color: var(--amber);
+  }
+
   .section-title { font-size: 14px; font-weight: 700; margin-bottom: 8px; }
   .welcome-bar {
     display: flex; align-items: center; justify-content: space-between;
@@ -155,6 +171,71 @@
 
 <script>
   const $ = (id) => document.getElementById(id);
+  function teamLabel(side) {
+    const name = $(side === 'home' ? 'homeTeam' : 'awayTeam').value.trim();
+    const base = side === 'home' ? 'Home' : 'Away';
+    return name ? `${base}: ${name}` : base;
+  }
+
+  function updateTeamLabels() {
+    document.querySelectorAll('.team-side-select').forEach((sel) => {
+      const val = sel.value;
+      sel.innerHTML = `<option value="home">${teamLabel('home')}</option><option value="away">${teamLabel('away')}</option>`;
+      sel.value = val;
+    });
+  }
+
+  function addScorerRow() {
+    const row = document.createElement('div');
+    row.className = 'dyn-row';
+    row.innerHTML = `
+      <select class="team-side-select"><option value="home">${teamLabel('home')}</option><option value="away">${teamLabel('away')}</option></select>
+      <input type="text" placeholder="Player name" class="scorer-name" />
+      <input type="number" placeholder="Min" class="scorer-minute" min="0" max="120" />
+      <button type="button" class="remove-row-btn" onclick="this.parentElement.remove()">✕</button>
+    `;
+    $('scorersList').appendChild(row);
+  }
+
+  function addCardRow() {
+    const row = document.createElement('div');
+    row.className = 'dyn-row';
+    row.innerHTML = `
+      <select class="team-side-select"><option value="home">${teamLabel('home')}</option><option value="away">${teamLabel('away')}</option></select>
+      <input type="text" placeholder="Player name" class="card-name" />
+      <select class="card-type-select">
+        <option value="green">🟩 Green</option>
+        <option value="yellow">🟨 Yellow</option>
+        <option value="red">🟥 Red</option>
+      </select>
+      <input type="number" placeholder="Min" class="card-minute" min="0" max="120" />
+      <button type="button" class="remove-row-btn" onclick="this.parentElement.remove()">✕</button>
+    `;
+    $('cardsList').appendChild(row);
+  }
+
+  function collectScorers() {
+    return Array.from($('scorersList').querySelectorAll('.dyn-row')).map((row) => ({
+      team: row.querySelector('.team-side-select').value,
+      player_name: row.querySelector('.scorer-name').value.trim(),
+      minute: row.querySelector('.scorer-minute').value ? parseInt(row.querySelector('.scorer-minute').value, 10) : null,
+    })).filter((s) => s.player_name);
+  }
+
+  function collectCards() {
+    return Array.from($('cardsList').querySelectorAll('.dyn-row')).map((row) => ({
+      team: row.querySelector('.team-side-select').value,
+      player_name: row.querySelector('.card-name').value.trim(),
+      card_type: row.querySelector('.card-type-select').value,
+      minute: row.querySelector('.card-minute').value ? parseInt(row.querySelector('.card-minute').value, 10) : null,
+    })).filter((c) => c.player_name);
+  }
+
+  function clearScorersAndCards() {
+    $('scorersList').innerHTML = '';
+    $('cardsList').innerHTML = '';
+  }
+
 
   function apiBase() { return localStorage.getItem('khu_agent_api_base') || ''; }
   function agentToken() { return localStorage.getItem('khu_agent_token') || ''; }
@@ -252,6 +333,8 @@
           away_score: parseInt(awayScore, 10),
           date: `${date} ${time}`,
           venue: $('venue').value.trim(),
+          scorers: collectScorers(),
+          cards: collectCards(),
         }),
       });
       const data = await res.json();
@@ -268,6 +351,7 @@
       msg.textContent = `Added: ${homeTeam} ${homeScore} - ${awayScore} ${awayTeam}`;
       msg.className = 'msg success';
       ['homeTeam', 'awayTeam', 'homeScore', 'awayScore', 'venue'].forEach((id) => $(id).value = '');
+      clearScorersAndCards();
       loadResults();
     } catch (e) {
       msg.textContent = e.message;
@@ -320,6 +404,9 @@
       alert(e.message);
     }
   }
+
+  $('homeTeam').addEventListener('input', updateTeamLabels);
+  $('awayTeam').addEventListener('input', updateTeamLabels);
 
   showScreen();
 </script>

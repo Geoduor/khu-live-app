@@ -13,7 +13,7 @@ Strategy (matches how ESPN/SofaScore/FotMob handle unreliable upstream sources):
 from fastapi import FastAPI, HTTPException, UploadFile, File, Header, Response
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from typing import Optional
+from typing import Optional, List
 from apscheduler.schedulers.background import BackgroundScheduler
 from datetime import datetime
 import logging
@@ -78,6 +78,29 @@ class PushKeys(BaseModel):
     auth: str
 
 
+class ScorerInput(BaseModel):
+    """One goal, attributed to a player on either side of a manually-
+    entered result. 'team' is "home" or "away" — matching whichever
+    side that player's team occupies in THIS match, not a fixed team
+    identity, since the same team can be home in one match and away in
+    another."""
+    team: str  # "home" | "away"
+    player_name: str
+    minute: Optional[int] = None
+
+
+class CardInput(BaseModel):
+    """One disciplinary card in a manually-entered result. Field hockey
+    uses three card colors (unlike football's two) — green (temporary
+    warning), yellow (temporary suspension), and red (permanent
+    ejection) — validated against exactly these three, never guessed
+    at a fourth."""
+    team: str  # "home" | "away"
+    player_name: str
+    card_type: str  # "green" | "yellow" | "red"
+    minute: Optional[int] = None
+
+
 class ManualResultInput(BaseModel):
     """
     A human-entered match result — fills a gap the live scraper hasn't
@@ -85,7 +108,7 @@ class ManualResultInput(BaseModel):
     league codes (PLM, PLW, SLM, SLW, NLM-EZ, NLM-CZ, NLM-WZ, NLM-SZ) —
     validated against LEAGUES below, never guessed. date should be
     "YYYY-MM-DD HH:MM" to match every other date format already used
-    across this app.
+    across this app. scorers/cards are optional.
     """
     league_short: str
     home_team: str
@@ -94,6 +117,8 @@ class ManualResultInput(BaseModel):
     away_score: int
     date: str
     venue: Optional[str] = ""
+    scorers: Optional[List[ScorerInput]] = []
+    cards: Optional[List[CardInput]] = []
 
 
 class AgentCreateInput(BaseModel):
@@ -105,6 +130,45 @@ class AgentCreateInput(BaseModel):
 class AgentLoginInput(BaseModel):
     username: str
     password: str
+
+
+class TeamStatsInput(BaseModel):
+    """
+    A correction to one team's standings row. Every field is optional —
+    submit only the ones you're actually correcting (e.g. just `points`
+    to fix one wrong number); anything left as None keeps the live-
+    scraped value untouched. `form` is a list of 'W'/'D'/'L' strings,
+    most recent last, matching the format already used everywhere else
+    (see scraper.py's parse_standings_table).
+    """
+    league_short: str
+    team_name: str
+    played: Optional[int] = None
+    won: Optional[int] = None
+    drawn: Optional[int] = None
+    lost: Optional[int] = None
+    goals_for: Optional[int] = None
+    goals_against: Optional[int] = None
+    points: Optional[int] = None
+    form: Optional[List[str]] = None
+
+
+class PlayerStatsInput(BaseModel):
+    """
+    A player's season-to-date stat line. KHU's site doesn't publish
+    individual player statistics at all, so this isn't correcting a
+    scraper gap — it's tracking something that only exists here.
+    Resubmitting the same league/team/player upserts (replaces the
+    whole line), so send the new total each time, not a delta.
+    """
+    league_short: str
+    team_name: str
+    player_name: str
+    goals: Optional[int] = 0
+    appearances: Optional[int] = 0
+    yellow_cards: Optional[int] = 0
+    red_cards: Optional[int] = 0
+    green_cards: Optional[int] = 0
 
 
 class PushSubscription(BaseModel):
@@ -217,6 +281,45 @@ def seed_manual_results_from_file():
         logger.error(f"Failed to load manual_results_seed.json: {e}")
 
 
+TEAM_STATS_SEED_PATH = os.path.join(os.path.dirname(__file__), "team_stats_seed.json")
+PLAYER_STATS_SEED_PATH = os.path.join(os.path.dirname(__file__), "player_stats_seed.json")
+
+
+def seed_team_stats_from_file():
+    """Same git-committed-seed pattern as manual results, for team-stat
+    corrections — see seed_manual_results_from_file's docstring."""
+    if not os.path.exists(TEAM_STATS_SEED_PATH):
+        logger.info("No team_stats_seed.json found — skipping (none entered yet, or not exported).")
+        return
+    try:
+        with open(TEAM_STATS_SEED_PATH, "r") as f:
+            seed_data = json.load(f)
+        for s in seed_data.get("stats", []):
+            fields = {k: v for k, v in s.items() if k not in ("league_short", "team_name", "stat_key")}
+            db.save_team_stats(s["league_short"], s["team_name"], fields)
+        if seed_data.get("stats"):
+            logger.info(f"Re-seeded {len(seed_data['stats'])} team-stat correction(s) from team_stats_seed.json")
+    except Exception as e:
+        logger.error(f"Failed to load team_stats_seed.json: {e}")
+
+
+def seed_player_stats_from_file():
+    """Same git-committed-seed pattern, for player stats."""
+    if not os.path.exists(PLAYER_STATS_SEED_PATH):
+        logger.info("No player_stats_seed.json found — skipping (none entered yet, or not exported).")
+        return
+    try:
+        with open(PLAYER_STATS_SEED_PATH, "r") as f:
+            seed_data = json.load(f)
+        for p in seed_data.get("players", []):
+            fields = {k: v for k, v in p.items() if k not in ("league_short", "team_name", "player_name", "stat_key")}
+            db.save_player_stats(p["league_short"], p["team_name"], p["player_name"], fields)
+        if seed_data.get("players"):
+            logger.info(f"Re-seeded {len(seed_data['players'])} player stat line(s) from player_stats_seed.json")
+    except Exception as e:
+        logger.error(f"Failed to load player_stats_seed.json: {e}")
+
+
 def merge_manual_results_into_scraped(scraped_results: list, manual_results: list) -> list:
     """
     Merge manually-entered results into an already-scraped results list.
@@ -252,6 +355,8 @@ def merge_manual_results_into_scraped(scraped_results: list, manual_results: lis
         entry.setdefault("state", "FT")
         entry.setdefault("match_url", "")
         entry.setdefault("venue", "")
+        entry.setdefault("scorers", [])
+        entry.setdefault("cards", [])
         entry["source"] = "manual"
         league = LEAGUES_BY_SHORT.get(entry.get("league_short", "").upper())
         entry["league"] = league["name"] if league else entry.get("league_short", "")
@@ -649,6 +754,42 @@ def backfill_match_logos(matches: list, logo_lookup: dict, fuzzy_records: list =
     return filled
 
 
+def apply_team_stat_overrides(league_key: str):
+    """
+    Overlay any manually-entered corrections onto this league's just-
+    scraped standings. Unlike fixtures/results merging (fill gaps only),
+    this OVERWRITES specific fields on an existing team row — a
+    correction only makes sense once there's a live-scraped row to
+    correct. Only fields the correction actually specified (non-None)
+    are touched; everything else stays as the live scrape reported it.
+    """
+    league = LEAGUES.get(league_key)
+    if not league:
+        return
+    corrections = [c for c in db.load_team_stats() if c.get("league_short", "").upper() == league["short"]]
+    if not corrections:
+        return
+
+    standings_data = cache["standings"].get(league_key)
+    if not standings_data or not standings_data.get("standings"):
+        return
+
+    OVERRIDABLE_FIELDS = ("played", "won", "drawn", "lost", "goals_for", "goals_against", "points", "form")
+    applied = 0
+    for team in standings_data["standings"]:
+        normalized = _normalize_team_name(team.get("team", ""))
+        for correction in corrections:
+            if _normalize_team_name(correction.get("team_name", "")) != normalized:
+                continue
+            for field in OVERRIDABLE_FIELDS:
+                if correction.get(field) is not None:
+                    team[field] = correction[field]
+            applied += 1
+
+    if applied:
+        logger.info(f"Applied {applied} manual team-stat correction(s) to {league_key}")
+
+
 def refresh_standings_for(league_key: str):
     """Scrape one league; save to DB regardless of success; update in-memory cache."""
     try:
@@ -659,6 +800,7 @@ def refresh_standings_for(league_key: str):
         data["_cache_success"] = success
         cache["standings"][league_key] = data
         if success:
+            apply_team_stat_overrides(league_key)
             logger.info(f"✅ {league_key}: {data.get('total_teams', 0)} teams")
         else:
             logger.warning(f"⚠️ {league_key}: scrape failed — {data.get('error')}")
@@ -892,6 +1034,8 @@ async def startup_event():
     db.init_db()
     seed_pdf_fixtures_from_file()
     seed_manual_results_from_file()
+    seed_team_stats_from_file()
+    seed_player_stats_from_file()
     push.init_push_table()
     load_from_cache_on_boot()
     logger.info("KHU API starting up — kicking off first live scrape...")
@@ -1426,6 +1570,20 @@ def add_manual_result(
     if not _parse_match_date(payload.date) or _parse_match_date(payload.date).year == 1:
         raise HTTPException(status_code=400, detail="date must be in 'YYYY-MM-DD HH:MM' format.")
 
+    VALID_CARD_TYPES = {"green", "yellow", "red"}
+    for s in payload.scorers:
+        if s.team not in ("home", "away"):
+            raise HTTPException(status_code=400, detail=f"Scorer team must be 'home' or 'away', got '{s.team}'.")
+        if not s.player_name.strip():
+            raise HTTPException(status_code=400, detail="Scorer player_name cannot be empty.")
+    for c in payload.cards:
+        if c.team not in ("home", "away"):
+            raise HTTPException(status_code=400, detail=f"Card team must be 'home' or 'away', got '{c.team}'.")
+        if c.card_type not in VALID_CARD_TYPES:
+            raise HTTPException(status_code=400, detail=f"card_type must be one of {sorted(VALID_CARD_TYPES)}, got '{c.card_type}'.")
+        if not c.player_name.strip():
+            raise HTTPException(status_code=400, detail="Card player_name cannot be empty.")
+
     result = {
         "league_short": league["short"],
         "league": league["name"],
@@ -1439,6 +1597,8 @@ def add_manual_result(
         "away_team_url": "", "away_logo_url": "", "state": "FT", "match_url": "",
         "source": "manual",
         "entered_by": entered_by,
+        "scorers": [{"team": s.team, "player_name": s.player_name.strip(), "minute": s.minute} for s in payload.scorers],
+        "cards": [{"team": c.team, "player_name": c.player_name.strip(), "card_type": c.card_type, "minute": c.minute} for c in payload.cards],
     }
 
     match_key = db.save_manual_result(result)
@@ -1514,6 +1674,128 @@ def export_manual_results_seed(x_admin_token: str = Header(default="")):
         raise HTTPException(status_code=401, detail="Missing or invalid admin token.")
     results = db.load_manual_results()
     return {"results": results, "exported_at": datetime.now().isoformat(), "count": len(results)}
+
+
+# ══════════════════════════════════════════════════════
+# TEAM STATS — corrections to a team's standings row
+# ══════════════════════════════════════════════════════
+
+@app.post("/api/admin/team-stats/set")
+def set_team_stats(payload: TeamStatsInput, x_admin_token: str = Header(default=""), x_agent_token: str = Header(default="")):
+    """
+    Correct one or more fields on a team's standings row. Only send the
+    fields you're actually correcting — anything omitted (None) is left
+    as the live scrape reported it. Applied immediately to the current
+    league standings cache, not just persisted for next refresh.
+    """
+    _authorize_writer(x_admin_token, x_agent_token)
+
+    league = LEAGUES_BY_SHORT.get(payload.league_short.strip().upper())
+    if not league:
+        valid = ", ".join(sorted(LEAGUES_BY_SHORT.keys()))
+        raise HTTPException(status_code=400, detail=f"Unknown league_short '{payload.league_short}'. Must be one of: {valid}")
+
+    stats = {k: v for k, v in payload.dict(exclude={"league_short", "team_name"}).items() if v is not None}
+    if not stats:
+        raise HTTPException(status_code=400, detail="Provide at least one field to correct (played, won, drawn, lost, goals_for, goals_against, points, or form).")
+
+    stat_key = db.save_team_stats(league["short"], payload.team_name.strip(), stats)
+    apply_team_stat_overrides(league["key"])
+
+    return {"message": f"Applied correction to {payload.team_name}.", "stat_key": stat_key, "fields_corrected": list(stats.keys())}
+
+
+@app.get("/api/admin/team-stats/list")
+def list_team_stats(x_admin_token: str = Header(default=""), x_agent_token: str = Header(default="")):
+    """List every manual team-stat correction currently stored."""
+    _authorize_writer(x_admin_token, x_agent_token)
+    stats = db.load_team_stats()
+    return {"stats": stats, "count": len(stats)}
+
+
+@app.delete("/api/admin/team-stats/{stat_key}")
+def remove_team_stats(stat_key: str, x_admin_token: str = Header(default=""), x_agent_token: str = Header(default="")):
+    """
+    Remove a team-stat correction — the team's row reverts to whatever
+    the live scrape reports on the NEXT refresh (not immediately, since
+    the current cache already has the correction baked in — call
+    POST /api/refresh afterward for an instant revert instead).
+    """
+    _authorize_writer(x_admin_token, x_agent_token)
+    deleted = db.delete_team_stats(stat_key)
+    if not deleted:
+        raise HTTPException(status_code=404, detail=f"No team-stat correction found with key '{stat_key}'.")
+    return {"message": "Deleted.", "stat_key": stat_key}
+
+
+@app.get("/api/admin/team-stats/export-seed")
+def export_team_stats_seed(x_admin_token: str = Header(default="")):
+    """Export team-stat corrections for permanent seed-file persistence. Admin-only."""
+    if not ADMIN_TOKEN or x_admin_token != ADMIN_TOKEN:
+        raise HTTPException(status_code=401, detail="Missing or invalid admin token.")
+    stats = db.load_team_stats()
+    return {"stats": stats, "exported_at": datetime.now().isoformat(), "count": len(stats)}
+
+
+# ══════════════════════════════════════════════════════
+# PLAYER STATS — season totals KHU's site doesn't publish
+# ══════════════════════════════════════════════════════
+
+@app.post("/api/admin/player-stats/set")
+def set_player_stats(payload: PlayerStatsInput, x_admin_token: str = Header(default=""), x_agent_token: str = Header(default="")):
+    """Set (replacing any previous line) one player's season-to-date stats."""
+    _authorize_writer(x_admin_token, x_agent_token)
+
+    league = LEAGUES_BY_SHORT.get(payload.league_short.strip().upper())
+    if not league:
+        valid = ", ".join(sorted(LEAGUES_BY_SHORT.keys()))
+        raise HTTPException(status_code=400, detail=f"Unknown league_short '{payload.league_short}'. Must be one of: {valid}")
+    if not payload.player_name.strip():
+        raise HTTPException(status_code=400, detail="player_name cannot be empty.")
+
+    stats = payload.dict(exclude={"league_short", "team_name", "player_name"})
+    stat_key = db.save_player_stats(league["short"], payload.team_name.strip(), payload.player_name.strip(), stats)
+    return {"message": f"Saved stats for {payload.player_name}.", "stat_key": stat_key}
+
+
+@app.get("/api/players/top-scorers")
+def get_top_scorers(league_short: str = ""):
+    """
+    Public endpoint — player stat leaderboard, sorted by goals scored
+    descending. Optionally filter to one league via ?league_short=PLM.
+    """
+    stats = db.load_player_stats()
+    if league_short:
+        stats = [s for s in stats if s.get("league_short", "").upper() == league_short.strip().upper()]
+    stats.sort(key=lambda s: s.get("goals", 0), reverse=True)
+    return {"players": stats, "count": len(stats)}
+
+
+@app.get("/api/admin/player-stats/list")
+def list_player_stats(x_admin_token: str = Header(default=""), x_agent_token: str = Header(default="")):
+    """List every player stat line currently stored (admin/agent view — includes stat_key for deletion)."""
+    _authorize_writer(x_admin_token, x_agent_token)
+    stats = db.load_player_stats()
+    return {"players": stats, "count": len(stats)}
+
+
+@app.delete("/api/admin/player-stats/{stat_key}")
+def remove_player_stats(stat_key: str, x_admin_token: str = Header(default=""), x_agent_token: str = Header(default="")):
+    """Remove one player's stat line."""
+    _authorize_writer(x_admin_token, x_agent_token)
+    deleted = db.delete_player_stats(stat_key)
+    if not deleted:
+        raise HTTPException(status_code=404, detail=f"No player stats found with key '{stat_key}'.")
+    return {"message": "Deleted.", "stat_key": stat_key}
+
+
+@app.get("/api/admin/player-stats/export-seed")
+def export_player_stats_seed(x_admin_token: str = Header(default="")):
+    """Export player stats for permanent seed-file persistence. Admin-only."""
+    if not ADMIN_TOKEN or x_admin_token != ADMIN_TOKEN:
+        raise HTTPException(status_code=401, detail="Missing or invalid admin token.")
+    stats = db.load_player_stats()
+    return {"players": stats, "exported_at": datetime.now().isoformat(), "count": len(stats)}
 
 
 # ══════════════════════════════════════════════════════

@@ -82,6 +82,35 @@ def init_db():
         )
     """)
 
+    # ── Manual team-stat corrections ──
+    # Unlike fixtures/results (discrete events, "fills gaps"), a team's
+    # standings row always exists once any scrape has succeeded — so a
+    # manual entry here represents a CORRECTION (overrides the live-
+    # scraped value for whichever fields were actually provided), not a
+    # gap-filler. Keyed by (league_short, team_name) — one row per team
+    # per league.
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS manual_team_stats_store (
+            stat_key    TEXT PRIMARY KEY,
+            data_json   TEXT NOT NULL,
+            entered_at  TEXT NOT NULL
+        )
+    """)
+
+    # ── Manual player-stat entries ──
+    # KHU's site doesn't publish individual player statistics at all —
+    # this isn't a scraper gap to fill, it's tracking something that
+    # simply doesn't exist elsewhere. One row per (league, team, player)
+    # holding season-to-date totals, directly set/corrected by an admin
+    # or agent (e.g. after aggregating from matchday scorer/card sheets).
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS manual_player_stats_store (
+            stat_key    TEXT PRIMARY KEY,
+            data_json   TEXT NOT NULL,
+            entered_at  TEXT NOT NULL
+        )
+    """)
+
     # ── Agents — people (besides you) allowed to add manual results. ──
     # Each has their own login, so every result can be attributed to a
     # real person instead of an anonymous shared token — useful for
@@ -325,6 +354,118 @@ def delete_manual_result(match_key: str) -> bool:
     conn = get_connection()
     cur = conn.cursor()
     cur.execute("DELETE FROM manual_results_store WHERE match_key = ?", (match_key,))
+    deleted = cur.rowcount > 0
+    conn.commit()
+    conn.close()
+    return deleted
+
+
+# ══════════════════════════════════════════════════════
+# MANUAL TEAM STATS — corrections to a team's standings row
+# ══════════════════════════════════════════════════════
+
+def _team_stat_key(league_short: str, team_name: str) -> str:
+    return f"{league_short.strip().upper()}|{team_name.strip().lower()}"
+
+
+def save_team_stats(league_short: str, team_name: str, stats: dict) -> str:
+    """Upsert a correction for one team's standings row. `stats` holds
+    only the fields being overridden (e.g. just {"points": 18} to fix
+    one wrong number) — see apply_team_stat_overrides in main.py for how
+    partial overrides are merged onto the live-scraped row."""
+    conn = get_connection()
+    cur = conn.cursor()
+    key = _team_stat_key(league_short, team_name)
+    record = {"league_short": league_short.strip().upper(), "team_name": team_name.strip(), **stats}
+    cur.execute("""
+        INSERT INTO manual_team_stats_store (stat_key, data_json, entered_at)
+        VALUES (?, ?, ?)
+        ON CONFLICT(stat_key) DO UPDATE SET
+            data_json = excluded.data_json,
+            entered_at = excluded.entered_at
+    """, (key, json.dumps(record), datetime.now().isoformat()))
+    conn.commit()
+    conn.close()
+    return key
+
+
+def load_team_stats() -> list:
+    """Load every manual team-stat correction. Each dict includes its
+    own stat_key for later deletion."""
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute("SELECT stat_key, data_json FROM manual_team_stats_store")
+    rows = cur.fetchall()
+    conn.close()
+    out = []
+    for row in rows:
+        r = json.loads(row["data_json"])
+        r["stat_key"] = row["stat_key"]
+        out.append(r)
+    return out
+
+
+def delete_team_stats(stat_key: str) -> bool:
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute("DELETE FROM manual_team_stats_store WHERE stat_key = ?", (stat_key,))
+    deleted = cur.rowcount > 0
+    conn.commit()
+    conn.close()
+    return deleted
+
+
+# ══════════════════════════════════════════════════════
+# MANUAL PLAYER STATS — season totals KHU's site doesn't publish
+# ══════════════════════════════════════════════════════
+
+def _player_stat_key(league_short: str, team_name: str, player_name: str) -> str:
+    return f"{league_short.strip().upper()}|{team_name.strip().lower()}|{player_name.strip().lower()}"
+
+
+def save_player_stats(league_short: str, team_name: str, player_name: str, stats: dict) -> str:
+    """Upsert one player's season-to-date stat line."""
+    conn = get_connection()
+    cur = conn.cursor()
+    key = _player_stat_key(league_short, team_name, player_name)
+    record = {
+        "league_short": league_short.strip().upper(),
+        "team_name": team_name.strip(),
+        "player_name": player_name.strip(),
+        **stats,
+    }
+    cur.execute("""
+        INSERT INTO manual_player_stats_store (stat_key, data_json, entered_at)
+        VALUES (?, ?, ?)
+        ON CONFLICT(stat_key) DO UPDATE SET
+            data_json = excluded.data_json,
+            entered_at = excluded.entered_at
+    """, (key, json.dumps(record), datetime.now().isoformat()))
+    conn.commit()
+    conn.close()
+    return key
+
+
+def load_player_stats() -> list:
+    """Load every player's stat line. Each dict includes its own
+    stat_key for later deletion."""
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute("SELECT stat_key, data_json FROM manual_player_stats_store")
+    rows = cur.fetchall()
+    conn.close()
+    out = []
+    for row in rows:
+        r = json.loads(row["data_json"])
+        r["stat_key"] = row["stat_key"]
+        out.append(r)
+    return out
+
+
+def delete_player_stats(stat_key: str) -> bool:
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute("DELETE FROM manual_player_stats_store WHERE stat_key = ?", (stat_key,))
     deleted = cur.rowcount > 0
     conn.commit()
     conn.close()
