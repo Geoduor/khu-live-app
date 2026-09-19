@@ -87,9 +87,6 @@
 <!-- LOGIN -->
 <div id="loginScreen">
   <div class="card">
-    <label>Backend URL</label>
-    <input id="apiBase" placeholder="https://khu-backend.onrender.com" />
-
     <label>Username</label>
     <input id="username" placeholder="Your username" />
 
@@ -158,6 +155,18 @@
 
     <label>Venue (optional)</label>
     <input id="venue" placeholder="e.g. Dashmesh Stadium" />
+
+    <div class="subsection">
+      <div class="subsection-title">Goal Scorers <span class="optional-tag">optional</span></div>
+      <div id="scorersList"></div>
+      <button type="button" class="add-row-btn" onclick="addScorerRow()">+ Add Scorer</button>
+    </div>
+
+    <div class="subsection">
+      <div class="subsection-title">Cards <span class="optional-tag">optional</span></div>
+      <div id="cardsList"></div>
+      <button type="button" class="add-row-btn" onclick="addCardRow()">+ Add Card</button>
+    </div>
 
     <button id="submitBtn" onclick="submitResult()">Add Result</button>
     <div id="addMsg" class="msg"></div>
@@ -237,7 +246,11 @@
   }
 
 
-  function apiBase() { return localStorage.getItem('khu_agent_api_base') || ''; }
+  // Backend URL is fixed — not user-editable. Update this constant if
+  // you ever move the backend to a different host.
+  const API_BASE = "https://khu-backend.onrender.com";
+
+  function apiBase() { return API_BASE; }
   function agentToken() { return localStorage.getItem('khu_agent_token') || ''; }
   function displayName() { return localStorage.getItem('khu_agent_display_name') || ''; }
 
@@ -250,7 +263,6 @@
     } else {
       $('loginScreen').style.display = 'block';
       $('mainScreen').style.display = 'none';
-      $('apiBase').value = apiBase();
     }
   }
 
@@ -259,12 +271,11 @@
     const msg = $('loginMsg');
     msg.className = 'msg';
 
-    const base = $('apiBase').value.trim().replace(/\/$/, '');
     const username = $('username').value.trim();
     const password = $('password').value;
 
-    if (!base || !username || !password) {
-      msg.textContent = 'Fill in the backend URL, username, and password.';
+    if (!username || !password) {
+      msg.textContent = 'Fill in your username and password.';
       msg.className = 'msg error';
       return;
     }
@@ -273,7 +284,7 @@
     btn.textContent = 'Logging in...';
 
     try {
-      const res = await fetch(`${base}/api/agent/login`, {
+      const res = await fetch(`${API_BASE}/api/agent/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username, password }),
@@ -281,7 +292,6 @@
       const data = await res.json();
       if (!res.ok) throw new Error(data.detail || 'Login failed.');
 
-      localStorage.setItem('khu_agent_api_base', base);
       localStorage.setItem('khu_agent_token', data.token);
       localStorage.setItem('khu_agent_display_name', data.display_name);
       showScreen();

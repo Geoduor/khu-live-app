@@ -20,6 +20,7 @@ import logging
 import os
 import json
 import re
+import secrets
 import tempfile
 import requests
 
@@ -51,6 +52,16 @@ LEAGUES_BY_SHORT = {league["short"]: {**league, "key": key} for key, league in L
 # your .env / Render environment — never hardcode a real value here.
 # If unset, the endpoint refuses all requests (fails closed, not open).
 ADMIN_TOKEN = os.environ.get("ADMIN_TOKEN", "")
+# Human-memorable credentials for POST /api/admin/login — separate from
+# ADMIN_TOKEN itself. The token is long/random and meant for machines
+# (API calls, curl); these are what a person actually types into the
+# admin.html login screen. On success, login hands back the real
+# ADMIN_TOKEN for the browser to use on every subsequent request —
+# every existing x_admin_token check below is completely unchanged,
+# this just adds a human-friendly way to obtain that token instead of
+# copy-pasting the raw secret into a visible input field.
+ADMIN_USERNAME = os.environ.get("ADMIN_USERNAME", "")
+ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "")
 
 
 def _authorize_writer(x_admin_token: str = "", x_agent_token: str = "") -> str:
@@ -1864,6 +1875,28 @@ def agent_login(payload: AgentLoginInput):
         raise HTTPException(status_code=401, detail="Incorrect username or password.")
     token = db.create_agent_session(payload.username.strip())
     return {"token": token, "display_name": display_name}
+
+
+@app.post("/api/admin/login")
+def admin_login(payload: AgentLoginInput):
+    """
+    Public endpoint — YOU log in with a human-memorable username/
+    password (ADMIN_USERNAME/ADMIN_PASSWORD env vars) and get back the
+    actual ADMIN_TOKEN to use for every subsequent request. This means
+    the raw token never needs to be typed, pasted, or visibly stored in
+    the admin page itself — only these credentials do, exactly like the
+    agent login already works. Deliberately gives the same error for
+    wrong username or wrong password, so a login attempt can't be used
+    to guess which part was correct. Fails closed if ADMIN_USERNAME/
+    ADMIN_PASSWORD aren't set in the environment yet.
+    """
+    if not ADMIN_USERNAME or not ADMIN_PASSWORD:
+        raise HTTPException(status_code=503, detail="Admin login isn't configured yet — set ADMIN_USERNAME and ADMIN_PASSWORD in the environment.")
+    username_ok = secrets.compare_digest(payload.username.strip(), ADMIN_USERNAME)
+    password_ok = secrets.compare_digest(payload.password, ADMIN_PASSWORD)
+    if not (username_ok and password_ok):
+        raise HTTPException(status_code=401, detail="Incorrect username or password.")
+    return {"admin_token": ADMIN_TOKEN}
 
 
 # ══════════════════════════════════════════════════════

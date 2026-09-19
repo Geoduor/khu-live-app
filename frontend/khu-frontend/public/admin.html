@@ -67,6 +67,17 @@
   }
 
   .section-title { font-size: 14px; font-weight: 700; margin-bottom: 8px; }
+
+  .welcome-bar {
+    display: flex; align-items: center; justify-content: space-between;
+    background: var(--card); border: 1px solid var(--border); border-radius: 12px;
+    padding: 12px 16px; margin-bottom: 16px; font-size: 13px;
+  }
+  .logout-btn {
+    width: auto; margin: 0; padding: 6px 12px; font-size: 12px;
+    background: transparent; border: 1px solid var(--border); color: var(--muted);
+  }
+  #loginScreen, #mainScreen { display: none; }
 </style>
 </head>
 <body>
@@ -74,16 +85,27 @@
 <h1>KHU Live — Manual Results</h1>
 <div class="subtitle">Admin only. Fills gaps the live scraper hasn't caught yet — never overwrites a result the scraper already found.</div>
 
-<div class="card">
-  <label>Backend URL</label>
-  <input id="apiBase" placeholder="https://khu-backend.onrender.com" />
+<div id="loginScreen">
+  <div class="card">
+    <label>Username</label>
+    <input id="adminUsername" placeholder="Your admin username" />
 
-  <label>Admin Token</label>
-  <input id="adminToken" type="password" placeholder="Your ADMIN_TOKEN" />
+    <label>Password</label>
+    <input id="adminPassword" type="password" placeholder="Your admin password" />
+
+    <button id="loginBtn" onclick="login()">Log In</button>
+    <div id="loginMsg" class="msg"></div>
+  </div>
 </div>
 
-<div class="card">
-  <div class="section-title">Add a Result</div>
+<div id="mainScreen">
+  <div class="welcome-bar">
+    <span>Logged in as Admin</span>
+    <button class="logout-btn" onclick="logout()">Log Out</button>
+  </div>
+
+  <div class="card">
+    <div class="section-title">Add a Result</div>
 
   <label>League</label>
   <select id="league">
@@ -259,6 +281,8 @@
   <div id="playerStatsList" style="margin-top: 16px;"></div>
 </div>
 
+</div>
+
 <script>
   const $ = (id) => document.getElementById(id);
   function teamLabel(side) {
@@ -328,14 +352,68 @@
 
 
 
-  // Remember backend URL + token locally so you don't retype them every visit.
-  $('apiBase').value = localStorage.getItem('khu_admin_api_base') || '';
-  $('adminToken').value = localStorage.getItem('khu_admin_token') || '';
-  $('apiBase').addEventListener('change', () => { localStorage.setItem('khu_admin_api_base', $('apiBase').value.trim()); loadResults(); loadAgents(); loadTeamStats(); loadPlayerStats(); });
-  $('adminToken').addEventListener('change', () => { localStorage.setItem('khu_admin_token', $('adminToken').value.trim()); loadResults(); loadAgents(); loadTeamStats(); loadPlayerStats(); });
+  // Backend URL is fixed — not user-editable, so it's never something
+  // that can be tampered with or mistyped in the browser. Update this
+  // constant if you ever move the backend to a different host.
+  const API_BASE = "https://khu-backend.onrender.com";
 
-  function apiBase() { return $('apiBase').value.trim().replace(/\/$/, ''); }
-  function token() { return $('adminToken').value.trim(); }
+  function apiBase() { return API_BASE; }
+  function token() { return localStorage.getItem('khu_admin_token') || ''; }
+
+  function showScreen() {
+    if (token()) {
+      $('loginScreen').style.display = 'none';
+      $('mainScreen').style.display = 'block';
+      loadResults();
+      loadAgents();
+      loadTeamStats();
+      loadPlayerStats();
+    } else {
+      $('loginScreen').style.display = 'block';
+      $('mainScreen').style.display = 'none';
+    }
+  }
+
+  async function login() {
+    const btn = $('loginBtn');
+    const msg = $('loginMsg');
+    msg.className = 'msg';
+
+    const username = $('adminUsername').value.trim();
+    const password = $('adminPassword').value;
+    if (!username || !password) {
+      msg.textContent = 'Enter both username and password.';
+      msg.className = 'msg error';
+      return;
+    }
+
+    btn.disabled = true;
+    btn.textContent = 'Logging in...';
+    try {
+      const res = await fetch(`${API_BASE}/api/admin/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, password }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || 'Login failed.');
+
+      localStorage.setItem('khu_admin_token', data.admin_token);
+      $('adminPassword').value = '';
+      showScreen();
+    } catch (e) {
+      msg.textContent = e.message;
+      msg.className = 'msg error';
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Log In';
+    }
+  }
+
+  function logout() {
+    localStorage.removeItem('khu_admin_token');
+    showScreen();
+  }
 
   function showMsg(el, text, isError) {
     el.textContent = text;
@@ -383,7 +461,13 @@
         }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.detail || 'Something went wrong.');
+      if (!res.ok) {
+        if (res.status === 401) {
+          logout();
+          throw new Error('Your session ended — please log in again.');
+        }
+        throw new Error(data.detail || 'Something went wrong.');
+      }
 
       showMsg(msg, `Added: ${homeTeam} ${homeScore} - ${awayScore} ${awayTeam}`, false);
       ['homeTeam', 'awayTeam', 'homeScore', 'awayScore', 'venue'].forEach((id) => $(id).value = '');
@@ -685,10 +769,7 @@
   $('homeTeam').addEventListener('input', updateTeamLabels);
   $('awayTeam').addEventListener('input', updateTeamLabels);
 
-  loadResults();
-  loadAgents();
-  loadTeamStats();
-  loadPlayerStats();
+  showScreen();
 </script>
 
 </body>
