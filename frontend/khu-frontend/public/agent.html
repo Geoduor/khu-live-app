@@ -109,7 +109,7 @@
     <div class="section-title">Add a Result</div>
 
     <label>League</label>
-    <select id="league">
+    <select id="league" onchange="populateTeamDropdowns()">
       <option value="PLM">Premier League Men</option>
       <option value="PLW">Premier League Women</option>
       <option value="SLM">Super League Men</option>
@@ -123,11 +123,11 @@
     <div class="row">
       <div>
         <label>Home Team</label>
-        <input id="homeTeam" placeholder="e.g. Butali Warriors" />
+        <select id="homeTeam"><option value="">Select a team...</option></select>
       </div>
       <div>
         <label>Away Team</label>
-        <input id="awayTeam" placeholder="e.g. Kenya Police" />
+        <select id="awayTeam"><option value="">Select a team...</option></select>
       </div>
     </div>
 
@@ -180,6 +180,47 @@
 
 <script>
   const $ = (id) => document.getElementById(id);
+  let ALL_TEAMS_CACHE = null;
+
+  async function fetchAllTeams() {
+    if (ALL_TEAMS_CACHE) return ALL_TEAMS_CACHE;
+    try {
+      const res = await fetch(`${apiBase()}/api/teams/all`);
+      const data = await res.json();
+      ALL_TEAMS_CACHE = data.teams || [];
+    } catch (e) {
+      ALL_TEAMS_CACHE = [];
+    }
+    return ALL_TEAMS_CACHE;
+  }
+
+  function populateSelectWithTeams(selectId, teams) {
+    const sel = $(selectId);
+    if (!sel) return;
+    const current = sel.value;
+    sel.innerHTML = ['<option value="">Select a team...</option>']
+      .concat(teams.map((t) => `<option value="${t.name.replace(/"/g, '&quot;')}">${t.name}</option>`))
+      .join('');
+    if (current && teams.some((t) => t.name === current)) sel.value = current;
+  }
+
+  async function populateTeamDropdowns() {
+    const allTeams = await fetchAllTeams();
+
+    if ($('league') && $('homeTeam') && $('awayTeam')) {
+      const teams = allTeams.filter((t) => t.league_short === $('league').value);
+      populateSelectWithTeams('homeTeam', teams);
+      populateSelectWithTeams('awayTeam', teams);
+      if (typeof updateTeamLabels === 'function') updateTeamLabels();
+    }
+    if ($('tsLeague') && $('tsTeamName')) {
+      populateSelectWithTeams('tsTeamName', allTeams.filter((t) => t.league_short === $('tsLeague').value));
+    }
+    if ($('psLeague') && $('psTeamName')) {
+      populateSelectWithTeams('psTeamName', allTeams.filter((t) => t.league_short === $('psLeague').value));
+    }
+  }
+
   function teamLabel(side) {
     const name = $(side === 'home' ? 'homeTeam' : 'awayTeam').value.trim();
     const base = side === 'home' ? 'Home' : 'Away';
@@ -259,6 +300,7 @@
       $('loginScreen').style.display = 'none';
       $('mainScreen').style.display = 'block';
       $('welcomeName').textContent = displayName();
+      populateTeamDropdowns();
       loadResults();
     } else {
       $('loginScreen').style.display = 'block';
@@ -415,8 +457,8 @@
     }
   }
 
-  $('homeTeam').addEventListener('input', updateTeamLabels);
-  $('awayTeam').addEventListener('input', updateTeamLabels);
+  $('homeTeam').addEventListener('change', updateTeamLabels);
+  $('awayTeam').addEventListener('change', updateTeamLabels);
 
   showScreen();
 </script>

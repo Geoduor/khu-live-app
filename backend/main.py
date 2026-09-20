@@ -765,6 +765,65 @@ def backfill_match_logos(matches: list, logo_lookup: dict, fuzzy_records: list =
     return filled
 
 
+def apply_result_to_standings(result: dict, league: dict) -> bool:
+    """
+    Reflect a newly-added, genuinely-new manual result's impact on both
+    teams' standings — played+1, win/draw/loss, goals, points (3-1-0
+    scoring — confirmed against KHU's own published numbers, e.g. a
+    team with 5W-3D-1L showing 18 points is exactly 5×3+3×1), and form.
+
+    Computed as a delta on top of whatever the CURRENT cached standings
+    already show for each team, then stored via the same team_stats
+    override mechanism a manual correction uses — so it persists and
+    re-applies on every future refresh exactly like an explicit
+    correction would, until the live scrape eventually reflects this
+    same match itself (same "whichever source has it first" philosophy
+    as everywhere else in this app). Returns True if at least one
+    team's row was actually found and updated.
+    """
+    def outcome_and_points(mine: int, theirs: int):
+        if mine > theirs:
+            return "W", 3
+        if mine < theirs:
+            return "L", 0
+        return "D", 1
+
+    hs, aws = result["home_score"], result["away_score"]
+    updated_any = False
+
+    for team_name, my_score, their_score in (
+        (result["home_team"], hs, aws),
+        (result["away_team"], aws, hs),
+    ):
+        entry = _find_standings_entry_for_team(team_name, "")
+        if not entry:
+            # This team genuinely isn't in any cached standings yet
+            # (e.g. standings haven't been scraped since startup) —
+            # nothing to add a delta on top of, so skip rather than
+            # inventing a row from nothing.
+            continue
+
+        outcome, pts = outcome_and_points(my_score, their_score)
+        delta = {
+            "played": (entry.get("played") or 0) + 1,
+            "won": (entry.get("won") or 0) + (1 if outcome == "W" else 0),
+            "drawn": (entry.get("drawn") or 0) + (1 if outcome == "D" else 0),
+            "lost": (entry.get("lost") or 0) + (1 if outcome == "L" else 0),
+            "goals_for": (entry.get("goals_for") or 0) + my_score,
+            "goals_against": (entry.get("goals_against") or 0) + their_score,
+            "points": (entry.get("points") or 0) + pts,
+            "form": list(entry.get("form") or []) + [outcome],
+        }
+        db.save_team_stats(league["short"], entry["team"], delta)
+        updated_any = True
+
+    if updated_any:
+        apply_team_stat_overrides(league["key"])
+        logger.info(f"Applied match result to standings: {result['home_team']} vs {result['away_team']} ({league['short']})")
+
+    return updated_any
+
+
 def apply_team_stat_overrides(league_key: str):
     """
     Overlay any manually-entered corrections onto this league's just-
@@ -1375,13 +1434,14 @@ def get_all_teams():
     seen = set()
     for league_key, league_data in cache["standings"].items():
         league_name = league_data.get("league", league_key)
+        league_short = league_data.get("short", "")
         for team in league_data.get("standings", []):
             name = team.get("team")
             team_url = team.get("team_url") or ""
             dedupe_key = team_url or name
             if name and dedupe_key not in seen:
                 seen.add(dedupe_key)
-                teams.append({"name": name, "team_url": team_url, "league": league_name})
+                teams.append({"name": name, "team_url": team_url, "league": league_name, "league_short": league_short})
 
     teams.sort(key=lambda t: t["name"])
     return {"teams": teams, "total": len(teams)}
@@ -1617,6 +1677,22 @@ def add_manual_result(
     # Apply immediately to the live cache, same as the PDF upload endpoint does.
     current = cache.get("fixtures_results") or {}
     existing_results = current.get("results", [])
+
+    # Only reflect this match in the TABLE if it's genuinely new — i.e.
+    # the live scrape hasn't already counted it. Manual results exist
+    # specifically to fill gaps the scraper hasn't caught yet; if this
+    # exact match is already in the live-scraped results, the live
+    # standings already include its effect, and applying a stat delta
+    # here would double-count it.
+    def _result_sig(r):
+        return (
+            r.get("league_short", "").strip().upper(),
+            r.get("home_team", "").strip().lower(),
+            r.get("away_team", "").strip().lower(),
+            (r.get("date") or "")[:10],
+        )
+    already_live = _result_sig(result) in {_result_sig(r) for r in existing_results}
+
     merged_results = merge_manual_results_into_scraped(existing_results, [{**result, "match_key": match_key}])
     merged_results = _group_and_sort_matches(merged_results)
 
@@ -1638,7 +1714,16 @@ def add_manual_result(
 
     logger.info(f"Manual result added: {result['home_team']} {result['home_score']}-{result['away_score']} {result['away_team']} ({league['short']})")
 
-    return {"message": "Result added.", "match_key": match_key, "result": result}
+    table_updated = False
+    if not already_live:
+        table_updated = apply_result_to_standings(result, league)
+
+    return {
+        "message": "Result added.",
+        "match_key": match_key,
+        "result": result,
+        "table_updated": table_updated,
+    }
 
 
 @app.get("/api/admin/results/list")
