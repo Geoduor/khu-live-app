@@ -511,7 +511,10 @@
         throw new Error(data.detail || 'Something went wrong.');
       }
 
-      showMsg(msg, `Added: ${homeTeam} ${homeScore} - ${awayScore} ${awayTeam}`, false);
+      const tableNote = data.table_updated
+        ? " ✅ Table updated."
+        : " ⚠️ Table NOT updated (either this match is already reflected in live standings, or one of the teams isn't found in the current standings cache yet).";
+      showMsg(msg, `Added: ${homeTeam} ${homeScore} - ${awayScore} ${awayTeam}${tableNote}`, false);
       ['homeTeam', 'awayTeam', 'homeScore', 'awayScore', 'venue'].forEach((id) => $(id).value = '');
       clearScorersAndCards();
       loadResults();
