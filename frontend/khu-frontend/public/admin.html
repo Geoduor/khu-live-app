@@ -393,10 +393,12 @@
 
 
 
-  // Backend URL is fixed — not user-editable, so it's never something
-  // that can be tampered with or mistyped in the browser. Update this
-  // constant if you ever move the backend to a different host.
-  const API_BASE = "https://khu-backend.onrender.com";
+  // Use local backend when running on localhost, otherwise production.
+  // This keeps admin.html in sync with the React app's own API_BASE
+  // (frontend/.env -> REACT_APP_API_URL || http://localhost:8000).
+  const API_BASE = (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1")
+    ? "http://localhost:8000"
+    : "https://khu-backend.onrender.com";
 
   function apiBase() { return API_BASE; }
   function token() { return localStorage.getItem('khu_admin_token') || ''; }
