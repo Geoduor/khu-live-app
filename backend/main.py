@@ -903,20 +903,24 @@ def apply_pending_manual_results(league_key: str):
 
 
 def refresh_standings_for(league_key: str):
-    """Scrape one league; save to DB regardless of success; update in-memory cache."""
+    """Scrape one league; save to DB regardless of success; only update
+    in-memory cache on success so a failed scrape doesn't clobber the
+    last-known-good data users are already seeing."""
     try:
         data = scrape_standings(league_key)
         success = not bool(data.get("error"))
         db.save_standings(league_key, data, success=success)
-        data["_cache_scraped_at"] = datetime.now().isoformat()
-        data["_cache_success"] = success
-        cache["standings"][league_key] = data
         if success:
+            data["_cache_scraped_at"] = datetime.now().isoformat()
+            data["_cache_success"] = True
+            cache["standings"][league_key] = data
             apply_team_stat_overrides(league_key)
             apply_pending_manual_results(league_key)
             logger.info(f"✅ {league_key}: {data.get('total_teams', 0)} teams")
         else:
-            logger.warning(f"⚠️ {league_key}: scrape failed — {data.get('error')}")
+            # Leave the in-memory cache untouched — keep serving the
+            # previous cached data rather than an empty error payload.
+            logger.warning(f"⚠️ {league_key}: scrape failed — {data.get('error')} (cached data preserved)")
         return success
     except Exception as e:
         logger.error(f"❌ {league_key}: exception during scrape — {e}")
