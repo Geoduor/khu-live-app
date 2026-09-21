@@ -199,7 +199,7 @@
     if (!sel) return;
     const current = sel.value;
     sel.innerHTML = ['<option value="">Select a team...</option>']
-      .concat(teams.map((t) => `<option value="${t.name.replace(/"/g, '&quot;')}">${t.name}</option>`))
+      .concat(teams.map((t) => `<option value="${t.name.replace(/"/g, '&quot;')}" data-url="${(t.team_url || '').replace(/"/g, '&quot;')}">${t.name}</option>`))
       .join('');
     if (current && teams.some((t) => t.name === current)) sel.value = current;
   }
@@ -361,6 +361,8 @@
 
     const homeTeam = $('homeTeam').value.trim();
     const awayTeam = $('awayTeam').value.trim();
+    const homeTeamUrl = ($('homeTeam').selectedOptions[0] || {}).dataset.url || '';
+    const awayTeamUrl = ($('awayTeam').selectedOptions[0] || {}).dataset.url || '';
     const homeScore = $('homeScore').value;
     const awayScore = $('awayScore').value;
     const date = $('matchDate').value;
@@ -383,6 +385,8 @@
           league_short: $('league').value,
           home_team: homeTeam,
           away_team: awayTeam,
+          home_team_url: homeTeamUrl,
+          away_team_url: awayTeamUrl,
           home_score: parseInt(homeScore, 10),
           away_score: parseInt(awayScore, 10),
           date: `${date} ${time}`,

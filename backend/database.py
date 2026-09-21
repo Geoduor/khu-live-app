@@ -405,6 +405,23 @@ def load_team_stats() -> list:
     return out
 
 
+def set_manual_result_table_applied(match_key: str, applied: bool) -> bool:
+    """Mark a manual result as having its standings effect applied (or not)."""
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute("SELECT data_json FROM manual_results_store WHERE match_key = ?", (match_key,))
+    row = cur.fetchone()
+    if not row:
+        conn.close()
+        return False
+    data = json.loads(row["data_json"])
+    data["table_applied"] = applied
+    cur.execute("UPDATE manual_results_store SET data_json = ? WHERE match_key = ?", (json.dumps(data), match_key))
+    conn.commit()
+    conn.close()
+    return True
+
+
 def delete_team_stats(stat_key: str) -> bool:
     conn = get_connection()
     cur = conn.cursor()

@@ -119,11 +119,15 @@ class ManualResultInput(BaseModel):
     league codes (PLM, PLW, SLM, SLW, NLM-EZ, NLM-CZ, NLM-WZ, NLM-SZ) —
     validated against LEAGUES below, never guessed. date should be
     "YYYY-MM-DD HH:MM" to match every other date format already used
-    across this app. scorers/cards are optional.
+    across this app. scorers/cards are optional. team_url fields are
+    sent by admin/agent so the backend can find the exact cached team
+    row by URL first (more reliable than name matching alone).
     """
     league_short: str
     home_team: str
     away_team: str
+    home_team_url: Optional[str] = ""
+    away_team_url: Optional[str] = ""
     home_score: int
     away_score: int
     date: str
@@ -791,16 +795,17 @@ def apply_result_to_standings(result: dict, league: dict) -> bool:
     hs, aws = result["home_score"], result["away_score"]
     updated_any = False
 
-    for team_name, my_score, their_score in (
-        (result["home_team"], hs, aws),
-        (result["away_team"], aws, hs),
+    for team_name, team_url, my_score, their_score in (
+        (result["home_team"], result.get("home_team_url", ""), hs, aws),
+        (result["away_team"], result.get("away_team_url", ""), aws, hs),
     ):
-        entry = _find_standings_entry_for_team(team_name, "")
+        entry = _find_standings_entry_for_team(team_name, team_url)
         if not entry:
-            # This team genuinely isn't in any cached standings yet
-            # (e.g. standings haven't been scraped since startup) —
-            # nothing to add a delta on top of, so skip rather than
-            # inventing a row from nothing.
+            logger.warning(
+                f"apply_result_to_standings: couldn't find '{team_name}' "
+                f"(url='{team_url}') in cache for {league['short']} — "
+                f"will retry on next scrape"
+            )
             continue
 
         outcome, pts = outcome_and_points(my_score, their_score)
@@ -860,6 +865,43 @@ def apply_team_stat_overrides(league_key: str):
         logger.info(f"Applied {applied} manual team-stat correction(s) to {league_key}")
 
 
+def apply_pending_manual_results(league_key: str):
+    """Apply any manual results for this league that were entered before
+    the teams appeared in the standings cache. This runs after every
+    successful scrape so a result that couldn't be applied at entry time
+    (because the backend hadn't scraped yet) gets picked up automatically
+    on the next refresh."""
+    league = LEAGUES.get(league_key)
+    if not league:
+        return
+
+    manual_results = db.load_manual_results()
+    pending = [
+        r for r in manual_results
+        if r.get("league_short", "").upper() == league["short"].upper()
+        and not r.get("table_applied")
+    ]
+    if not pending:
+        return
+
+    applied_count = 0
+    for result in pending:
+        minimal_result = {
+            "home_team": result.get("home_team", ""),
+            "away_team": result.get("away_team", ""),
+            "home_team_url": result.get("home_team_url", ""),
+            "away_team_url": result.get("away_team_url", ""),
+            "home_score": result.get("home_score", 0),
+            "away_score": result.get("away_score", 0),
+        }
+        if apply_result_to_standings(minimal_result, league):
+            db.set_manual_result_table_applied(result.get("match_key", ""), True)
+            applied_count += 1
+
+    if applied_count:
+        logger.info(f"Applied {applied_count} pending manual result(s) to {league_key}")
+
+
 def refresh_standings_for(league_key: str):
     """Scrape one league; save to DB regardless of success; update in-memory cache."""
     try:
@@ -871,6 +913,7 @@ def refresh_standings_for(league_key: str):
         cache["standings"][league_key] = data
         if success:
             apply_team_stat_overrides(league_key)
+            apply_pending_manual_results(league_key)
             logger.info(f"✅ {league_key}: {data.get('total_teams', 0)} teams")
         else:
             logger.warning(f"⚠️ {league_key}: scrape failed — {data.get('error')}")
@@ -1665,16 +1708,19 @@ def add_manual_result(
         "league": league["name"],
         "home_team": correct_team_name(payload.home_team.strip()),
         "away_team": correct_team_name(payload.away_team.strip()),
+        "home_team_url": (payload.home_team_url or "").strip(),
+        "away_team_url": (payload.away_team_url or "").strip(),
         "home_score": payload.home_score,
         "away_score": payload.away_score,
         "date": payload.date.strip(),
         "venue": (payload.venue or "").strip(),
-        "matchday": "", "home_team_url": "", "home_logo_url": "",
-        "away_team_url": "", "away_logo_url": "", "state": "FT", "match_url": "",
+        "matchday": "", "home_logo_url": "",
+        "away_logo_url": "", "state": "FT", "match_url": "",
         "source": "manual",
         "entered_by": entered_by,
         "scorers": [{"team": s.team, "player_name": s.player_name.strip(), "minute": s.minute} for s in payload.scorers],
         "cards": [{"team": c.team, "player_name": c.player_name.strip(), "card_type": c.card_type, "minute": c.minute} for c in payload.cards],
+        "table_applied": False,
     }
 
     match_key = db.save_manual_result(result)
@@ -1683,12 +1729,6 @@ def add_manual_result(
     current = cache.get("fixtures_results") or {}
     existing_results = current.get("results", [])
 
-    # Only reflect this match in the TABLE if it's genuinely new — i.e.
-    # the live scrape hasn't already counted it. Manual results exist
-    # specifically to fill gaps the scraper hasn't caught yet; if this
-    # exact match is already in the live-scraped results, the live
-    # standings already include its effect, and applying a stat delta
-    # here would double-count it.
     def _result_sig(r):
         return (
             r.get("league_short", "").strip().upper(),
@@ -1696,7 +1736,15 @@ def add_manual_result(
             r.get("away_team", "").strip().lower(),
             (r.get("date") or "")[:10],
         )
+
+    # If the live scraper already has this exact match, the standings
+    # already reflect it — don't double-count.
     already_live = _result_sig(result) in {_result_sig(r) for r in existing_results}
+    # If we already successfully applied this manual result to the table
+    # on a previous attempt, don't apply it again.
+    already_applied = any(
+        r.get("table_applied") for r in existing_results if _result_sig(r) == _result_sig(result)
+    )
 
     merged_results = merge_manual_results_into_scraped(existing_results, [{**result, "match_key": match_key}])
     merged_results = _group_and_sort_matches(merged_results)
@@ -1720,8 +1768,10 @@ def add_manual_result(
     logger.info(f"Manual result added: {result['home_team']} {result['home_score']}-{result['away_score']} {result['away_team']} ({league['short']})")
 
     table_updated = False
-    if not already_live:
+    if not already_live and not already_applied:
         table_updated = apply_result_to_standings(result, league)
+        if table_updated:
+            db.set_manual_result_table_applied(match_key, True)
 
     return {
         "message": "Result added.",
