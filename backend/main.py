@@ -1638,6 +1638,11 @@ def add_manual_result(
         valid = ", ".join(sorted(LEAGUES_BY_SHORT.keys()))
         raise HTTPException(status_code=400, detail=f"Unknown league_short '{payload.league_short}'. Must be one of: {valid}")
 
+    if not payload.home_team.strip() or not payload.away_team.strip():
+        raise HTTPException(status_code=400, detail="Both home_team and away_team are required — a team wasn't selected.")
+    if payload.home_team.strip().lower() == payload.away_team.strip().lower():
+        raise HTTPException(status_code=400, detail="Home and away team can't be the same team.")
+
     if not _parse_match_date(payload.date) or _parse_match_date(payload.date).year == 1:
         raise HTTPException(status_code=400, detail="date must be in 'YYYY-MM-DD HH:MM' format.")
 
