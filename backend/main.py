@@ -22,6 +22,7 @@ import json
 import re
 import secrets
 import tempfile
+import cloudscraper
 import requests
 
 from scraper import (
@@ -47,6 +48,11 @@ import push
 # endpoints) need to go from a short code back to the full league
 # name/key, and LEAGUES itself is keyed the other way around.
 LEAGUES_BY_SHORT = {league["short"]: {**league, "key": key} for key, league in LEAGUES.items()}
+
+# Cloudflare-resistant scraper session for fetching from kenyahockeyunion.org
+_KHU_SCRAPER = cloudscraper.create_scraper(
+    browser={"browser": "chrome", "platform": "windows", "mobile": False}
+)
 
 # Shared-secret gate for the PDF-upload admin endpoint. Set this in
 # your .env / Render environment — never hardcode a real value here.
@@ -1244,7 +1250,7 @@ def proxy_logo(url: str):
         return Response(content=content, media_type=content_type, headers={"Cache-Control": "public, max-age=86400"})
 
     try:
-        resp = requests.get(url, headers=SCRAPER_HEADERS, timeout=10)
+        resp = _KHU_SCRAPER.get(url, headers=SCRAPER_HEADERS, timeout=10)
         resp.raise_for_status()
     except Exception as e:
         logger.warning(f"Logo proxy fetch failed for {url}: {e}")
@@ -1455,7 +1461,7 @@ def get_nlm_playoff_bracket():
 @app.get("/api/standings/all")
 def get_all_standings():
     if not cache["standings"]:
-        raise HTTPException(status_code=503, detail="Standings not yet loaded.")
+        raise HTTPException(status_code=503, detail="Standings not yet loaded — waiting for first successful scrape from kenyahockeyunion.org.")
     annotated = {k: annotate_staleness(dict(v)) for k, v in cache["standings"].items()}
     return {"standings": annotated, "source": "kenyahockeyunion.org"}
 
@@ -1475,7 +1481,7 @@ def get_all_teams():
     team_url is available for them.
     """
     if not cache["standings"]:
-        raise HTTPException(status_code=503, detail="Standings not yet loaded.")
+        raise HTTPException(status_code=503, detail="Teams not yet loaded — waiting for first successful scrape from kenyahockeyunion.org.")
 
     teams = []
     seen = set()

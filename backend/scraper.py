@@ -11,6 +11,7 @@ Column order confirmed from KHU screenshot:
 # | Teams | Pl | W | D | L | Diff | GD | Pts | Current Form
 """
 
+import cloudscraper
 import requests
 from bs4 import BeautifulSoup
 import logging
@@ -31,6 +32,10 @@ HEADERS = {
     "Accept-Language": "en-US,en;q=0.5",
     "Connection": "keep-alive",
 }
+
+_scraper = cloudscraper.create_scraper(
+    browser={"browser": "chrome", "platform": "windows", "mobile": False}
+)
 
 BASE_URL = "https://www.kenyahockeyunion.org"
 
@@ -283,7 +288,7 @@ def fetch_page(url: str, timeout: int = 20):
     for attempt in range(2):
         try:
             logger.info(f"Fetching (attempt {attempt+1}): {url}")
-            resp = requests.get(url, headers=HEADERS, timeout=timeout)
+            resp = _scraper.get(url, headers=HEADERS, timeout=timeout)
             resp.raise_for_status()
             soup = BeautifulSoup(resp.text, "lxml")
             logger.info(f"OK — {len(resp.text)} bytes")
@@ -307,7 +312,7 @@ def try_alt_urls(league: dict):
     urls_to_try = league.get("alt_urls", [league["url"]])
     for url in urls_to_try:
         try:
-            resp = requests.get(url, headers=HEADERS, timeout=15)
+            resp = _scraper.get(url, headers=HEADERS, timeout=15)
             if resp.status_code == 200:
                 logger.info(f"Found working URL: {url}")
                 soup = BeautifulSoup(resp.text, "lxml")
