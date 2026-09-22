@@ -131,9 +131,14 @@ self.addEventListener("push", (event) => {
 
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
-  const targetUrl = event.notification.data || "/";
+  // Normalize to an ABSOLUTE URL — client.url is always absolute
+  // (e.g. "https://app.example.com/"), while the payload carries a
+  // relative path ("/"). Comparing them raw never matched, so every
+  // click opened a brand-new window instead of focusing the tab the
+  // user already had open.
+  const targetUrl = new URL(event.notification.data || "/", self.location.origin).href;
   event.waitUntil(
-    self.clients.matchAll({ type: "window" }).then((clientList) => {
+    self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((clientList) => {
       for (const client of clientList) {
         if (client.url === targetUrl && "focus" in client) return client.focus();
       }

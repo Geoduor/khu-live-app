@@ -18,3 +18,8 @@ khu_cache.db
 .idea/
 .DS_Store
 Thumbs.db
+
+# Runtime debug dump written by scraper.py when the standings table
+# isn't found (e.g. bot-protection challenge page) — diagnostics only,
+# never meant to be committed.
+debug_standings_page.html

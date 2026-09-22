@@ -22,6 +22,7 @@ import json
 import re
 import secrets
 import tempfile
+import copy
 import cloudscraper
 import requests
 
@@ -34,6 +35,9 @@ from scraper import (
     correct_team_name,
     _parse_match_date,
     _group_and_sort_matches,
+    match_calendar_date_key,
+    polite_delay,
+    get_last_challenge_info,
     LEAGUES,
     LEAGUE_DISPLAY_ORDER,
     HEADERS as SCRAPER_HEADERS,
@@ -170,6 +174,7 @@ class TeamStatsInput(BaseModel):
     lost: Optional[int] = None
     goals_for: Optional[int] = None
     goals_against: Optional[int] = None
+    goal_diff: Optional[int] = None
     points: Optional[int] = None
     form: Optional[List[str]] = None
 
@@ -234,6 +239,12 @@ cache = {
 }
 
 STALE_THRESHOLD_SECONDS = 60 * 30  # 30 minutes
+
+# How often the background refresh runs. Env-tunable
+# (KHU_REFRESH_INTERVAL_MINUTES) so the scrape cadence can be slowed —
+# e.g. while KHU's host is serving bot-verification interstitials, or on
+# a day its server is struggling — without a code change.
+REFRESH_INTERVAL_MINUTES = int(os.environ.get("KHU_REFRESH_INTERVAL_MINUTES", "15"))
 
 # Path to the git-committed PDF fixtures seed — see export_pdf_seed
 # endpoint and seed_pdf_fixtures_from_file() below for the full story.
@@ -351,12 +362,16 @@ def merge_manual_results_into_scraped(scraped_results: list, manual_results: lis
     once it exists in this refresh's scraped output.
     """
     def sig(r):
-        date_part = (r.get("date") or "")[:10]
+        # match_calendar_date_key normalizes BOTH date formats this app
+        # uses — live scrapes emit "DD-MM-YYYY", manual entries and PDF
+        # fixtures use "YYYY-MM-DD" — so the same kickoff matches either
+        # way. A raw [:10] prefix would treat the same match as two
+        # different ones and silently duplicate it.
         return (
             r.get("league_short", "").strip().upper(),
             r.get("home_team", "").strip().lower(),
             r.get("away_team", "").strip().lower(),
-            date_part,
+            match_calendar_date_key(r.get("date", "")),
         )
 
     existing_sigs = {sig(r) for r in scraped_results}
@@ -714,10 +729,15 @@ def build_team_profile_from_cache(team_name: str, team_url: str = "") -> dict:
         # frontend to re-derive it by parsing a "3 - 0" string and
         # remembering which side was home. Same W/D/L letters as
         # "Current Form" above, so the two sections read consistently.
+        # The displayed "result" string is ALSO from this team's
+        # perspective (our goals first) — previously it always showed
+        # "home - away", which reversed the score for away matches and
+        # contradicted the outcome badge shown right next to it.
         outcome = ""
+        my_score = hs if side == "home" else aws
+        opp_score = aws if side == "home" else hs
         if hs is not None and aws is not None:
-            team_score = hs if side == "home" else aws
-            opp_score = aws if side == "home" else hs
+            team_score = my_score
             if team_score > opp_score:
                 outcome = "W"
             elif team_score < opp_score:
@@ -729,7 +749,7 @@ def build_team_profile_from_cache(team_name: str, team_url: str = "") -> dict:
             "date": m.get("date", ""),
             "opponent": m["away_team"] if side == "home" else m["home_team"],
             "venue": "H" if side == "home" else "A",
-            "result": f"{hs} - {aws}" if hs is not None and aws is not None else "",
+            "result": f"{my_score} - {opp_score}" if hs is not None and aws is not None else "",
             "outcome": outcome,
             "match_url": m.get("match_url", ""),
         })
@@ -775,137 +795,279 @@ def backfill_match_logos(matches: list, logo_lookup: dict, fuzzy_records: list =
     return filled
 
 
-def apply_result_to_standings(result: dict, league: dict) -> bool:
-    """
-    Reflect a newly-added, genuinely-new manual result's impact on both
-    teams' standings — played+1, win/draw/loss, goals, points (3-1-0
-    scoring — confirmed against KHU's own published numbers, e.g. a
-    team with 5W-3D-1L showing 18 points is exactly 5×3+3×1), and form.
+def _to_int(value) -> int:
+    """Coerce a scraped standings stat to int. The scraper stores every
+    stat as TEXT (e.g. played="9", goals_for="20") — arithmetic on those
+    strings raises TypeError. Empty/None/missing values become 0, which
+    is the honest value when the site didn't publish the number."""
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return 0
 
-    Computed as a delta on top of whatever the CURRENT cached standings
-    already show for each team, then stored via the same team_stats
-    override mechanism a manual correction uses — so it persists and
-    re-applies on every future refresh exactly like an explicit
-    correction would, until the live scrape eventually reflects this
-    same match itself (same "whichever source has it first" philosophy
-    as everywhere else in this app). Returns True if at least one
-    team's row was actually found and updated.
-    """
-    def outcome_and_points(mine: int, theirs: int):
-        if mine > theirs:
-            return "W", 3
-        if mine < theirs:
-            return "L", 0
-        return "D", 1
 
-    hs, aws = result["home_score"], result["away_score"]
-    updated_any = False
+# ══════════════════════════════════════════════════════
+# STANDINGS OVERLAYS — manual results + admin corrections
+# ══════════════════════════════════════════════════════
+# The table users see is never mutated in place. We keep the raw
+# scraped rows ("pristine") and rebuild the displayed rows from that
+# baseline every time:
+#
+#     displayed row = scraped row
+#                     + effects of manual results KHU hasn't published yet
+#                     + explicit admin corrections (absolute overrides)
+#
+# Recomputing from the baseline instead of accumulating deltas makes the
+# whole thing IDEMPOTENT — it can run at boot, after every scrape, and
+# after every manual add/delete without ever double-counting. And a
+# manual result stops contributing the moment the live scrape publishes
+# the same match (matched by league + teams + calendar date against
+# results that actually came from the live scrape — see
+# _scraped_result_signatures). That's what makes the two sources true
+# backups for each other: while the site lags, manual entries carry the
+# table; the moment the site catches up, its numbers take back over
+# automatically — with no stale snapshot left behind to mask future
+# live updates.
+_pristine_standings: dict = {}  # league_key -> raw scraped rows (deep-copied)
 
-    for team_name, team_url, my_score, their_score in (
-        (result["home_team"], result.get("home_team_url", ""), hs, aws),
-        (result["away_team"], result.get("away_team_url", ""), aws, hs),
-    ):
-        entry = _find_standings_entry_for_team(team_name, team_url)
-        if not entry:
-            logger.warning(
-                f"apply_result_to_standings: couldn't find '{team_name}' "
-                f"(url='{team_url}') in cache for {league['short']} — "
-                f"will retry on next scrape"
-            )
+# Fields an admin correction may override on a team row.
+_OVERRIDABLE_FIELDS = (
+    "played", "won", "drawn", "lost",
+    "goals_for", "goals_against", "goal_diff", "points", "form",
+)
+
+
+def _result_signature(r: dict) -> tuple:
+    """Identity of a match for cross-source dedup: league + both teams +
+    calendar date. match_calendar_date_key normalizes across the app's
+    two date formats (live scrapes emit "DD-MM-YYYY"; manual and PDF
+    entries use "YYYY-MM-DD"), so the same kickoff matches either way."""
+    return (
+        r.get("league_short", "").strip().upper(),
+        r.get("home_team", "").strip().lower(),
+        r.get("away_team", "").strip().lower(),
+        match_calendar_date_key(r.get("date", "")),
+    )
+
+
+def _scraped_result_signatures() -> set:
+    """Signatures of matches the LIVE scrape currently publishes.
+    Entries merged in from manual entry are excluded — they are this
+    app's own backup data, not evidence that KHU has published the
+    match. Without that exclusion every manual result would instantly
+    look "already published" to itself and never reach the table."""
+    fr = cache.get("fixtures_results") or {}
+    sigs = set()
+    for r in list(fr.get("results", [])) + list(fr.get("live", [])):
+        if r.get("source") == "manual":
             continue
-
-        outcome, pts = outcome_and_points(my_score, their_score)
-        delta = {
-            "played": (entry.get("played") or 0) + 1,
-            "won": (entry.get("won") or 0) + (1 if outcome == "W" else 0),
-            "drawn": (entry.get("drawn") or 0) + (1 if outcome == "D" else 0),
-            "lost": (entry.get("lost") or 0) + (1 if outcome == "L" else 0),
-            "goals_for": (entry.get("goals_for") or 0) + my_score,
-            "goals_against": (entry.get("goals_against") or 0) + their_score,
-            "points": (entry.get("points") or 0) + pts,
-            "form": list(entry.get("form") or []) + [outcome],
-        }
-        db.save_team_stats(league["short"], entry["team"], delta)
-        updated_any = True
-
-    if updated_any:
-        apply_team_stat_overrides(league["key"])
-        logger.info(f"Applied match result to standings: {result['home_team']} vs {result['away_team']} ({league['short']})")
-
-    return updated_any
+        sigs.add(_result_signature(r))
+    return sigs
 
 
-def apply_team_stat_overrides(league_key: str):
-    """
-    Overlay any manually-entered corrections onto this league's just-
-    scraped standings. Unlike fixtures/results merging (fill gaps only),
-    this OVERWRITES specific fields on an existing team row — a
-    correction only makes sense once there's a live-scraped row to
-    correct. Only fields the correction actually specified (non-None)
-    are touched; everything else stays as the live scrape reported it.
-    """
-    league = LEAGUES.get(league_key)
-    if not league:
-        return
-    corrections = [c for c in db.load_team_stats() if c.get("league_short", "").upper() == league["short"]]
-    if not corrections:
-        return
+def _find_row_index_for_team(rows: list, team_name: str, team_url: str = ""):
+    """Index of the standings row belonging to this team, using the same
+    layered identity rules as everywhere else in this file: URL match
+    first (exact), then exact/alias name match, then the conservative
+    fuzzy fallback — and only when EXACTLY ONE row qualifies. Returns
+    None rather than guessing which of two plausible rows is meant."""
+    if team_url:
+        for i, row in enumerate(rows):
+            if row.get("team_url") and row["team_url"] == team_url:
+                return i
+    if not team_name:
+        return None
+    matches = [
+        i for i, row in enumerate(rows)
+        if _team_matches_fixture_side(team_name, team_url, row.get("team", ""), row.get("team_url", ""))
+    ]
+    return matches[0] if len(matches) == 1 else None
 
-    standings_data = cache["standings"].get(league_key)
-    if not standings_data or not standings_data.get("standings"):
-        return
 
-    OVERRIDABLE_FIELDS = ("played", "won", "drawn", "lost", "goals_for", "goals_against", "points", "form")
+def _outcome_and_points(mine: int, theirs: int):
+    """3-1-0 scoring — confirmed against KHU's own published numbers
+    (a team with 5W-3D-1L showing 18 points is exactly 5x3 + 3x1)."""
+    if mine > theirs:
+        return "W", 3
+    if mine < theirs:
+        return "L", 0
+    return "D", 1
+
+
+def _uncaptured_manual_results(league: dict, published: set) -> list:
+    """Manual results for this league the live scrape hasn't published
+    yet — i.e. the backups still doing real work. Sorted by date so the
+    form entries they contribute land in chronological order."""
+    out = [
+        r for r in db.load_manual_results()
+        if r.get("league_short", "").strip().upper() == league["short"].upper()
+        and _result_signature(r) not in published
+    ]
+    out.sort(key=lambda r: _parse_match_date(r.get("date", "")))
+    return out
+
+
+def _apply_manual_results_to_rows(rows: list, uncaptured: list) -> tuple:
+    """Add each unpublished manual result's effect to its two teams'
+    rows: played +1, W/D/L, goals for/against, goal difference, points,
+    and one form entry (form stays at the standings table's own 5-slot
+    width). Returns (results_applied, unmatched_team_names) — a result
+    counts as applied only if at least one of its teams was found, and
+    whichever side IS found still gets updated even if the other isn't."""
     applied = 0
-    for team in standings_data["standings"]:
-        normalized = _normalize_team_name(team.get("team", ""))
+    unmatched = []
+    for r in uncaptured:
+        hs, aws = _to_int(r.get("home_score")), _to_int(r.get("away_score"))
+        matched_this_result = False
+        for name, url, mine, theirs in (
+            (r.get("home_team", ""), r.get("home_team_url", ""), hs, aws),
+            (r.get("away_team", ""), r.get("away_team_url", ""), aws, hs),
+        ):
+            idx = _find_row_index_for_team(rows, name, url)
+            if idx is None:
+                if name:
+                    unmatched.append(name)
+                continue
+            row = rows[idx]
+            outcome, pts = _outcome_and_points(mine, theirs)
+            row["played"] = _to_int(row.get("played")) + 1
+            row["won"] = _to_int(row.get("won")) + (1 if outcome == "W" else 0)
+            row["drawn"] = _to_int(row.get("drawn")) + (1 if outcome == "D" else 0)
+            row["lost"] = _to_int(row.get("lost")) + (1 if outcome == "L" else 0)
+            row["goals_for"] = _to_int(row.get("goals_for")) + mine
+            row["goals_against"] = _to_int(row.get("goals_against")) + theirs
+            row["goal_diff"] = _to_int(row.get("goal_diff")) + (mine - theirs)
+            row["points"] = _to_int(row.get("points")) + pts
+            row["form"] = (list(row.get("form") or []) + [outcome])[-5:]
+            # A team once shown as "yet to play" has now played something
+            # we know about — the placeholder badge must not contradict
+            # the stats sitting right next to it.
+            row.pop("is_placeholder", None)
+            matched_this_result = True
+        if matched_this_result:
+            applied += 1
+    return applied, unmatched
+
+
+def _apply_team_stat_corrections(league: dict, rows: list) -> tuple:
+    """Overlay explicit admin corrections onto rows. Corrections are
+    absolute field overrides (the admin states the real number), so they
+    apply last and win over result-derived effects for whichever fields
+    they actually set. Returns (applied_count, matched_stat_keys)."""
+    corrections = [
+        c for c in db.load_team_stats()
+        if c.get("league_short", "").upper() == league["short"]
+    ]
+    if not corrections:
+        return 0, set()
+
+    applied = 0
+    applied_keys = set()
+    for row in rows:
+        normalized = _normalize_team_name(row.get("team", ""))
         for correction in corrections:
             if _normalize_team_name(correction.get("team_name", "")) != normalized:
                 continue
-            for field in OVERRIDABLE_FIELDS:
+            for field in _OVERRIDABLE_FIELDS:
                 if correction.get(field) is not None:
-                    team[field] = correction[field]
+                    row[field] = correction[field]
+            applied_keys.add(correction.get("stat_key"))
             applied += 1
 
-    if applied:
-        logger.info(f"Applied {applied} manual team-stat correction(s) to {league_key}")
+    # A correction that matches NO row is either a typo in the team name
+    # or a correction for a team KHU hasn't published yet — it must never
+    # fail silently (the admin UI used to report success regardless).
+    unmatched = [c for c in corrections if c.get("stat_key") not in applied_keys]
+    if unmatched:
+        logger.warning(
+            f"{len(unmatched)} manual team-stat correction(s) didn't match any team row "
+            f"in {league['short']} — check team_name spelling; they will apply automatically "
+            f"on a later refresh if the team appears."
+        )
+    return applied, applied_keys
 
 
-def apply_pending_manual_results(league_key: str):
-    """Apply any manual results for this league that were entered before
-    the teams appeared in the standings cache. This runs after every
-    successful scrape so a result that couldn't be applied at entry time
-    (because the backend hadn't scraped yet) gets picked up automatically
-    on the next refresh."""
+def _resort_rows_by_league_order(rows: list) -> None:
+    """Re-number positions after overlays so the table stays internally
+    consistent — a team with more points must not sit below one with
+    fewer just because KHU's own (stale) page still lists it lower.
+    Sorted by points, then goal difference, then goals for (KHU's own
+    published convention), with the original scraped order as a stable
+    tie-break. Only runs when an overlay actually changed something; a
+    league with no manual data keeps KHU's exact published order."""
+    ranked = sorted(
+        enumerate(rows),
+        key=lambda pair: (
+            -_to_int(pair[1].get("points")),
+            -_to_int(pair[1].get("goal_diff")),
+            -_to_int(pair[1].get("goals_for")),
+            pair[0],
+        ),
+    )
+    ordered = [row for _, row in ranked]
+    for i, row in enumerate(ordered, start=1):
+        row["position"] = str(i)
+    rows[:] = ordered
+
+
+def recompute_league_standings(league_key: str) -> dict:
+    """
+    Rebuild one league's displayed standings from the pristine scraped
+    rows — see the section comment above for the full model and why it
+    is idempotent.
+
+    Called at boot, after every successful standings scrape, after the
+    fixtures/results refresh (so a live catch-up is picked up in the
+    same cycle), and after every manual add/delete/correction. Cheap:
+    one league's rows, a handful of manual results, no network.
+
+    Returns a summary used for logging and API responses:
+      {league, manual_results_applied, corrections_applied,
+       unmatched_teams, matched_correction_keys}
+    """
+    summary = {
+        "league": league_key,
+        "manual_results_applied": 0,
+        "corrections_applied": 0,
+        "unmatched_teams": [],
+        "matched_correction_keys": set(),
+    }
     league = LEAGUES.get(league_key)
-    if not league:
-        return
+    pristine = _pristine_standings.get(league_key)
+    standings_data = cache["standings"].get(league_key)
+    if not league or pristine is None or not standings_data:
+        return summary
 
-    manual_results = db.load_manual_results()
-    pending = [
-        r for r in manual_results
-        if r.get("league_short", "").upper() == league["short"].upper()
-        and not r.get("table_applied")
-    ]
-    if not pending:
-        return
+    rows = copy.deepcopy(pristine)
+    published = _scraped_result_signatures()
+    uncaptured = _uncaptured_manual_results(league, published)
 
-    applied_count = 0
-    for result in pending:
-        minimal_result = {
-            "home_team": result.get("home_team", ""),
-            "away_team": result.get("away_team", ""),
-            "home_team_url": result.get("home_team_url", ""),
-            "away_team_url": result.get("away_team_url", ""),
-            "home_score": result.get("home_score", 0),
-            "away_score": result.get("away_score", 0),
-        }
-        if apply_result_to_standings(minimal_result, league):
-            db.set_manual_result_table_applied(result.get("match_key", ""), True)
-            applied_count += 1
+    results_applied, unmatched = _apply_manual_results_to_rows(rows, uncaptured)
+    corrections_applied, matched_keys = _apply_team_stat_corrections(league, rows)
 
-    if applied_count:
-        logger.info(f"Applied {applied_count} pending manual result(s) to {league_key}")
+    if results_applied or corrections_applied:
+        _resort_rows_by_league_order(rows)
+
+    standings_data["standings"] = rows
+    standings_data["total_teams"] = len(rows)
+
+    summary["manual_results_applied"] = results_applied
+    summary["corrections_applied"] = corrections_applied
+    summary["unmatched_teams"] = sorted(set(unmatched))
+    summary["matched_correction_keys"] = matched_keys
+
+    if uncaptured or corrections_applied:
+        logger.info(
+            f"Standings overlay {league['short']}: {results_applied}/{len(uncaptured)} "
+            f"unpublished manual result(s) applied, {corrections_applied} correction(s) applied"
+        )
+    if unmatched:
+        logger.warning(
+            f"Manual result team(s) not found in {league['short']} standings: "
+            f"{', '.join(sorted(set(unmatched)))} — the result stays in the Results list "
+            f"and reaches the table as soon as the team appears in the scrape."
+        )
+    return summary
 
 
 def refresh_standings_for(league_key: str):
@@ -920,8 +1082,13 @@ def refresh_standings_for(league_key: str):
             data["_cache_scraped_at"] = datetime.now().isoformat()
             data["_cache_success"] = True
             cache["standings"][league_key] = data
-            apply_team_stat_overrides(league_key)
-            apply_pending_manual_results(league_key)
+            # Keep the raw scrape as the pristine baseline — every
+            # overlay is recomputed from it, never accumulated on top of
+            # an already-overlaid row (that's what keeps recomputes
+            # idempotent, and what stopped the old design from freezing
+            # a team's row forever once a manual result touched it).
+            _pristine_standings[league_key] = copy.deepcopy(data.get("standings", []))
+            recompute_league_standings(league_key)
             logger.info(f"✅ {league_key}: {data.get('total_teams', 0)} teams")
         else:
             # Leave the in-memory cache untouched — keep serving the
@@ -1046,6 +1213,17 @@ def refresh_fixtures_results():
         data["_cache_success"] = success
         cache["fixtures_results"] = data
 
+        # ── Re-derive standings overlays with the NEW results snapshot ──
+        # The standings scrape ran earlier in this same cycle; this pass
+        # uses the just-updated results list, so a manual result stops
+        # affecting the table in the SAME refresh that the live scrape
+        # first publishes it — not one cycle late. The reverse holds too:
+        # while a match stays unpublished, its manual entry keeps the
+        # table correct with no extra bookkeeping.
+        if db.load_manual_results():
+            for league_key in LEAGUES:
+                recompute_league_standings(league_key)
+
         # ── Fire push notifications for newly-live matches ──
         # Scoped: subscribers with favorite teams only get alerted when
         # one of THEIR followed teams is playing. Subscribers who haven't
@@ -1102,6 +1280,10 @@ def refresh_all_data(force: bool = False):
     results = []
     for league_key in LEAGUES:
         results.append(refresh_standings_for(league_key))
+        # Space out the per-league requests — see scraper.polite_delay();
+        # it also automatically slows further while a bot-verification
+        # interstitial is "warm".
+        polite_delay()
     results.append(refresh_fixtures_results())
 
     any_success = any(results)
@@ -1134,9 +1316,19 @@ def load_from_cache_on_boot():
     cached_standings = db.load_all_standings()
     for key, data in cached_standings.items():
         cache["standings"][key] = data
+        _pristine_standings[key] = copy.deepcopy(data.get("standings", []))
     cached_fr = db.load_fixtures_results()
     if cached_fr:
         cache["fixtures_results"] = cached_fr
+
+    # ── Re-apply every overlay (manual-result effects + corrections)
+    # BEFORE any scrape runs. Rows in the database are the raw pristine
+    # scrape; without this pass a cold start shows the table WITHOUT any
+    # manual data until the first successful scrape — which, while KHU's
+    # site is stale or unreachable, could be indefinitely. This is the
+    # boot half of "manual entry is the backup when scraping is down".
+    for key in list(cache["standings"].keys()):
+        recompute_league_standings(key)
 
     if cached_standings or cached_fr:
         cache["status"] = "cached"
@@ -1148,7 +1340,7 @@ def load_from_cache_on_boot():
 
 # ── Scheduler: refresh every 15 minutes ──
 scheduler = BackgroundScheduler()
-scheduler.add_job(refresh_all_data, "interval", minutes=15)
+scheduler.add_job(refresh_all_data, "interval", minutes=REFRESH_INTERVAL_MINUTES)
 scheduler.start()
 
 
@@ -1215,6 +1407,12 @@ def health():
             "consecutive_failures": breaker_state["consecutive_failures"],
             "opened_at": breaker_state["opened_at"],
         },
+        # When KHU's host last served a browser-verification interstitial
+        # to the scraper (None = never this process). If this keeps
+        # updating while circuit_breaker stays CLOSED, the site is
+        # protected but our requests are still getting through sometimes.
+        "scraper": get_last_challenge_info(),
+        "refresh_interval_minutes": REFRESH_INTERVAL_MINUTES,
     }
 
 
@@ -1730,7 +1928,6 @@ def add_manual_result(
         "entered_by": entered_by,
         "scorers": [{"team": s.team, "player_name": s.player_name.strip(), "minute": s.minute} for s in payload.scorers],
         "cards": [{"team": c.team, "player_name": c.player_name.strip(), "card_type": c.card_type, "minute": c.minute} for c in payload.cards],
-        "table_applied": False,
     }
 
     match_key = db.save_manual_result(result)
@@ -1738,23 +1935,6 @@ def add_manual_result(
     # Apply immediately to the live cache, same as the PDF upload endpoint does.
     current = cache.get("fixtures_results") or {}
     existing_results = current.get("results", [])
-
-    def _result_sig(r):
-        return (
-            r.get("league_short", "").strip().upper(),
-            r.get("home_team", "").strip().lower(),
-            r.get("away_team", "").strip().lower(),
-            (r.get("date") or "")[:10],
-        )
-
-    # If the live scraper already has this exact match, the standings
-    # already reflect it — don't double-count.
-    already_live = _result_sig(result) in {_result_sig(r) for r in existing_results}
-    # If we already successfully applied this manual result to the table
-    # on a previous attempt, don't apply it again.
-    already_applied = any(
-        r.get("table_applied") for r in existing_results if _result_sig(r) == _result_sig(result)
-    )
 
     merged_results = merge_manual_results_into_scraped(existing_results, [{**result, "match_key": match_key}])
     merged_results = _group_and_sort_matches(merged_results)
@@ -1777,17 +1957,39 @@ def add_manual_result(
 
     logger.info(f"Manual result added: {result['home_team']} {result['home_score']}-{result['away_score']} {result['away_team']} ({league['short']})")
 
-    table_updated = False
-    if not already_live and not already_applied:
-        table_updated = apply_result_to_standings(result, league)
-        if table_updated:
-            db.set_manual_result_table_applied(match_key, True)
+    # ── Reflect it in the league table ──
+    # The recompute is idempotent: this result contributes to the table
+    # only while the live scrape hasn't published the same match, and
+    # re-running it on every later add/edit/refresh can never double it.
+    recompute_league_standings(league["key"])
+
+    published = _scraped_result_signatures()
+    rows = (cache["standings"].get(league["key"]) or {}).get("standings", [])
+    matched_team = any(
+        _find_row_index_for_team(rows, name, url) is not None
+        for name, url in (
+            (result["home_team"], result.get("home_team_url", "")),
+            (result["away_team"], result.get("away_team_url", "")),
+        )
+    )
+
+    if _result_signature(result) in published:
+        table_updated = False
+        table_note = "Live standings already publish this match — the table already reflects it."
+    elif not matched_team:
+        table_updated = False
+        table_note = ("Neither team is in the current standings cache yet — the result is saved "
+                      "and will reach the table automatically as soon as they appear in a scrape.")
+    else:
+        table_updated = True
+        table_note = "Table updated."
 
     return {
         "message": "Result added.",
         "match_key": match_key,
         "result": result,
         "table_updated": table_updated,
+        "table_note": table_note,
     }
 
 
@@ -1804,20 +2006,28 @@ def delete_manual_result(match_key: str, x_admin_token: str = Header(default="")
     """
     Remove one manually-entered result (e.g. it was a mistake, or the
     live scrape has now confirmed the real result and the manual entry
-    is no longer needed). Does NOT retroactively remove it from the
-    CURRENT in-memory cache — that happens naturally on the next
-    refresh, since a deleted entry won't be in db.load_manual_results()
-    anymore. Call POST /api/refresh afterward for it to disappear
-    immediately instead of waiting for the next scheduled cycle.
+    is no longer needed).
+
+    Immediately recomputes the affected league's table, so the result's
+    effect disappears from the standings right away instead of lingering
+    in the overwrite store until the next scheduled refresh.
 
     Callable by you or any active agent — not restricted to whoever
     originally entered it, since a mistake often needs fixing by
     whoever spots it, not just its original author.
     """
     _authorize_writer(x_admin_token, x_agent_token)
+    # Look up the record BEFORE deleting — we need its league to recompute
+    # the table it was affecting.
+    record = next((r for r in db.load_manual_results() if r.get("match_key") == match_key), None)
     deleted = db.delete_manual_result(match_key)
     if not deleted:
         raise HTTPException(status_code=404, detail=f"No manual result found with match_key '{match_key}'.")
+
+    league = LEAGUES_BY_SHORT.get((record or {}).get("league_short", "").strip().upper())
+    if league:
+        recompute_league_standings(league["key"])
+
     return {"message": "Deleted.", "match_key": match_key}
 
 
@@ -1858,12 +2068,30 @@ def set_team_stats(payload: TeamStatsInput, x_admin_token: str = Header(default=
 
     stats = {k: v for k, v in payload.dict(exclude={"league_short", "team_name"}).items() if v is not None}
     if not stats:
-        raise HTTPException(status_code=400, detail="Provide at least one field to correct (played, won, drawn, lost, goals_for, goals_against, points, or form).")
+        raise HTTPException(status_code=400, detail="Provide at least one field to correct (played, won, drawn, lost, goals_for, goals_against, goal_diff, points, or form).")
 
     stat_key = db.save_team_stats(league["short"], payload.team_name.strip(), stats)
-    apply_team_stat_overrides(league["key"])
+    summary = recompute_league_standings(league["key"])
+    applied_to_table = stat_key in summary.get("matched_correction_keys", set())
 
-    return {"message": f"Applied correction to {payload.team_name}.", "stat_key": stat_key, "fields_corrected": list(stats.keys())}
+    # Report honestly whether the correction actually landed on a row —
+    # a typo'd team name previously produced a "success" message while
+    # changing nothing.
+    if applied_to_table:
+        message = f"Applied correction to {payload.team_name}."
+    else:
+        message = (
+            f"Correction saved for {payload.team_name}, but no matching team row was found "
+            f"in {league['name']} yet — it will apply automatically once that team appears "
+            f"in the standings scrape. Check the team name spelling."
+        )
+
+    return {
+        "message": message,
+        "stat_key": stat_key,
+        "fields_corrected": list(stats.keys()),
+        "applied_to_table": applied_to_table,
+    }
 
 
 @app.get("/api/admin/team-stats/list")
@@ -1877,15 +2105,22 @@ def list_team_stats(x_admin_token: str = Header(default=""), x_agent_token: str 
 @app.delete("/api/admin/team-stats/{stat_key}")
 def remove_team_stats(stat_key: str, x_admin_token: str = Header(default=""), x_agent_token: str = Header(default="")):
     """
-    Remove a team-stat correction — the team's row reverts to whatever
-    the live scrape reports on the NEXT refresh (not immediately, since
-    the current cache already has the correction baked in — call
-    POST /api/refresh afterward for an instant revert instead).
+    Remove a team-stat correction — the table reverts to the live-scraped
+    value immediately (the recompute runs right here), not on the next
+    scheduled refresh.
     """
     _authorize_writer(x_admin_token, x_agent_token)
     deleted = db.delete_team_stats(stat_key)
     if not deleted:
         raise HTTPException(status_code=404, detail=f"No team-stat correction found with key '{stat_key}'.")
+
+    # stat_key is "LEAGUE|team-name" — the league short tells us which
+    # table to rebuild so the revert is visible right away.
+    league_short = stat_key.split("|", 1)[0].strip().upper()
+    league = LEAGUES_BY_SHORT.get(league_short)
+    if league:
+        recompute_league_standings(league["key"])
+
     return {"message": "Deleted.", "stat_key": stat_key}
 
 

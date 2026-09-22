@@ -166,9 +166,21 @@ def init_db():
 
 
 def save_standings(league_key: str, data: dict, success: bool = True):
-    """Save (or overwrite) standings for one league."""
+    """Save (or overwrite) standings for one league.
+
+    A FAILED scrape (success=False) must never overwrite the
+    last-known-good payload — otherwise a restart while KHU is down
+    would boot into empty error payloads instead of the data users
+    could still see. Failed scrapes leave the existing good row
+    untouched (the in-memory cache already does the same)."""
     conn = get_connection()
     cur = conn.cursor()
+    if not success:
+        cur.execute("SELECT success FROM standings_cache WHERE league_key = ?", (league_key,))
+        row = cur.fetchone()
+        if row and row["success"]:
+            conn.close()
+            return
     cur.execute("""
         INSERT INTO standings_cache (league_key, data_json, scraped_at, success)
         VALUES (?, ?, ?, ?)
@@ -213,9 +225,17 @@ def load_all_standings():
 
 
 def save_fixtures_results(data: dict, success: bool = True):
-    """Save the homepage fixtures/results scrape (single row table)."""
+    """Save the homepage fixtures/results scrape (single row table).
+    Same rule as save_standings: a failed scrape never overwrites the
+    last-known-good payload, so a restart can always serve real data."""
     conn = get_connection()
     cur = conn.cursor()
+    if not success:
+        cur.execute("SELECT success FROM fixtures_results_cache WHERE id = 1")
+        row = cur.fetchone()
+        if row and row["success"]:
+            conn.close()
+            return
     cur.execute("""
         INSERT INTO fixtures_results_cache (id, data_json, scraped_at, success)
         VALUES (1, ?, ?, ?)

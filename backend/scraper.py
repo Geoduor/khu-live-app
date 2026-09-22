@@ -13,6 +13,7 @@ Column order confirmed from KHU screenshot:
 
 import cloudscraper
 import requests
+import os
 from bs4 import BeautifulSoup
 import logging
 import re
@@ -279,18 +280,88 @@ LEAGUES = {
 }
 
 
+# ── Politeness / throttling ──
+# One HTTP request per team means ~70-90 requests per refresh cycle. Sent
+# back-to-back that's a sustained burst; a small delay between requests is
+# both good manners and the single most effective way to avoid tripping
+# bot-protection. These are env-tunable so the cadence can be slowed
+# further on the deployed service without a code change.
+#
+# KHU_REQUEST_DELAY_SECONDS          delay between requests (default 1.0)
+# KHU_CHALLENGE_BACKOFF_MULTIPLIER   multiplier while a challenge is "warm"
+REQUEST_DELAY_SECONDS = float(os.environ.get("KHU_REQUEST_DELAY_SECONDS", "1.0"))
+CHALLENGE_BACKOFF_MULTIPLIER = float(os.environ.get("KHU_CHALLENGE_BACKOFF_MULTIPLIER", "3"))
+# How long a recently-seen interstitial keeps us in slow mode.
+CHALLENGE_BACKOFF_WINDOW_SECONDS = 900  # 15 minutes
+# Waits between retries after an interstitial is served. The interstitial
+# itself reloads the page after ~5s, so the first wait is just past that —
+# a later request with the same session cookies often gets the real page.
+CHALLENGE_RETRY_WAITS = (7, 15)
+
+_last_challenge_at = None  # datetime | None — last time an interstitial was served
+
+
+def _mark_challenge_seen():
+    """Record that KHU's host served a browser-verification interstitial.
+    Used both for diagnostics (/api/health) and to engage slow mode."""
+    global _last_challenge_at
+    _last_challenge_at = datetime.now()
+
+
+def get_last_challenge_info() -> dict:
+    """Diagnostics for /api/health — when KHU's host last served us a
+    browser-verification interstitial (None = never in this process)."""
+    return {
+        "last_challenge_at": _last_challenge_at.isoformat() if _last_challenge_at else None,
+    }
+
+
+def polite_delay():
+    """Sleep between requests to KHU's server. Automatically slower (by
+    CHALLENGE_BACKOFF_MULTIPLIER) for a while after an interstitial is
+    seen, so a site that's actively filtering bots isn't hammered."""
+    delay = REQUEST_DELAY_SECONDS
+    if _last_challenge_at is not None:
+        age = (datetime.now() - _last_challenge_at).total_seconds()
+        if age < CHALLENGE_BACKOFF_WINDOW_SECONDS:
+            delay *= CHALLENGE_BACKOFF_MULTIPLIER
+    time.sleep(delay)
+
+
 def fetch_page(url: str, timeout: int = 20):
     """
     Fetch a page and return BeautifulSoup.
-    Retries once if connection drops.
-    Returns None on failure.
+
+    Retries connection failures, and waits out a browser-verification
+    interstitial if KHU's host serves one (see _looks_like_bot_challenge):
+    the interstitial's own script reloads the page after ~5s, so a later
+    request with the same session cookies often gets the real page. If it
+    never clears, returns None — the caller treats that as a failed scrape
+    and keeps serving cached data, and slow mode engages for subsequent
+    requests (see polite_delay).
     """
-    for attempt in range(2):
+    total_attempts = 1 + len(CHALLENGE_RETRY_WAITS)
+    for attempt in range(total_attempts):
         try:
             logger.info(f"Fetching (attempt {attempt+1}): {url}")
             resp = _scraper.get(url, headers=HEADERS, timeout=timeout)
             resp.raise_for_status()
             soup = BeautifulSoup(resp.text, "lxml")
+            if _looks_like_bot_challenge(soup):
+                _mark_challenge_seen()
+                if attempt < len(CHALLENGE_RETRY_WAITS):
+                    wait = CHALLENGE_RETRY_WAITS[attempt]
+                    logger.warning(
+                        f"Browser-verification interstitial served for {url} — "
+                        f"waiting {wait}s and retrying (attempt {attempt+2}/{total_attempts})"
+                    )
+                    time.sleep(wait)
+                    continue
+                logger.error(
+                    f"Bot-protection still blocking after {total_attempts} attempts: {url} — "
+                    f"keeping cached data; slow mode engaged for subsequent requests"
+                )
+                return None
             logger.info(f"OK — {len(resp.text)} bytes")
             return soup
         except requests.exceptions.HTTPError as e:
@@ -298,8 +369,8 @@ def fetch_page(url: str, timeout: int = 20):
             return None  # Don't retry HTTP errors (404 etc)
         except requests.RequestException as e:
             logger.warning(f"Attempt {attempt+1} failed: {e}")
-            if attempt == 1:
-                logger.error(f"FAILED after 2 attempts: {url}")
+            if attempt == total_attempts - 1:
+                logger.error(f"FAILED after {total_attempts} attempts: {url}")
                 return None
     return None
 
@@ -314,14 +385,53 @@ def try_alt_urls(league: dict):
         try:
             resp = _scraper.get(url, headers=HEADERS, timeout=15)
             if resp.status_code == 200:
-                logger.info(f"Found working URL: {url}")
                 soup = BeautifulSoup(resp.text, "lxml")
+                if _looks_like_bot_challenge(soup):
+                    logger.warning(f"  {url} → bot-protection challenge (skipping)")
+                    continue
+                logger.info(f"Found working URL: {url}")
                 return soup, url
             else:
                 logger.warning(f"  {url} → {resp.status_code}")
         except Exception as e:
             logger.warning(f"  {url} → Error: {e}")
     return None, None
+
+
+# ══════════════════════════════════════════════════════════
+# BOT-PROTECTION DETECTION
+# ══════════════════════════════════════════════════════════
+# kenyahockeyunion.org has started serving Cloudflare-style
+# browser-verification pages (title "One moment, please..." /
+# "Just a moment...", a 5-second window.location.reload script, and
+# obfuscated JS). A scraper that treats that page as real content
+# gets "Standings table not found" — the honest diagnosis is
+# "we were shown a challenge page, not the site". Detect the marker
+# and retry: the reload page usually clears on a second request once
+# the session's cookies have been set, since cloudscraper reuses the
+# same session object across requests.
+_CHALLENGE_TITLE_MARKERS = (
+    "one moment, please",
+    "just a moment",
+    "attention required",
+    "please wait",
+)
+
+
+def _looks_like_bot_challenge(soup) -> bool:
+    """Cheap heuristic: is this HTML a bot-verification interstitial
+    rather than the real page? Checks the <title> plus the classic
+    challenge markers (auto-reload script, challenge platform hooks)."""
+    if not soup:
+        return False
+    title = soup.title.get_text(strip=True).lower() if soup.title else ""
+    if any(marker in title for marker in _CHALLENGE_TITLE_MARKERS):
+        return True
+    for script in soup.find_all("script"):
+        text = script.get_text()
+        if "window.location.reload" in text or "challenge-platform" in text:
+            return True
+    return False
 
 
 def parse_form_from_cell(cell):
@@ -542,6 +652,15 @@ def scrape_standings(league_key: str) -> dict:
 
     table = find_standings_table(soup)
     if not table:
+        # Dump the raw HTML to a debug file so we can inspect what the
+        # scraper actually received when the site changes its markup.
+        try:
+            debug_path = os.path.join(os.path.dirname(__file__), "debug_standings_page.html")
+            with open(debug_path, "w", encoding="utf-8") as f:
+                f.write(str(soup))
+            logger.warning(f"⚠️ Standings table not found — dumped raw HTML to {debug_path} for inspection")
+        except Exception:
+            pass
         return {
             "league":      league["name"],
             "short":       league["short"],
@@ -681,6 +800,8 @@ def scrape_league_calendar(league_key: str) -> dict:
             link_tag = home_cell.find("a")
             if link_tag:
                 home_team_url = link_tag.get("href", "")
+                if home_team_url.startswith("/"):
+                    home_team_url = BASE_URL + home_team_url
 
         # Home team logo — confirmed JoomSport structure uses a SEPARATE
         # emblem cell (jsMatchDivHomeEmbl), not embedded in the name cell.
@@ -699,6 +820,8 @@ def scrape_league_calendar(league_key: str) -> dict:
             link_tag = away_cell.find("a")
             if link_tag:
                 away_team_url = link_tag.get("href", "")
+                if away_team_url.startswith("/"):
+                    away_team_url = BASE_URL + away_team_url
 
         # Away team logo — same dedicated-cell approach
         away_logo_url = ""
@@ -719,6 +842,8 @@ def scrape_league_calendar(league_key: str) -> dict:
             score_link_tag = score_cell.find("a")
             if score_link_tag:
                 match_url = score_link_tag.get("href", "")
+                if match_url.startswith("/"):
+                    match_url = BASE_URL + match_url
             score_copy_text = score_cell.get_text(separator=" ", strip=True)
             score_text = score_copy_text
 
@@ -800,7 +925,11 @@ def _parse_match_date(date_str: str):
     """
     if not date_str:
         return datetime.min
-    for fmt in ("%d-%m-%Y %H:%M", "%d-%m-%Y", "%Y-%m-%d %H:%M", "%Y-%m-%d"):
+    for fmt in (
+        "%d-%m-%Y %H:%M", "%d-%m-%Y",
+        "%Y-%m-%d %H:%M", "%Y-%m-%d",
+        "%a, %d %b %Y %H:%M", "%a, %d %b %Y",  # e.g. "Sat, 28 Jun 2026 10:00"
+    ):
         try:
             return datetime.strptime(date_str.strip(), fmt)
         except ValueError:
@@ -987,7 +1116,11 @@ def scrape_team_matches_for_season(team_url: str, sid: str, league: dict) -> lis
     if not team_url or not sid:
         return []
 
-    url = team_url.rstrip("/") + f"/?sid={sid}&jslimit=100&jscurtab=stab_matches"
+    # Join query params safely: team URLs captured from standings links
+    # sometimes already carry a query string (e.g. "...?sid=3622") —
+    # appending another "?" would corrupt the URL.
+    sep = "&" if "?" in team_url else "?"
+    url = team_url.rstrip("/") + f"{sep}sid={sid}&jslimit=100&jscurtab=stab_matches"
     soup = fetch_page(url)
     if not soup:
         return []
@@ -1057,12 +1190,12 @@ def scrape_league_results_via_teams(league_key: str, teams: list) -> dict:
                 continue
             seen.add(key)
             all_matches.append(m)
-        # A brief, polite pause between requests — this approach makes
-        # one HTTP request per team instead of one per league (a real
-        # increase in request volume), so a small delay here reduces
-        # burst load on KHU's server rather than hammering it with
-        # back-to-back requests.
-        time.sleep(0.3)
+        # A polite pause between requests — this approach makes one HTTP
+        # request per team instead of one per league, so the delay is what
+        # keeps it from arriving as a burst, and it automatically slows
+        # down further for a while after KHU serves an interstitial (see
+        # polite_delay).
+        polite_delay()
 
     return {"matches": all_matches, "total": len(all_matches)}
 

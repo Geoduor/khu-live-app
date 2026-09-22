@@ -52,10 +52,18 @@ true, it's called out explicitly so nobody re-introduces the same bug.
    filling gaps the live scrape hasn't caught, never overwriting a live
    match that's already present.
 4. **Manually-entered results** (if any) are merged in the same way.
-5. **Team logos** are backfilled from standings data wherever a fixture
+5. **Standings overlays are recomputed** from the raw scrape: the table
+   users see is `scraped row + effects of manual results the site hasn't
+   published yet + explicit admin corrections`, rebuilt from a pristine
+   baseline every time (see `recompute_league_standings` in `main.py`).
+   This is idempotent, so the two sources genuinely back each other up:
+   while KHU's table lags, manual results carry it; the moment the site
+   publishes a match, that match's manual effect drops out of the table
+   and the site's own numbers take over — automatically, no cleanup.
+6. **Team logos** are backfilled from standings data wherever a fixture
    or result is missing one, using exact match → known-alias match →
    conservative fuzzy match (see §5).
-6. Past-dated fixtures are filtered out of "upcoming" at request time
+7. Past-dated fixtures are filtered out of "upcoming" at request time
    (not just at refresh time), so staleness never depends on when the
    last scheduled refresh happened to run.
 

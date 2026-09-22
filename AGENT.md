@@ -94,6 +94,21 @@ would silently overwrite the cache with the live site's current state
 (including nothing, during a genuine gap), wiping out PDF/manual data
 that was only ever recorded elsewhere.
 
+The same philosophy now applies to the **standings table itself**. It is
+rebuilt on every refresh from the raw scrape as
+`scraped row + effects of manual results KHU hasn't published yet +
+explicit admin corrections` (see `recompute_league_standings` in
+`main.py`). Recomputing from the pristine baseline is what keeps it
+idempotent and stops either source from freezing or double-counting the
+other: a manual result contributes only until the live scrape publishes
+that same match (matched by league + teams + calendar date), at which
+point the site's own numbers take back over automatically. Note the
+matching deliberately EXCLUDES entries whose `source` is `"manual"` —
+otherwise a manual result would look "already published" to itself and
+never reach the table. When an overlay changes the numbers the table
+re-sorts by points → goal difference → goals for, so positions can never
+contradict the stats sitting beside them.
+
 ## Render's ephemeral filesystem
 
 Free-tier Render wipes local disk (including SQLite) on every cold
@@ -186,6 +201,21 @@ Every manual result records `entered_by`.
   a real site-side block. Don't conclude the live site is broken without
   testing from an environment that can actually reach it (e.g. the
   deployed Render backend, or a tool with real external network access).
+- **Browser-verification interstitials — NOT Cloudflare:** KHU's host
+  sometimes serves a "One moment, please..." page that runs JS checks
+  (webdriver / headless user-agent / plugin & mime spoofing / zero outer
+  dimensions) and expects the browser to auto-submit a computed
+  `wsidchk` token back to a per-site path before the real page is
+  served. A Python scraper never runs that JS, so it only ever sees the
+  interstitial. `scraper.py` detects it (`_looks_like_bot_challenge`),
+  retries up to 3 times spaced past the page's own ~5s self-reload, and
+  logs loudly if it persists; `/api/health`'s `scraper.last_challenge_at`
+  reports when it last happened. While it persists, the app serves cached
+  data + manual entries (which is exactly why the standings-overlay /
+  backup design exists). Politeness knobs, no code change needed:
+  `KHU_REQUEST_DELAY_SECONDS`, `KHU_CHALLENGE_BACKOFF_MULTIPLIER`,
+  `KHU_REFRESH_INTERVAL_MINUTES`. The durable fix is KHU's cooperation
+  (see PRD §6/§8) — not escalating an arms race with the filter.
 
 ## Deployment checklist
 

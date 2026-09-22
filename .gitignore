@@ -1,6 +1,11 @@
 .vercel
 .env*
 
+# Local AI-tool state (worktrees, caches, session data) — machine-local,
+# never part of the app.
+.kilo/
+.codewhale/
+
 # Python
 venv/
 .venv/

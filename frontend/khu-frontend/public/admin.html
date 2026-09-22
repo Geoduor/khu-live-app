@@ -517,9 +517,13 @@
         throw new Error(data.detail || 'Something went wrong.');
       }
 
-      const tableNote = data.table_updated
-        ? " ✅ Table updated."
-        : " ⚠️ Table NOT updated (either this match is already reflected in live standings, or one of the teams isn't found in the current standings cache yet).";
+      // The backend reports exactly WHY the table did or didn't move
+      // (table_note — e.g. "live standings already publish this match"
+      // vs "team not in the standings cache yet"), so admins get a real
+      // reason instead of a guess.
+      const tableNote = data.table_note
+        ? ` ${data.table_updated ? "✅" : "⚠️"} ${data.table_note}`
+        : (data.table_updated ? " ✅ Table updated." : " ⚠️ Saved — table not updated.");
       showMsg(msg, `Added: ${homeTeam} ${homeScore} - ${awayScore} ${awayTeam}${tableNote}`, false);
       ['homeTeam', 'awayTeam', 'homeScore', 'awayScore', 'venue'].forEach((id) => $(id).value = '');
       clearScorersAndCards();
