@@ -34,7 +34,14 @@ ABOUT THE BACKGROUND
 
 from pathlib import Path
 
-from PIL import Image, ImageDraw
+try:
+    from PIL import Image, ImageDraw
+except ImportError:
+    raise SystemExit(
+        "This script needs Pillow to process images.\n"
+        "Install it with:  pip install pillow\n"
+        "(then run this script again)"
+    )
 
 BASE_DIR = Path(__file__).resolve().parent
 SOURCE = BASE_DIR / "khu-logo.png"
@@ -158,8 +165,17 @@ def generate():
 
     save_preview(crest)
 
-    print("\nDone. Check icon-preview.png, then hard-refresh the browser tab")
-    print("(favicons are cached aggressively) to see the new favicon.")
+    print("\nDone. Next steps:")
+    print("  1. Open icon-preview.png and check the crest on light + dark.")
+    print("  2. Commit the REGENERATED files — running this script changes")
+    print("     nothing on the deployed site until they are pushed:")
+    print("       git add frontend/khu-frontend/public/favicon.ico")
+    print("               frontend/khu-frontend/public/icon-192.png")
+    print("               frontend/khu-frontend/public/icon-512.png")
+    print("       git commit -m 'Regenerate icons from the KHU crest'")
+    print("  3. Push (Vercel rebuilds), then hard-refresh the tab (Ctrl+F5).")
+    print("     If the old icon lingers, open /favicon.ico directly —")
+    print("     browsers cache favicons stubbornly.")
 
 
 if __name__ == "__main__":
