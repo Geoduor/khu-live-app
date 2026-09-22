@@ -11,4 +11,9 @@ py-vapid==1.9.0
 pydantic==2.7.1
 pdfplumber==0.11.4
 python-multipart==0.0.9
-cloudscraper==2.1.0.post1
+# NOTE: the newest cloudscraper the package index offers is 1.2.71 — no
+# 2.x is available. A "cloudscraper==2.1.0.post1" pin lived here briefly
+# (commit 5300093) and broke `pip install -r requirements.txt` with
+# "No matching distribution found". Only pin a version that actually
+# installs.
+cloudscraper==1.2.71
