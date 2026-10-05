@@ -17,7 +17,6 @@ malformed or a team name is unrecognized, it is either skipped
 (logged) or passed through as-is — never guessed.
 """
 
-import re
 import logging
 from datetime import datetime
 

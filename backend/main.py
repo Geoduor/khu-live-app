@@ -10,7 +10,7 @@ Strategy (matches how ESPN/SofaScore/FotMob handle unreliable upstream sources):
      and tell the frontend exactly how stale it is
 """
 
-from fastapi import FastAPI, HTTPException, UploadFile, File, Header, Response
+from fastapi import FastAPI, HTTPException, UploadFile, File, Header, Response, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional, List
@@ -23,13 +23,12 @@ import re
 import secrets
 import tempfile
 import copy
+import time
+import threading
 import cloudscraper
-import requests
 
 from scraper import (
     scrape_standings,
-    scrape_all_fixtures_and_results,
-    scrape_team_profile,
     scrape_match_detail,
     scrape_league_results_via_teams,
     correct_team_name,
@@ -74,6 +73,38 @@ ADMIN_USERNAME = os.environ.get("ADMIN_USERNAME", "")
 ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "")
 
 
+def _is_admin(x_admin_token: str) -> bool:
+    """Constant-time check of the master token (fails closed if unset)."""
+    return bool(ADMIN_TOKEN) and secrets.compare_digest(
+        (x_admin_token or "").encode("utf-8"), ADMIN_TOKEN.encode("utf-8")
+    )
+
+
+# ── Login brute-force throttle (in-memory, per client IP) ──
+_LOGIN_MAX_FAILS = 5
+_LOGIN_WINDOW_SECONDS = 15 * 60
+_login_failures: dict = {}
+
+
+def _client_ip(request: Request) -> str:
+    fwd = request.headers.get("x-forwarded-for", "")
+    if fwd:
+        return fwd.split(",")[0].strip()
+    return request.client.host if request.client else "unknown"
+
+
+def _login_check_allowed(ip: str):
+    now = time.time()
+    fails = [t for t in _login_failures.get(ip, []) if now - t < _LOGIN_WINDOW_SECONDS]
+    _login_failures[ip] = fails
+    if len(fails) >= _LOGIN_MAX_FAILS:
+        raise HTTPException(status_code=429, detail="Too many failed login attempts. Try again in 15 minutes.")
+
+
+def _login_record_failure(ip: str):
+    _login_failures.setdefault(ip, []).append(time.time())
+
+
 def _authorize_writer(x_admin_token: str = "", x_agent_token: str = "") -> str:
     """
     Shared auth check for anything that adds/edits a manual result:
@@ -85,7 +116,7 @@ def _authorize_writer(x_admin_token: str = "", x_agent_token: str = "") -> str:
     deactivating an agent takes effect immediately, not just for their
     next login.
     """
-    if ADMIN_TOKEN and x_admin_token == ADMIN_TOKEN:
+    if _is_admin(x_admin_token):
         return "Admin"
     if x_agent_token:
         session = db.verify_agent_session(x_agent_token)
@@ -311,6 +342,28 @@ def seed_manual_results_from_file():
             logger.info(f"Re-seeded {len(results)} manual result(s) from manual_results_seed.json")
     except Exception as e:
         logger.error(f"Failed to load manual_results_seed.json: {e}")
+
+
+def seed_agents_from_env():
+    """
+    Restore agent accounts after a Render cold start (the SQLite file —
+    and with it the agents table — is wiped). The accounts are stored as
+    already-hashed records in the AGENTS_SEED environment variable (set it
+    in the Render dashboard; get the value from GET /api/admin/agents/
+    export-seed). Deliberately an env var, NOT a file in git: this repo is
+    public and these are password hashes. Existing usernames are never
+    overwritten, so a live account always wins over the seed.
+    """
+    raw = os.environ.get("AGENTS_SEED", "").strip()
+    if not raw:
+        logger.info("No AGENTS_SEED env var — agent accounts are not restored on cold start.")
+        return
+    try:
+        agents = json.loads(raw)
+        added = db.import_agents_raw(agents)
+        logger.info(f"Restored {added} agent account(s) from AGENTS_SEED")
+    except Exception as e:
+        logger.error(f"Failed to load AGENTS_SEED: {e}")
 
 
 TEAM_STATS_SEED_PATH = os.path.join(os.path.dirname(__file__), "team_stats_seed.json")
@@ -830,6 +883,9 @@ def _to_int(value) -> int:
 # live updates.
 _pristine_standings: dict = {}  # league_key -> raw scraped rows (deep-copied)
 
+# Stat fields the scraper emits as text (form is a list, position is set by the resort).
+_NUMERIC_STAT_FIELDS = ("played", "won", "drawn", "lost", "goals_for", "goals_against", "goal_diff", "points")
+
 # Fields an admin correction may override on a team row.
 _OVERRIDABLE_FIELDS = (
     "played", "won", "drawn", "lost",
@@ -1048,6 +1104,15 @@ def recompute_league_standings(league_key: str) -> dict:
     if results_applied or corrections_applied:
         _resort_rows_by_league_order(rows)
 
+    # The scraper emits every stat as text; the overlay writes ints for
+    # the rows it touches. Normalise back to text so a table never mixes
+    # types (which made untouched-vs-touched rows compare unequal on the
+    # frontend even when nothing really changed).
+    for row in rows:
+        for k in _NUMERIC_STAT_FIELDS:
+            if row.get(k) is not None and not isinstance(row[k], str):
+                row[k] = str(row[k])
+
     standings_data["standings"] = rows
     standings_data["total_teams"] = len(rows)
 
@@ -1121,6 +1186,8 @@ def refresh_fixtures_results():
     try:
         all_matches = []
         errors = []
+        stale_leagues = []   # leagues whose data was carried over from the previous cycle
+        fresh_scraped = 0    # matches genuinely scraped this cycle
 
         for league_key in LEAGUES:
             standings_data = cache["standings"].get(league_key)
@@ -1131,7 +1198,31 @@ def refresh_fixtures_results():
             result = scrape_league_results_via_teams(league_key, teams)
             if result.get("error"):
                 errors.append({"league": league_key, "error": result["error"]})
-            all_matches.extend(result.get("matches", []))
+            league_matches = result.get("matches", [])
+            if result.get("incomplete"):
+                # Some/all team pages were blocked or failed. Never let a
+                # partial scrape erase what users already see: keep this
+                # league's last-known-good SCRAPED matches (not PDF/manual
+                # ones — those are re-merged below and may have been
+                # deleted since) and fill in anything the partial scrape
+                # did find on top.
+                short = LEAGUES[league_key]["short"]
+                prev = cache.get("fixtures_results") or {}
+                prev_league = [
+                    m for bucket in ("fixtures", "results", "live")
+                    for m in prev.get(bucket, [])
+                    if m.get("league_short") == short and m.get("source") not in ("manual", "pdf")
+                ]
+                fresh_keys = {_result_signature(m) for m in league_matches}
+                league_matches = league_matches + [
+                    m for m in prev_league if _result_signature(m) not in fresh_keys
+                ]
+                stale_leagues.append(league_key)
+                errors.append({"league": league_key,
+                               "error": f"Partial scrape ({result.get('teams_failed', 0)} team page(s) failed) — kept previous data."})
+            else:
+                fresh_scraped += len(league_matches)
+            all_matches.extend(league_matches)
 
         fixtures = _group_and_sort_matches([m for m in all_matches if m["state"] == "NS"])
         results = _group_and_sort_matches([m for m in all_matches if m["state"] == "FT"])
@@ -1190,8 +1281,11 @@ def refresh_fixtures_results():
             if filled:
                 logger.info(f"Backfilled {filled} missing team logo(s) from standings data")
 
-        total = data.get("total_fixtures", 0) + data.get("total_results", 0) + data.get("total_live", 0)
-        success = total > 0
+        # Success means the LIVE SCRAPE produced something this cycle.
+        # PDF/manual entries and carried-over data must not count — they
+        # exist even when scraping is totally blocked, and counting them
+        # would hide the failure from the circuit breaker and status.
+        success = fresh_scraped > 0
 
         # ── Detect newly-live matches vs the previous snapshot ──
         prev_live_keys = set()
@@ -1208,6 +1302,7 @@ def refresh_fixtures_results():
             if key not in prev_live_keys:
                 new_live.append(m)
 
+        data["stale_leagues"] = stale_leagues
         db.save_fixtures_results(data, success=success)
         data["_cache_scraped_at"] = datetime.now().isoformat()
         data["_cache_success"] = success
@@ -1247,7 +1342,7 @@ def refresh_fixtures_results():
                 + (f" | {len(new_live)} newly live -> notified" if new_live else "")
             )
         else:
-            logger.warning("⚠️ fixtures/results scrape returned nothing useful")
+            logger.warning("⚠️ fixtures/results scrape returned nothing new — previous scraped data kept")
         return success
     except Exception as e:
         logger.error(f"❌ fixtures/results: exception — {e}")
@@ -1351,10 +1446,15 @@ async def startup_event():
     seed_manual_results_from_file()
     seed_team_stats_from_file()
     seed_player_stats_from_file()
+    seed_agents_from_env()
     push.init_push_table()
     load_from_cache_on_boot()
-    logger.info("KHU API starting up — kicking off first live scrape...")
-    refresh_all_data()
+    # Run the first scrape in the background: it makes ~90 polite requests
+    # and can take minutes (longer if bot-protection slows it down). Doing
+    # it inline kept the server from accepting connections until it ended,
+    # which can fail Render's health check on deploy / cold start.
+    logger.info("KHU API starting up — kicking off first live scrape in the background...")
+    threading.Thread(target=refresh_all_data, name="initial-refresh", daemon=True).start()
 
 
 # ══════════════════════════════════════════════════════
@@ -1711,7 +1811,7 @@ def get_standings(league_key: str):
     if not data:
         # Nothing cached at all yet — try one synchronous scrape right now
         logger.info(f"No cache for {league_key} — scraping live on demand...")
-        success = refresh_standings_for(league_key)
+        refresh_standings_for(league_key)
         data = cache["standings"].get(league_key)
         if not data:
             raise HTTPException(status_code=503, detail="Could not fetch standings — KHU site may be down.")
@@ -1766,7 +1866,7 @@ def export_pdf_seed(x_admin_token: str = Header(default="")):
     need to repeat upload → export → commit when KHU actually publishes
     a NEW or updated PDF, not on routine inactivity wake-ups.
     """
-    if not ADMIN_TOKEN or x_admin_token != ADMIN_TOKEN:
+    if not _is_admin(x_admin_token):
         raise HTTPException(status_code=401, detail="Missing or invalid admin token.")
 
     matches = db.load_pdf_fixtures()
@@ -1788,7 +1888,7 @@ async def upload_fixtures_pdf(
     Gated behind ADMIN_TOKEN (set in environment) since this writes to
     the shared cache everyone's app instance reads from.
     """
-    if not ADMIN_TOKEN or x_admin_token != ADMIN_TOKEN:
+    if not _is_admin(x_admin_token):
         raise HTTPException(status_code=401, detail="Missing or invalid admin token.")
 
     if not file.filename.lower().endswith(".pdf"):
@@ -2041,7 +2141,7 @@ def export_manual_results_seed(x_admin_token: str = Header(default="")):
     manual results if you want those changes to survive a future
     cold start permanently.
     """
-    if not ADMIN_TOKEN or x_admin_token != ADMIN_TOKEN:
+    if not _is_admin(x_admin_token):
         raise HTTPException(status_code=401, detail="Missing or invalid admin token.")
     results = db.load_manual_results()
     return {"results": results, "exported_at": datetime.now().isoformat(), "count": len(results)}
@@ -2127,7 +2227,7 @@ def remove_team_stats(stat_key: str, x_admin_token: str = Header(default=""), x_
 @app.get("/api/admin/team-stats/export-seed")
 def export_team_stats_seed(x_admin_token: str = Header(default="")):
     """Export team-stat corrections for permanent seed-file persistence. Admin-only."""
-    if not ADMIN_TOKEN or x_admin_token != ADMIN_TOKEN:
+    if not _is_admin(x_admin_token):
         raise HTTPException(status_code=401, detail="Missing or invalid admin token.")
     stats = db.load_team_stats()
     return {"stats": stats, "exported_at": datetime.now().isoformat(), "count": len(stats)}
@@ -2188,7 +2288,7 @@ def remove_player_stats(stat_key: str, x_admin_token: str = Header(default=""), 
 @app.get("/api/admin/player-stats/export-seed")
 def export_player_stats_seed(x_admin_token: str = Header(default="")):
     """Export player stats for permanent seed-file persistence. Admin-only."""
-    if not ADMIN_TOKEN or x_admin_token != ADMIN_TOKEN:
+    if not _is_admin(x_admin_token):
         raise HTTPException(status_code=401, detail="Missing or invalid admin token.")
     stats = db.load_player_stats()
     return {"players": stats, "exported_at": datetime.now().isoformat(), "count": len(stats)}
@@ -2201,7 +2301,7 @@ def export_player_stats_seed(x_admin_token: str = Header(default="")):
 @app.post("/api/admin/agents/create")
 def admin_create_agent(payload: AgentCreateInput, x_admin_token: str = Header(default="")):
     """Create a new agent account. Admin-only — agents can't create other agents."""
-    if not ADMIN_TOKEN or x_admin_token != ADMIN_TOKEN:
+    if not _is_admin(x_admin_token):
         raise HTTPException(status_code=401, detail="Missing or invalid admin token.")
     if len(payload.password) < 6:
         raise HTTPException(status_code=400, detail="Password must be at least 6 characters.")
@@ -2214,9 +2314,22 @@ def admin_create_agent(payload: AgentCreateInput, x_admin_token: str = Header(de
 @app.get("/api/admin/agents/list")
 def admin_list_agents(x_admin_token: str = Header(default="")):
     """List every agent account (active or deactivated). Admin-only."""
-    if not ADMIN_TOKEN or x_admin_token != ADMIN_TOKEN:
+    if not _is_admin(x_admin_token):
         raise HTTPException(status_code=401, detail="Missing or invalid admin token.")
     return {"agents": db.list_agents()}
+
+
+@app.get("/api/admin/agents/export-seed")
+def admin_export_agents_seed(x_admin_token: str = Header(default="")):
+    """
+    Export agent accounts (including password HASHES) as JSON. Paste the
+    value of "agents" — as one line of JSON — into the AGENTS_SEED env var
+    on Render so accounts survive cold starts. Treat the output as a
+    secret; never commit it to the repo. Admin-only.
+    """
+    if not _is_admin(x_admin_token):
+        raise HTTPException(status_code=401, detail="Missing or invalid admin token.")
+    return {"agents": db.export_agents_raw()}
 
 
 @app.post("/api/admin/agents/{username}/deactivate")
@@ -2227,7 +2340,7 @@ def admin_deactivate_agent(username: str, x_admin_token: str = Header(default=""
     agents.active, not just login time). Doesn't delete their past
     entered_by history. Admin-only.
     """
-    if not ADMIN_TOKEN or x_admin_token != ADMIN_TOKEN:
+    if not _is_admin(x_admin_token):
         raise HTTPException(status_code=401, detail="Missing or invalid admin token.")
     updated = db.set_agent_active(username, False)
     if not updated:
@@ -2238,7 +2351,7 @@ def admin_deactivate_agent(username: str, x_admin_token: str = Header(default=""
 @app.post("/api/admin/agents/{username}/reactivate")
 def admin_reactivate_agent(username: str, x_admin_token: str = Header(default="")):
     """Reactivate a previously-deactivated agent. Admin-only."""
-    if not ADMIN_TOKEN or x_admin_token != ADMIN_TOKEN:
+    if not _is_admin(x_admin_token):
         raise HTTPException(status_code=401, detail="Missing or invalid admin token.")
     updated = db.set_agent_active(username, True)
     if not updated:
@@ -2247,7 +2360,7 @@ def admin_reactivate_agent(username: str, x_admin_token: str = Header(default=""
 
 
 @app.post("/api/agent/login")
-def agent_login(payload: AgentLoginInput):
+def agent_login(payload: AgentLoginInput, request: Request):
     """
     Public endpoint — an agent logs in with their username/password and
     gets back a session token (valid 30 days) to use as the
@@ -2255,15 +2368,18 @@ def agent_login(payload: AgentLoginInput):
     the same error for "no such user" and "wrong password" so a login
     attempt can't be used to discover valid usernames.
     """
+    ip = _client_ip(request)
+    _login_check_allowed(ip)
     display_name = db.verify_agent_login(payload.username.strip(), payload.password)
     if not display_name:
+        _login_record_failure(ip)
         raise HTTPException(status_code=401, detail="Incorrect username or password.")
     token = db.create_agent_session(payload.username.strip())
     return {"token": token, "display_name": display_name}
 
 
 @app.post("/api/admin/login")
-def admin_login(payload: AgentLoginInput):
+def admin_login(payload: AgentLoginInput, request: Request):
     """
     Public endpoint — YOU log in with a human-memorable username/
     password (ADMIN_USERNAME/ADMIN_PASSWORD env vars) and get back the
@@ -2277,9 +2393,12 @@ def admin_login(payload: AgentLoginInput):
     """
     if not ADMIN_USERNAME or not ADMIN_PASSWORD:
         raise HTTPException(status_code=503, detail="Admin login isn't configured yet — set ADMIN_USERNAME and ADMIN_PASSWORD in the environment.")
-    username_ok = secrets.compare_digest(payload.username.strip(), ADMIN_USERNAME)
-    password_ok = secrets.compare_digest(payload.password, ADMIN_PASSWORD)
+    ip = _client_ip(request)
+    _login_check_allowed(ip)
+    username_ok = secrets.compare_digest(payload.username.strip().encode("utf-8"), ADMIN_USERNAME.encode("utf-8"))
+    password_ok = secrets.compare_digest(payload.password.encode("utf-8"), ADMIN_PASSWORD.encode("utf-8"))
     if not (username_ok and password_ok):
+        _login_record_failure(ip)
         raise HTTPException(status_code=401, detail="Incorrect username or password.")
     return {"admin_token": ADMIN_TOKEN}
 
@@ -2374,7 +2493,6 @@ def send_test_push():
 # since there could be dozens of teams/matches — we cache each result
 # in-memory for 10 minutes to avoid hammering KHU if a page is popular.
 
-import time
 
 TEAM_CACHE_TTL = 600  # 10 minutes
 _team_cache = {}   # team_url -> (data, fetched_at)

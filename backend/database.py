@@ -576,6 +576,34 @@ def list_agents() -> list:
               "active": bool(r["active"]), "created_at": r["created_at"]} for r in rows]
 
 
+def export_agents_raw() -> list:
+    """All agent rows INCLUDING password hash + salt, for AGENTS_SEED."""
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute("SELECT username, display_name, password_hash, password_salt, active, created_at FROM agents ORDER BY created_at")
+    rows = [dict(r) for r in cur.fetchall()]
+    conn.close()
+    return rows
+
+
+def import_agents_raw(agents: list) -> int:
+    """Insert already-hashed agent rows; existing usernames are left
+    untouched. Returns how many were added."""
+    conn = get_connection()
+    cur = conn.cursor()
+    added = 0
+    for a in agents:
+        cur.execute("""
+            INSERT OR IGNORE INTO agents (username, display_name, password_hash, password_salt, active, created_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+        """, (a["username"], a["display_name"], a["password_hash"], a["password_salt"],
+              int(a.get("active", 1)), a.get("created_at") or datetime.now().isoformat()))
+        added += cur.rowcount
+    conn.commit()
+    conn.close()
+    return added
+
+
 def set_agent_active(username: str, active: bool) -> bool:
     """Deactivate (or reactivate) an agent — takes effect immediately
     for future requests, even ones using an already-issued session

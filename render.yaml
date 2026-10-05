@@ -24,3 +24,17 @@ services:
         sync: false
       - key: ADMIN_TOKEN
         sync: false
+      - key: ADMIN_USERNAME
+        sync: false
+      - key: ADMIN_PASSWORD
+        sync: false
+      # JSON list from GET /api/admin/agents/export-seed (keeps agent
+      # accounts across cold starts). Secret — never commit it.
+      - key: AGENTS_SEED
+        sync: false
+      - key: KHU_REQUEST_DELAY_SECONDS
+        value: "1.0"
+      - key: KHU_CHALLENGE_BACKOFF_MULTIPLIER
+        value: "3"
+      - key: KHU_REFRESH_INTERVAL_MINUTES
+        value: "15"

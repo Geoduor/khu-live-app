@@ -1116,6 +1116,10 @@ def scrape_team_matches_for_season(team_url: str, sid: str, league: dict) -> lis
     if not team_url or not sid:
         return []
 
+    # NOTE: returns None (not []) when the page could not be fetched, so
+    # callers can tell "fetch failed / blocked" apart from "team has no
+    # matches". An empty list therefore always means a genuinely empty page.
+
     # Join query params safely: team URLs captured from standings links
     # sometimes already carry a query string (e.g. "...?sid=3622") —
     # appending another "?" would corrupt the URL.
@@ -1123,7 +1127,7 @@ def scrape_team_matches_for_season(team_url: str, sid: str, league: dict) -> lis
     url = team_url.rstrip("/") + f"{sep}sid={sid}&jslimit=100&jscurtab=stab_matches"
     soup = fetch_page(url)
     if not soup:
-        return []
+        return None
 
     raw_rows = _parse_match_rows(soup, sid=sid)
     matches = []
@@ -1179,12 +1183,34 @@ def scrape_league_results_via_teams(league_key: str, teams: list) -> dict:
 
     seen = set()
     all_matches = []
+    fetched_ok = 0
+    failed = 0
+    consecutive_failures = 0
 
     for team in teams:
         team_url = team.get("team_url")
         if not team_url:
             continue
-        for m in scrape_team_matches_for_season(team_url, sid, league):
+        team_matches = scrape_team_matches_for_season(team_url, sid, league)
+        if team_matches is None:
+            failed += 1
+            consecutive_failures += 1
+            # Bot-protection is per-IP, not per-page: once two pages in a
+            # row are blocked (each already retried with waits), hammering
+            # the remaining teams only prolongs the block and can stretch
+            # one cycle past the refresh interval. Give up on this league
+            # for this cycle; the caller keeps its last-known-good matches.
+            if consecutive_failures >= 2:
+                logger.warning(
+                    f"{league_key}: {consecutive_failures} consecutive team pages failed — "
+                    f"aborting this league for this cycle"
+                )
+                break
+            polite_delay()
+            continue
+        consecutive_failures = 0
+        fetched_ok += 1
+        for m in team_matches:
             key = m["match_url"] or (m["home_team"], m["away_team"], m["date"])
             if key in seen:
                 continue
@@ -1197,7 +1223,12 @@ def scrape_league_results_via_teams(league_key: str, teams: list) -> dict:
         # polite_delay).
         polite_delay()
 
-    return {"matches": all_matches, "total": len(all_matches)}
+    # "incomplete" = at least one team page was never read, so this
+    # league's match list may be missing games. The caller must not treat
+    # it as authoritative (it would otherwise erase last-known-good data).
+    incomplete = failed > 0
+    return {"matches": all_matches, "total": len(all_matches),
+            "incomplete": incomplete, "teams_fetched": fetched_ok, "teams_failed": failed}
 
 
 def scrape_all_fixtures_and_results() -> dict:
@@ -1492,7 +1523,7 @@ if __name__ == "__main__":
 
     print(f"\n{SEP}")
     print("  KHU SCRAPER — LIVE DATA TEST")
-    print(f"  Source: kenyahockeyunion.org")
+    print("  Source: kenyahockeyunion.org")
     print(f"  Time  : {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     print(SEP)
 
