@@ -6,6 +6,7 @@ export default function LeagueTable({ data, onOpenTeam, isFavorite, toggleFavori
   const rows = useDiffedStandings(data);
 
   return (
+    <div className="table-scroll">
     <table className="league-table">
       <thead>
         <tr>
@@ -76,5 +77,6 @@ export default function LeagueTable({ data, onOpenTeam, isFavorite, toggleFavori
         })}
       </tbody>
     </table>
+    </div>
   );
 }
