@@ -17,9 +17,15 @@ Data is scraped directly and respectfully from [kenyahockeyunion.org](https://ww
 - **Live standings** for all 8 KHU leagues — Premier League Men/Women, Super League Men/Women, and National League Men across all four zones (EZ, CZ, WZ, SZ)
 - **Real match state machine** — Not Started / Live / Full Time, derived directly from JoomSport's own internal match-status logic (not guessed from score text)
 - **Fixtures & results**, scraped per-league via JoomSport's calendar view (`?action=calendar`), not homepage guessing
-- **Team profile pages** — league position, last-5 form, recent results, upcoming fixtures
+- **Team profile pages** — league position, last-5 form, every result this season with a season record (W/D/L, goals), upcoming fixtures
+- **Results grouped by date** — newest day first
 - **Match detail pages** — date, venue, matchday name, live/final score
 - **Row-diff animations** — standings visibly flash and show rank-change arrows on each live poll, so the table feels alive instead of just reloading
+
+### Sharing & tournaments
+- **Share cards** — a "Share result" button on finished/live matches and a "Share table" button on league and tournament group tables. They render a clean 1080×1350 image on-device (Canvas, no extra dependency) carrying the app name and the "Unofficial Fan App" line, then open the native share sheet (WhatsApp, etc.) or fall back to a download.
+- **Cups tab** — hosted tournaments (e.g. festivals, cups) with matches grouped by stage and computed group tables (3-1-0 points; tiebreak: points → goal difference → goals for). Tournament data is stored separately from league data and never affects league standings.
+- **Admin & agent entry** — `admin.html` has a Tournaments section to create tournaments and enter matches; the API also lets authorised agents enter tournament matches.
 
 ### Personalization
 - **Favorites / "Your Teams"** — star any team from the table, a match card, or its profile page. No login required; favorites live on-device (localStorage), the same zero-friction pattern FotMob and SofaScore used before they added accounts.
@@ -29,6 +35,8 @@ Data is scraped directly and respectfully from [kenyahockeyunion.org](https://ww
 ### Reliability & resilience
 - **SQLite persistent cache** — the app loads instantly from the last successful scrape on startup, never a blank screen
 - **Circuit breaker** — if kenyahockeyunion.org goes down, the app stops hammering it (CLOSED → OPEN → HALF_OPEN states, same pattern as Netflix's Hystrix), automatically resuming once the source recovers. Manual refresh always bypasses the breaker and tries for real, rate-limited to prevent abuse.
+- **Scraper protection handling** — detects bot-protection pages, retries, aborts a league early after repeated blocks, and keeps previously scraped matches instead of overwriting them with partial data
+- **Admin hardening** — constant-time credential check and login throttling
 - **Team name correction layer** — a single map in the scraper fixes known naming inconsistencies on KHU's own site (e.g. "Kisumu Youngsters" → "Kisumu Youngstars"), applied everywhere a team name is extracted
 
 ### Platform
@@ -44,6 +52,8 @@ khu-app/
 │   ├── scraper.py               All KHU scraping logic (standings, fixtures,
 │   │                            team/match pages, name corrections)
 │   ├── database.py              SQLite persistence + circuit breaker state
+│   ├── tournaments.py           Tournament validation, group tables, stage ordering
+│   ├── verify_robustness.py     Offline test script (run before deploying)
 │   ├── push.py                  Web Push system with favorites-based scoping
 │   ├── requirements.txt
 │   ├── .env.example              Template for required environment variables
@@ -51,6 +61,7 @@ khu-app/
 └── frontend/
     └── khu-frontend/           React PWA
         ├── public/
+        │   ├── admin.html         Admin portal (results, stats, tournaments)
         │   ├── khu-logo.png       Official KHU crest
         │   ├── generate_icons.py  Regenerates PWA icons from the real logo
         │   ├── manifest.json
@@ -63,7 +74,11 @@ khu-app/
             │   ├── MatchCard.js
             │   ├── TeamProfile.js
             │   ├── MatchDetail.js
+            │   ├── TournamentsView.js
+            │   ├── ShareButton.js
             │   └── OnboardingPicker.js
+            ├── utils/
+            │   └── shareCard.js        Canvas share-image generator
             └── hooks/
                 ├── useDiffedStandings.js
                 ├── usePushNotifications.js
@@ -107,6 +122,24 @@ Open `http://localhost:3000`. Make sure the backend is already running, or you'l
    pip install pillow
    python generate_icons.py
    ```
+
+### Tests
+
+```bash
+cd backend
+python verify_robustness.py     # offline checks incl. tournaments, auth, seed restore
+cd ../frontend/khu-frontend
+CI=true npm run build           # treats lint warnings as errors, as the deploy does
+```
+
+## Deployment & data persistence
+
+Backend on Render (free tier), frontend on Vercel. Render's disk is **ephemeral**, so data entered through the admin portal is lost on a cold start unless persisted:
+
+- Public data (manual results, team/player stats, tournaments): export the seed JSON from the admin portal and commit it to `backend/` (`tournaments_seed.json`, etc.).
+- Agent accounts contain password hashes, so they are **not** committed. Export them and store the value in the `AGENTS_SEED` environment variable.
+- Set `ADMIN_USERNAME`, `ADMIN_PASSWORD` and `ALLOWED_ORIGINS` on Render (see `render.yaml` and `backend/env.example`).
+- `admin.html` and `agent.html` hardcode the backend URL; update it if your Render service name differs.
 
 ## Important notes
 
