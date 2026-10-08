@@ -1584,19 +1584,24 @@ _LOGO_CACHE: dict = {}  # url -> (content_bytes, content_type) — small in-memo
 _LOGO_CACHE_MAX_ENTRIES = 500
 
 
-@app.get("/api/logo")
-def proxy_logo(url: str):
-    """
-    Fetch a team logo server-side and stream it back. Only allows URLs
-    on kenyahockeyunion.org's own domain — this is NOT a general-purpose
-    open proxy, just a narrow fix for one specific image-loading problem.
-    """
-    if not url or KHU_BASE_URL.replace("https://", "").replace("www.", "") not in url:
+def _is_khu_image_url(url: str) -> bool:
+    """True only for http(s) URLs whose HOST is kenyahockeyunion.org (or www.)."""
+    try:
+        from urllib.parse import urlparse
+        u = urlparse(url or "")
+        host = (u.hostname or "").lower()
+        return u.scheme in ("http", "https") and host in ("kenyahockeyunion.org", "www.kenyahockeyunion.org")
+    except Exception:
+        return False
+
+
+def _fetch_logo(url: str):
+    """Fetch (and cache) a KHU-hosted logo. Returns (bytes, content_type)."""
+    if not _is_khu_image_url(url):
         raise HTTPException(status_code=400, detail="Only kenyahockeyunion.org image URLs are allowed.")
 
     if url in _LOGO_CACHE:
-        content, content_type = _LOGO_CACHE[url]
-        return Response(content=content, media_type=content_type, headers={"Cache-Control": "public, max-age=86400"})
+        return _LOGO_CACHE[url]
 
     try:
         resp = _KHU_SCRAPER.get(url, headers=SCRAPER_HEADERS, timeout=10)
@@ -1615,8 +1620,30 @@ def proxy_logo(url: str):
     if len(_LOGO_CACHE) >= _LOGO_CACHE_MAX_ENTRIES:
         _LOGO_CACHE.pop(next(iter(_LOGO_CACHE)))
     _LOGO_CACHE[url] = (resp.content, content_type)
+    return resp.content, content_type
 
-    return Response(content=resp.content, media_type=content_type, headers={"Cache-Control": "public, max-age=86400"})
+
+@app.get("/api/logo")
+def proxy_logo(url: str):
+    """
+    Fetch a team logo server-side and stream it back. Only allows URLs
+    on kenyahockeyunion.org's own domain — this is NOT a general-purpose
+    open proxy, just a narrow fix for one specific image-loading problem.
+    """
+    content, content_type = _fetch_logo(url)
+    return Response(content=content, media_type=content_type, headers={"Cache-Control": "public, max-age=86400"})
+
+
+@app.get("/api/logo-data")
+def proxy_logo_data(url: str):
+    """
+    Same logo, but as a JSON data URL. Used by the share-card generator:
+    a data URL can always be drawn onto a canvas and exported, with none
+    of the cross-origin image/caching pitfalls of a plain <img> load.
+    """
+    import base64
+    content, content_type = _fetch_logo(url)
+    return {"data_url": f"data:{content_type};base64,{base64.b64encode(content).decode('ascii')}"}
 
 
 @app.get("/api/leagues")

@@ -43,6 +43,22 @@ function tryLoad(src, timeoutMs) {
  */
 async function loadImage(src, timeoutMs = 12000) {
   if (!src) return null;
+  // Backend logo proxy URLs: ask for the image as a data URL instead (via
+  // the same CORS-enabled API calls the app already makes). A data URL is
+  // never "cross-origin", so the canvas can always be exported.
+  if (src.includes("/api/logo?")) {
+    try {
+      const ctrl = new AbortController();
+      const t = setTimeout(() => ctrl.abort(), timeoutMs);
+      const resp = await fetch(src.replace("/api/logo?", "/api/logo-data?"), { signal: ctrl.signal });
+      clearTimeout(t);
+      if (resp.ok) {
+        const { data_url } = await resp.json();
+        const img = await tryLoad(data_url, timeoutMs);
+        if (img) return img;
+      }
+    } catch (e) { /* fall through to the plain image load */ }
+  }
   const first = await tryLoad(src, timeoutMs);
   if (first) return first;
   const sep = src.includes("?") ? "&" : "?";
