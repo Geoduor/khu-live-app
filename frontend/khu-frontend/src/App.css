@@ -157,7 +157,7 @@ body{
   border:1px solid var(--border);
   box-shadow: 0 10px 32px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.05);
   border-radius:28px;
-  display:grid;grid-template-columns:repeat(4,1fr);
+  display:grid;grid-template-columns:repeat(5,1fr);
   max-width:520px;margin:0 auto;
 }
 .bnav-btn{ display:flex;flex-direction:column;align-items:center;justify-content:center;
@@ -765,3 +765,37 @@ html{ max-width:100%; overflow-x:hidden; }
   background:rgba(128,128,128,0.10); border:1px solid var(--border); }
 .season-summary b{ display:block; font-size:18px; font-weight:800; }
 .season-summary span{ font-size:10px; font-weight:700; letter-spacing:.8px; color:var(--muted); }
+
+/* Share button (match cards, tables, tournaments) */
+.share-btn{
+  font-family:inherit; font-size:12px; font-weight:700; letter-spacing:.3px;
+  padding:7px 14px; border-radius:20px; cursor:pointer;
+  background:rgba(187,0,0,0.10); color:var(--red); border:1px solid rgba(187,0,0,0.25);
+}
+.share-btn:active{ transform:scale(.96); }
+.share-btn:disabled{ opacity:.7; cursor:default; }
+.match-share-row{ display:flex; justify-content:flex-end; margin-top:10px; }
+
+/* ── Tournaments ── */
+.tour-note{ font-size:12px; color:var(--muted); margin:-6px 0 14px; }
+.tour-card{ padding:16px; border-radius:18px; cursor:pointer; margin-bottom:12px;
+  background:var(--card-bg, rgba(255,255,255,0.7)); border:1px solid var(--border);
+  box-shadow:0 6px 18px rgba(0,0,0,0.08); transition:transform .15s; }
+.tour-card:active{ transform:scale(.98); }
+.tour-card-top{ display:flex; justify-content:space-between; align-items:center; gap:8px; margin-bottom:8px; }
+.tour-name{ font-family:'Barlow Condensed',sans-serif; font-weight:800; font-size:24px; line-height:1.1; }
+.tour-venue,.tour-count,.tour-dates{ font-size:12px; color:var(--muted); margin-top:5px; }
+.tour-status{ display:inline-block; font-size:10px; font-weight:800; letter-spacing:.8px; text-transform:uppercase;
+  padding:4px 10px; border-radius:10px; }
+.tour-status-ongoing{ background:rgba(187,0,0,0.12); color:var(--red); }
+.tour-status-upcoming{ background:rgba(240,165,0,0.16); color:var(--amber); }
+.tour-status-completed{ background:rgba(0,102,0,0.14); color:var(--green); }
+.tour-hero{ margin:14px 0 12px; }
+.tour-hero-name{ font-family:'Barlow Condensed',sans-serif; font-weight:900; font-size:30px; line-height:1.05; margin-top:8px; }
+.tour-desc{ font-size:13px; color:var(--muted); margin-top:8px; line-height:1.5; }
+.tour-tabs{ display:flex; gap:8px; margin:14px 0; }
+.tour-tabs button{ flex:1; font-family:inherit; font-size:13px; font-weight:700; padding:10px; border-radius:12px;
+  cursor:pointer; background:transparent; color:var(--muted); border:1px solid var(--border); }
+.tour-tabs button.on{ background:var(--red); color:#fff; border-color:var(--red); }
+.tour-stage{ margin-bottom:18px; }
+.tour-table-head{ display:flex; align-items:center; justify-content:space-between; margin-bottom:8px; }

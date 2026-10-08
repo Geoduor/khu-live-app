@@ -191,6 +191,58 @@
 </div>
 
 <div class="card">
+  <div class="section-title">Tournaments</div>
+  <div class="subtitle" style="margin-bottom: 12px;">Hosted tournaments are kept completely separate from the leagues &mdash; they never touch league tables or results.</div>
+
+  <label>Tournament name</label>
+  <input id="tnName" placeholder="e.g. Kisumu Hockey Festival 2026" />
+  <div class="row">
+    <div><label>Start date</label><input id="tnStart" type="date" /></div>
+    <div><label>End date</label><input id="tnEnd" type="date" /></div>
+  </div>
+  <div class="row">
+    <div><label>Venue</label><input id="tnVenue" placeholder="e.g. Dashmesh Stadium" /></div>
+    <div><label>Status</label>
+      <select id="tnStatus"><option value="upcoming">Upcoming</option><option value="ongoing">Happening now</option><option value="completed">Completed</option></select>
+    </div>
+  </div>
+  <label>Description (optional)</label>
+  <input id="tnDesc" placeholder="One line about the event" />
+  <button id="tnSaveBtn" onclick="saveTournament()">Create Tournament</button>
+  <div id="tnMsg" class="msg"></div>
+
+  <div id="tnList" style="margin-top: 16px;"></div>
+
+  <div id="tnMatchBox" style="display:none; margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--border, #ddd);">
+    <div class="section-title" id="tnMatchTitle">Matches</div>
+    <div class="row">
+      <div><label>Stage</label><input id="tmStage" placeholder="e.g. Group A, Semi-final, Final" /></div>
+      <div><label>Group (for tables)</label><input id="tmGroup" placeholder="e.g. Group A (blank for knockouts)" /></div>
+    </div>
+    <div class="row">
+      <div><label>Home team</label><input id="tmHome" placeholder="Team name" /></div>
+      <div><label>Away team</label><input id="tmAway" placeholder="Team name" /></div>
+    </div>
+    <div class="row">
+      <div><label>Home score</label><input id="tmHomeScore" type="number" min="0" placeholder="blank = upcoming" /></div>
+      <div><label>Away score</label><input id="tmAwayScore" type="number" min="0" placeholder="blank = upcoming" /></div>
+    </div>
+    <div class="row">
+      <div><label>Date</label><input id="tmDate" type="date" /></div>
+      <div><label>Time</label><input id="tmTime" type="time" /></div>
+    </div>
+    <label>Venue (optional)</label>
+    <input id="tmVenue" placeholder="Pitch / stadium" />
+    <button id="tmAddBtn" onclick="addTournamentMatch()">Add Match</button>
+    <div id="tmMsg" class="msg"></div>
+    <div id="tmList" style="margin-top: 12px;"></div>
+  </div>
+
+  <button style="margin-top: 14px; background: transparent; color: inherit; border: 1px solid currentColor;" onclick="exportTournamentSeed()">Export tournaments (to keep them after a restart)</button>
+  <div class="subtitle" id="tnExportNote" style="margin-top: 8px;"></div>
+</div>
+
+<div class="card">
   <div class="section-title">Correct a Team's Stats</div>
   <div class="subtitle" style="margin-bottom: 12px;">Only fill in the fields you're correcting — anything left blank keeps the live-scraped value.</div>
 
@@ -410,6 +462,7 @@
       populateTeamDropdowns();
       loadResults();
       loadAgents();
+      loadTournaments();
       loadTeamStats();
       loadPlayerStats();
     } else {
@@ -620,6 +673,130 @@
       btn.disabled = false;
       btn.textContent = 'Add Agent';
     }
+  }
+
+
+  // ───────── Tournaments (separate from leagues) ─────────
+  let currentTournamentId = null;
+  function esc(v) { return String(v == null ? '' : v).replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+  function adminHeaders() { return { 'Content-Type': 'application/json', 'x-admin-token': token() }; }
+
+  async function saveTournament() {
+    const msg = $('tnMsg');
+    const name = $('tnName').value.trim();
+    if (!name) { showMsg(msg, 'Enter a tournament name.', true); return; }
+    try {
+      const res = await fetch(`${apiBase()}/api/admin/tournaments/save`, {
+        method: 'POST', headers: adminHeaders(),
+        body: JSON.stringify({ name, start_date: $('tnStart').value, end_date: $('tnEnd').value,
+          venue: $('tnVenue').value.trim(), description: $('tnDesc').value.trim(), status: $('tnStatus').value }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || 'Could not save.');
+      showMsg(msg, data.message, false);
+      ['tnName','tnStart','tnEnd','tnVenue','tnDesc'].forEach((id) => { $(id).value = ''; });
+      currentTournamentId = data.id;
+      await loadTournaments();
+      selectTournament(data.id);
+    } catch (e) { showMsg(msg, e.message, true); }
+  }
+
+  async function loadTournaments() {
+    const box = $('tnList');
+    try {
+      const res = await fetch(`${apiBase()}/api/tournaments`);
+      const data = await res.json();
+      if (!data.tournaments.length) { box.innerHTML = '<div class="empty-note">No tournaments yet.</div>'; return; }
+      box.innerHTML = data.tournaments.map((t) => `
+        <div class="result-row">
+          <div>
+            <div><strong>${esc(t.name)}</strong> <span class="result-meta">(${esc(t.status)})</span></div>
+            <div class="result-meta">${esc(t.start_date)} ${t.venue ? '· ' + esc(t.venue) : ''} · ${t.matches_total} match(es)</div>
+          </div>
+          <div>
+            <button class="del-btn" style="background:#006600;color:#fff" onclick="selectTournament('${esc(t.id)}')">Manage matches</button>
+            <button class="del-btn" onclick="deleteTournament('${esc(t.id)}')">Delete</button>
+          </div>
+        </div>`).join('');
+    } catch (e) { box.innerHTML = '<div class="empty-note">Could not load tournaments.</div>'; }
+  }
+
+  async function selectTournament(id) {
+    currentTournamentId = id;
+    $('tnMatchBox').style.display = 'block';
+    await loadTournamentMatches();
+    $('tnMatchBox').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  async function loadTournamentMatches() {
+    if (!currentTournamentId) return;
+    const list = $('tmList');
+    try {
+      const res = await fetch(`${apiBase()}/api/tournaments/${encodeURIComponent(currentTournamentId)}`);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || 'Could not load.');
+      $('tnMatchTitle').textContent = 'Matches — ' + data.tournament.name;
+      if (!data.matches.length) { list.innerHTML = '<div class="empty-note">No matches yet.</div>'; return; }
+      list.innerHTML = data.matches.map((m) => `
+        <div class="result-row">
+          <div>
+            <div><strong>${esc(m.home_team)}</strong> ${m.state === 'FT' ? esc(m.home_score) + ' - ' + esc(m.away_score) : 'vs'} <strong>${esc(m.away_team)}</strong></div>
+            <div class="result-meta">${esc(m.stage)} · ${esc(m.date)}${m.entered_by ? ' · by ' + esc(m.entered_by) : ''}</div>
+          </div>
+          <button class="del-btn" onclick="deleteTournamentMatch('${esc(m.match_id)}')">Delete</button>
+        </div>`).join('');
+    } catch (e) { list.innerHTML = '<div class="empty-note">' + esc(e.message) + '</div>'; }
+  }
+
+  async function addTournamentMatch() {
+    const msg = $('tmMsg');
+    if (!currentTournamentId) { showMsg(msg, 'Pick a tournament first.', true); return; }
+    const hs = $('tmHomeScore').value, as = $('tmAwayScore').value;
+    const date = $('tmDate').value, time = $('tmTime').value || '00:00';
+    try {
+      const res = await fetch(`${apiBase()}/api/admin/tournaments/${encodeURIComponent(currentTournamentId)}/matches/save`, {
+        method: 'POST', headers: adminHeaders(),
+        body: JSON.stringify({
+          stage: $('tmStage').value.trim(), group_name: $('tmGroup').value.trim(),
+          home_team: $('tmHome').value.trim(), away_team: $('tmAway').value.trim(),
+          home_score: hs === '' ? null : parseInt(hs, 10), away_score: as === '' ? null : parseInt(as, 10),
+          date: date ? date + ' ' + time : '', venue: $('tmVenue').value.trim(),
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(typeof data.detail === 'string' ? data.detail : 'Check the fields and try again.');
+      showMsg(msg, 'Match saved.', false);
+      ['tmHome','tmAway','tmHomeScore','tmAwayScore'].forEach((id) => { $(id).value = ''; });
+      await loadTournamentMatches();
+      loadTournaments();
+    } catch (e) { showMsg(msg, e.message, true); }
+  }
+
+  async function deleteTournamentMatch(id) {
+    if (!confirm('Delete this match?')) return;
+    await fetch(`${apiBase()}/api/admin/tournaments/matches/${encodeURIComponent(id)}`, { method: 'DELETE', headers: adminHeaders() });
+    loadTournamentMatches(); loadTournaments();
+  }
+
+  async function deleteTournament(id) {
+    if (!confirm('Delete this tournament and ALL its matches?')) return;
+    await fetch(`${apiBase()}/api/admin/tournaments/${encodeURIComponent(id)}`, { method: 'DELETE', headers: adminHeaders() });
+    if (currentTournamentId === id) { currentTournamentId = null; $('tnMatchBox').style.display = 'none'; }
+    loadTournaments();
+  }
+
+  async function exportTournamentSeed() {
+    const note = $('tnExportNote');
+    try {
+      const res = await fetch(`${apiBase()}/api/admin/tournaments/export-seed`, { headers: adminHeaders() });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || 'Export failed.');
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob); a.download = 'tournaments_seed.json';
+      document.body.appendChild(a); a.click(); a.remove();
+      note.textContent = 'Downloaded tournaments_seed.json — put it in the backend folder and commit it so tournaments survive a restart.';
+    } catch (e) { note.textContent = e.message; }
   }
 
   async function loadAgents() {

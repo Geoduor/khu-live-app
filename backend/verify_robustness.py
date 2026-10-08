@@ -62,5 +62,33 @@ check("correct login works after reset", c.post("/api/admin/login", json={"usern
 print("5. Constant-time token check")
 check("good token", main._is_admin("tok-123")); check("bad token", not main._is_admin("nope")); check("empty token", not main._is_admin(""))
 
+print("6. Tournaments are separate from league data")
+H={"x-admin-token": "tok-123"}
+r=c.post("/api/admin/tournaments/save", headers=H, json={"name":"Kisumu Festival 2026","start_date":"2026-10-10","status":"ongoing"})
+tid=r.json().get("id"); check("create tournament", r.status_code==200 and tid=="kisumu-festival-2026", str(r.json()))
+check("save refused without token", c.post("/api/admin/tournaments/save", json={"name":"x"}).status_code==401)
+def addm(**k):
+    d={"stage":"Group A","group_name":"Group A","date":"2026-10-10 10:00"}; d.update(k)
+    return c.post(f"/api/admin/tournaments/{tid}/matches/save", headers=H, json=d)
+check("A 2-0 B", addm(home_team="Alpha",away_team="Beta",home_score=2,away_score=0).status_code==200)
+check("Beta 1-1 Gamma", addm(home_team="Beta",away_team="gamma",home_score=1,away_score=1,date="2026-10-11 10:00").status_code==200)
+check("upcoming match ok", addm(home_team="Alpha",away_team="Gamma",date="2026-10-12 10:00").status_code==200)
+check("final saved", addm(home_team="Alpha",away_team="Beta",home_score=3,away_score=2,stage="Final",group_name="",date="2026-10-13 15:00").status_code==200)
+check("same team rejected", addm(home_team="A",away_team="a").status_code==400)
+check("one score rejected", addm(home_team="A",away_team="B",home_score=1).status_code==400)
+d=c.get(f"/api/tournaments/{tid}").json()
+tbl=d["group_tables"][0]["rows"]
+check("table: Alpha 3 pts, GD +2, first", tbl[0]["team"]=="Alpha" and tbl[0]["points"]==3 and tbl[0]["goal_diff"]==2, str(tbl[0]))
+check("table: Beta 1 pt, Gamma 1 pt, case-insensitive team merge", len(tbl)==3 and tbl[1]["points"]==1 and tbl[2]["points"]==1, str([r["team"] for r in tbl]))
+check("final stage listed first", d["stages"][0]=="Final", str(d["stages"]))
+check("final not in group table", sum(r["played"] for r in tbl)==4)
+check("list endpoint counts", c.get("/api/tournaments").json()["tournaments"][0]["matches_total"]==4)
+check("league standings untouched", "premier_league_men" in main.cache["standings"] and len(main.cache["standings"]["premier_league_men"]["standings"])==1)
+seedj=c.get("/api/admin/tournaments/export-seed", headers=H).json()
+check("export has data", len(seedj["tournaments"])==1 and len(seedj["matches"])==4)
+conn=db.get_connection(); conn.execute("DELETE FROM tournaments"); conn.execute("DELETE FROM tournament_matches"); conn.commit(); conn.close()
+check("seed restore", db.import_tournaments_seed(seedj["tournaments"], seedj["matches"])==1 and len(db.load_tournament_matches(tid))==4)
+check("delete tournament", c.delete(f"/api/admin/tournaments/{tid}", headers=H).status_code==200 and c.get(f"/api/tournaments/{tid}").status_code==404)
+
 print("\nRESULT:", "all checks passed" if not fails else f"{len(fails)} FAILURE(S): {fails}")
 sys.exit(1 if fails else 0)

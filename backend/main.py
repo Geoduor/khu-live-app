@@ -44,6 +44,7 @@ from scraper import (
 )
 from pdf_fixtures import parse_pdf_fixtures, merge_pdf_fixtures_into_scraped
 import database as db
+import tournaments as tn
 import push
 
 # league_short (e.g. "PLM") -> that league's full LEAGUES entry —
@@ -364,6 +365,26 @@ def seed_agents_from_env():
         logger.info(f"Restored {added} agent account(s) from AGENTS_SEED")
     except Exception as e:
         logger.error(f"Failed to load AGENTS_SEED: {e}")
+
+
+TOURNAMENTS_SEED_PATH = os.path.join(os.path.dirname(__file__), "tournaments_seed.json")
+
+
+def seed_tournaments_from_file():
+    """Reload tournaments + their matches from backend/tournaments_seed.json
+    after a Render cold start (same pattern as the other seed files).
+    Existing rows are never overwritten."""
+    db.init_tournament_tables()
+    if not os.path.exists(TOURNAMENTS_SEED_PATH):
+        logger.info("No tournaments_seed.json found — skipping (none created yet, or not exported).")
+        return
+    try:
+        with open(TOURNAMENTS_SEED_PATH, "r") as f:
+            seed = json.load(f)
+        added = db.import_tournaments_seed(seed.get("tournaments", []), seed.get("matches", []))
+        logger.info(f"Re-seeded {added} tournament(s) from tournaments_seed.json")
+    except Exception as e:
+        logger.error(f"Failed to load tournaments_seed.json: {e}")
 
 
 TEAM_STATS_SEED_PATH = os.path.join(os.path.dirname(__file__), "team_stats_seed.json")
@@ -1476,6 +1497,7 @@ async def startup_event():
     seed_team_stats_from_file()
     seed_player_stats_from_file()
     seed_agents_from_env()
+    seed_tournaments_from_file()
     push.init_push_table()
     load_from_cache_on_boot()
     # Run the first scrape in the background: it makes ~90 polite requests
@@ -2430,6 +2452,131 @@ def admin_login(payload: AgentLoginInput, request: Request):
         _login_record_failure(ip)
         raise HTTPException(status_code=401, detail="Incorrect username or password.")
     return {"admin_token": ADMIN_TOKEN}
+
+
+# ══════════════════════════════════════════════════════
+# TOURNAMENTS — separate from league data
+# ══════════════════════════════════════════════════════
+
+class TournamentInput(BaseModel):
+    id: Optional[str] = None
+    name: str
+    start_date: str = ""
+    end_date: str = ""
+    venue: str = ""
+    description: str = ""
+    status: str = "upcoming"
+
+
+class TournamentMatchInput(BaseModel):
+    match_id: Optional[str] = None
+    stage: str = ""
+    group_name: str = ""
+    home_team: str
+    away_team: str
+    home_score: Optional[int] = None
+    away_score: Optional[int] = None
+    date: str = ""
+    venue: str = ""
+
+
+def _tournament_summary(t: dict, matches: list) -> dict:
+    mine = [m for m in matches if m["tournament_id"] == t["id"]]
+    return {**t, "matches_total": len(mine),
+            "matches_played": sum(1 for m in mine if tn.match_state(m) == "FT")}
+
+
+@app.get("/api/tournaments")
+def list_tournaments():
+    """Public: all tournaments, newest first. Never includes league data."""
+    all_matches = db.load_tournament_matches()
+    items = [_tournament_summary(t, all_matches) for t in db.load_tournaments()]
+    items.sort(key=lambda t: (t.get("start_date") or ""), reverse=True)
+    return {"tournaments": items}
+
+
+@app.get("/api/tournaments/{tournament_id}")
+def get_tournament_detail(tournament_id: str):
+    """Public: one tournament with matches, stages and computed group tables."""
+    t = db.get_tournament(tournament_id)
+    if not t:
+        raise HTTPException(status_code=404, detail="Tournament not found.")
+    detail = tn.build_tournament_detail(t, db.load_tournament_matches(tournament_id))
+    # Fill crest logos where a team name confidently matches a league team
+    # (same conservative matching as everywhere else); otherwise no logo.
+    logo_lookup = build_team_logo_lookup()
+    if logo_lookup:
+        backfill_match_logos(detail["matches"], logo_lookup, build_fuzzy_team_records())
+    return detail
+
+
+@app.post("/api/admin/tournaments/save")
+def admin_save_tournament(payload: TournamentInput, x_admin_token: str = Header(default="")):
+    """Create (no id) or update (with id) a tournament. Admin-only."""
+    if not _is_admin(x_admin_token):
+        raise HTTPException(status_code=401, detail="Missing or invalid admin token.")
+    name = payload.name.strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Tournament name is required.")
+    if payload.status not in tn.VALID_STATUS:
+        raise HTTPException(status_code=400, detail=f"Status must be one of {', '.join(tn.VALID_STATUS)}.")
+    for label, v in (("Start date", payload.start_date), ("End date", payload.end_date)):
+        if v and not tn.parse_date(v):
+            raise HTTPException(status_code=400, detail=f"{label} must look like 2026-10-10.")
+    tid = payload.id or tn.slugify(name)
+    if not payload.id and db.get_tournament(tid):
+        tid = f"{tid}-{secrets.token_hex(2)}"
+    db.init_tournament_tables()
+    db.save_tournament({"id": tid, "name": name, "start_date": payload.start_date.strip(),
+                        "end_date": payload.end_date.strip(), "venue": payload.venue.strip(),
+                        "description": payload.description.strip(), "status": payload.status})
+    return {"message": f"Tournament '{name}' saved.", "id": tid}
+
+
+@app.delete("/api/admin/tournaments/{tournament_id}")
+def admin_delete_tournament(tournament_id: str, x_admin_token: str = Header(default="")):
+    if not _is_admin(x_admin_token):
+        raise HTTPException(status_code=401, detail="Missing or invalid admin token.")
+    if not db.delete_tournament(tournament_id):
+        raise HTTPException(status_code=404, detail="Tournament not found.")
+    return {"message": "Tournament and its matches deleted."}
+
+
+@app.post("/api/admin/tournaments/{tournament_id}/matches/save")
+def save_tournament_match_endpoint(tournament_id: str, payload: TournamentMatchInput,
+                                   x_admin_token: str = Header(default=""), x_agent_token: str = Header(default="")):
+    """Add (no match_id) or edit a tournament match. Admin OR an active agent."""
+    entered_by = _authorize_writer(x_admin_token, x_agent_token)
+    if not db.get_tournament(tournament_id):
+        raise HTTPException(status_code=404, detail="Tournament not found.")
+    data = payload.dict()
+    data = {k: (v.strip() if isinstance(v, str) else v) for k, v in data.items()}
+    err = tn.validate_match(data)
+    if err:
+        raise HTTPException(status_code=400, detail=err)
+    data["match_id"] = payload.match_id or secrets.token_hex(6)
+    data["tournament_id"] = tournament_id
+    data["entered_by"] = entered_by
+    db.save_tournament_match(data)
+    return {"message": "Match saved.", "match_id": data["match_id"]}
+
+
+@app.delete("/api/admin/tournaments/matches/{match_id}")
+def delete_tournament_match_endpoint(match_id: str, x_admin_token: str = Header(default=""),
+                                     x_agent_token: str = Header(default="")):
+    _authorize_writer(x_admin_token, x_agent_token)
+    if not db.delete_tournament_match(match_id):
+        raise HTTPException(status_code=404, detail="Match not found.")
+    return {"message": "Match deleted."}
+
+
+@app.get("/api/admin/tournaments/export-seed")
+def admin_export_tournaments_seed(x_admin_token: str = Header(default="")):
+    """Save this JSON as backend/tournaments_seed.json and commit it so
+    tournaments survive Render cold starts. Admin-only."""
+    if not _is_admin(x_admin_token):
+        raise HTTPException(status_code=401, detail="Missing or invalid admin token.")
+    return {"tournaments": db.load_tournaments(), "matches": db.load_tournament_matches()}
 
 
 # ══════════════════════════════════════════════════════

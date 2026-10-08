@@ -163,6 +163,7 @@ def init_db():
     conn.commit()
     conn.close()
     logger.info(f"Database ready at {DB_PATH}")
+    init_tournament_tables()
 
 
 def save_standings(league_key: str, data: dict, success: bool = True):
@@ -760,3 +761,140 @@ def can_manual_refresh(min_interval_seconds: int = 10) -> bool:
         return True
     age = cache_age_seconds(state["last_manual_refresh"])
     return age >= min_interval_seconds
+
+
+# ══════════════════════════════════════════════════════
+# TOURNAMENTS — kept in their own tables, never mixed with league data
+# ══════════════════════════════════════════════════════
+
+def init_tournament_tables():
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS tournaments (
+            id          TEXT PRIMARY KEY,
+            name        TEXT NOT NULL,
+            start_date  TEXT DEFAULT '',
+            end_date    TEXT DEFAULT '',
+            venue       TEXT DEFAULT '',
+            description TEXT DEFAULT '',
+            status      TEXT DEFAULT 'upcoming',
+            created_at  TEXT NOT NULL
+        )
+    """)
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS tournament_matches (
+            match_id      TEXT PRIMARY KEY,
+            tournament_id TEXT NOT NULL,
+            stage         TEXT DEFAULT '',
+            group_name    TEXT DEFAULT '',
+            home_team     TEXT NOT NULL,
+            away_team     TEXT NOT NULL,
+            home_score    INTEGER,
+            away_score    INTEGER,
+            date          TEXT DEFAULT '',
+            venue         TEXT DEFAULT '',
+            entered_by    TEXT DEFAULT '',
+            created_at    TEXT NOT NULL
+        )
+    """)
+    conn.commit()
+    conn.close()
+
+
+_T_FIELDS = ("id", "name", "start_date", "end_date", "venue", "description", "status")
+_TM_FIELDS = ("match_id", "tournament_id", "stage", "group_name", "home_team", "away_team",
+              "home_score", "away_score", "date", "venue", "entered_by")
+
+
+def save_tournament(t: dict):
+    conn = get_connection()
+    conn.execute("""
+        INSERT INTO tournaments (id, name, start_date, end_date, venue, description, status, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET name=excluded.name, start_date=excluded.start_date,
+            end_date=excluded.end_date, venue=excluded.venue,
+            description=excluded.description, status=excluded.status
+    """, (t["id"], t["name"], t.get("start_date", ""), t.get("end_date", ""), t.get("venue", ""),
+          t.get("description", ""), t.get("status", "upcoming"), datetime.now().isoformat()))
+    conn.commit()
+    conn.close()
+
+
+def load_tournaments() -> list:
+    conn = get_connection()
+    rows = conn.execute("SELECT id, name, start_date, end_date, venue, description, status FROM tournaments").fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def get_tournament(tournament_id: str):
+    conn = get_connection()
+    row = conn.execute("SELECT id, name, start_date, end_date, venue, description, status FROM tournaments WHERE id = ?",
+                       (tournament_id,)).fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
+def delete_tournament(tournament_id: str) -> bool:
+    conn = get_connection()
+    conn.execute("DELETE FROM tournament_matches WHERE tournament_id = ?", (tournament_id,))
+    cur = conn.execute("DELETE FROM tournaments WHERE id = ?", (tournament_id,))
+    conn.commit()
+    conn.close()
+    return cur.rowcount > 0
+
+
+def save_tournament_match(m: dict):
+    conn = get_connection()
+    conn.execute("""
+        INSERT INTO tournament_matches (match_id, tournament_id, stage, group_name, home_team, away_team,
+            home_score, away_score, date, venue, entered_by, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(match_id) DO UPDATE SET stage=excluded.stage, group_name=excluded.group_name,
+            home_team=excluded.home_team, away_team=excluded.away_team, home_score=excluded.home_score,
+            away_score=excluded.away_score, date=excluded.date, venue=excluded.venue,
+            entered_by=excluded.entered_by
+    """, (m["match_id"], m["tournament_id"], m.get("stage", ""), m.get("group_name", ""),
+          m["home_team"], m["away_team"], m.get("home_score"), m.get("away_score"),
+          m.get("date", ""), m.get("venue", ""), m.get("entered_by", ""), datetime.now().isoformat()))
+    conn.commit()
+    conn.close()
+
+
+def load_tournament_matches(tournament_id: str = None) -> list:
+    conn = get_connection()
+    q = "SELECT match_id, tournament_id, stage, group_name, home_team, away_team, home_score, away_score, date, venue, entered_by FROM tournament_matches"
+    rows = conn.execute(q + (" WHERE tournament_id = ?" if tournament_id else ""),
+                        (tournament_id,) if tournament_id else ()).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def delete_tournament_match(match_id: str) -> bool:
+    conn = get_connection()
+    cur = conn.execute("DELETE FROM tournament_matches WHERE match_id = ?", (match_id,))
+    conn.commit()
+    conn.close()
+    return cur.rowcount > 0
+
+
+def import_tournaments_seed(tournaments: list, matches: list) -> int:
+    """Insert seed rows that don't exist yet (never overwrites live edits)."""
+    init_tournament_tables()
+    conn = get_connection()
+    added = 0
+    for t in tournaments:
+        cur = conn.execute("""INSERT OR IGNORE INTO tournaments (id, name, start_date, end_date, venue, description, status, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)""", (t["id"], t["name"], t.get("start_date", ""), t.get("end_date", ""),
+            t.get("venue", ""), t.get("description", ""), t.get("status", "upcoming"), datetime.now().isoformat()))
+        added += cur.rowcount
+    for m in matches:
+        conn.execute("""INSERT OR IGNORE INTO tournament_matches (match_id, tournament_id, stage, group_name, home_team, away_team,
+            home_score, away_score, date, venue, entered_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (m["match_id"], m["tournament_id"], m.get("stage", ""), m.get("group_name", ""), m["home_team"], m["away_team"],
+             m.get("home_score"), m.get("away_score"), m.get("date", ""), m.get("venue", ""), m.get("entered_by", ""),
+             datetime.now().isoformat()))
+    conn.commit()
+    conn.close()
+    return added

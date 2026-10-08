@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import "./App.css";
-import { getLeagues, getStandings, getFixtures, getResults, getLiveMatches, getHealth } from "./api";
+import { getLeagues, getStandings, getFixtures, getResults, getLiveMatches, getHealth, teamLogoUrl } from "./api";
 import { usePushNotifications } from "./hooks/usePushNotifications";
 import { useFavorites, useOnboarding } from "./hooks/useFavorites";
 import { useTheme } from "./hooks/useTheme";
@@ -14,12 +14,16 @@ import PlayoffBracket from "./components/PlayoffBracket";
 import OnboardingPicker from "./components/OnboardingPicker";
 import TeamLogo from "./components/TeamLogo";
 import InstallBanner from "./components/InstallBanner";
+import TournamentsView from "./components/TournamentsView";
+import ShareButton from "./components/ShareButton";
+import { renderTableCard, shareCanvas, slug, shareText } from "./utils/shareCard";
 
 const TABS = [
   { id: "home", icon: "🏠", label: "Home" },
   { id: "table", icon: "📊", label: "Table" },
   { id: "fixtures", icon: "📅", label: "Fixtures" },
   { id: "results", icon: "🏑", label: "Results" },
+  { id: "tournaments", icon: "🏆", label: "Cups" },
 ];
 
 const POLL_INTERVAL_MS = 45000; // 45s — matches FotMob/SofaScore live polling cadence
@@ -342,6 +346,8 @@ function App() {
           <FixturesView fixtures={fixtures} leagues={leagues} loading={loadingFixtures} onOpenMatch={openMatch} onOpenTeam={openTeam} isFavorite={isFavorite} toggleFavorite={toggleFavorite} />
         )}
 
+        {!overlay && tab === "tournaments" && <TournamentsView />}
+
         {!overlay && tab === "results" && (
           <ResultsView results={results} leagues={leagues} loading={loadingResults} onOpenMatch={openMatch} onOpenTeam={openTeam} isFavorite={isFavorite} toggleFavorite={toggleFavorite} />
         )}
@@ -596,8 +602,19 @@ function TableView({ leagues, selectedLeague, setSelectedLeague, standings, load
         <ErrorState title="Could not load standings" message={standings.error} />
       ) : standings?.standings?.length > 0 ? (
         <>
-          <div style={{ marginBottom: 10, fontSize: 12, color: "var(--muted)" }}>
-            {standings.league} — {standings.total_teams} teams
+          <div style={{ marginBottom: 10, fontSize: 12, color: "var(--muted)", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+            <span>{standings.league} — {standings.total_teams} teams</span>
+            <ShareButton
+              label="Share table"
+              onShare={async () => {
+                const canvas = await renderTableCard({
+                  title: standings.league,
+                  subtitle: `League table · ${new Date().toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" })}`,
+                  rows: standings.standings.map((t) => ({ ...t, logo: teamLogoUrl(t.team_logo_url) })),
+                });
+                return shareCanvas(canvas, `${slug(standings.league)}-table.png`, shareText(`${standings.league} — league table`));
+              }}
+            />
           </div>
           <LeagueTable data={standings.standings} onOpenTeam={onOpenTeam} isFavorite={isFavorite} toggleFavorite={toggleFavorite} />
           <div style={{ marginTop: 10, fontSize: 10, color: "var(--muted)" }}>

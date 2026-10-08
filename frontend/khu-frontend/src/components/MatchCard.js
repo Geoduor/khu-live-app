@@ -1,5 +1,8 @@
 import React from "react";
 import TeamLogo from "./TeamLogo";
+import ShareButton from "./ShareButton";
+import { teamLogoUrl } from "../api";
+import { renderMatchCard, shareCanvas, slug, shareText } from "../utils/shareCard";
 
 const CARD_ICON = { green: "🟩", yellow: "🟨", red: "🟥" };
 
@@ -131,6 +134,27 @@ export default function MatchCard({ match, onOpenMatch, onOpenTeam, isFavorite, 
 
       {formatCards(match.cards) && (
         <div className="match-cards">{formatCards(match.cards)}</div>
+      )}
+
+      {(state === "FT" || state === "LIVE") && match.home_score != null && (
+        <div className="match-share-row">
+          <ShareButton
+            label="Share result"
+            onShare={async () => {
+              const canvas = await renderMatchCard({
+                ...match,
+                state,
+                home_logo: teamLogoUrl(match.home_logo_url),
+                away_logo: teamLogoUrl(match.away_logo_url),
+              }, match.share_source || "Data: kenyahockeyunion.org");
+              return shareCanvas(
+                canvas,
+                `${slug(match.home_team)}-vs-${slug(match.away_team)}.png`,
+                shareText(`${match.home_team} ${match.home_score}-${match.away_score} ${match.away_team}${match.league ? " · " + match.league : ""}`)
+              );
+            }}
+          />
+        </div>
       )}
     </div>
   );
