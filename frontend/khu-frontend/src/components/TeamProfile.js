@@ -74,7 +74,16 @@ export default function TeamProfile({ teamUrl, teamName, onBack, onOpenTeam, isF
 
           {data.recent_results && data.recent_results.length > 0 ? (
             <div className="profile-block">
-              <div className="profile-block-title">Recent Results</div>
+              <div className="profile-block-title">Season Results ({data.recent_results.length})</div>
+              {data.season_summary && (
+                <div className="season-summary">
+                  <div><b>{data.season_summary.won}</b><span>W</span></div>
+                  <div><b>{data.season_summary.drawn}</b><span>D</span></div>
+                  <div><b>{data.season_summary.lost}</b><span>L</span></div>
+                  <div><b>{data.season_summary.goals_for}</b><span>GF</span></div>
+                  <div><b>{data.season_summary.goals_against}</b><span>GA</span></div>
+                </div>
+              )}
               <div className="match-list">
                 {data.recent_results.map((r, i) => (
                   <div key={i} className="mini-match-row">
@@ -91,10 +100,16 @@ export default function TeamProfile({ teamUrl, teamName, onBack, onOpenTeam, isF
                   </div>
                 ))}
               </div>
+              {data.season_summary && data.season_summary.played_per_table > data.season_summary.matches_listed && (
+                <div className="profile-block-empty" style={{ marginTop: 10 }}>
+                  The league table shows {data.season_summary.played_per_table} games played; {data.season_summary.matches_listed} match
+                  {data.season_summary.matches_listed === 1 ? "" : "es"} listed so far. The rest appear once published.
+                </div>
+              )}
             </div>
           ) : (
             <div className="profile-block">
-              <div className="profile-block-title">Recent Results</div>
+              <div className="profile-block-title">Season Results</div>
               <div className="profile-block-empty">
                 No completed matches recorded for {data.team_name || "this team"} yet this season.
               </div>

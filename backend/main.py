@@ -811,7 +811,36 @@ def build_team_profile_from_cache(team_name: str, team_url: str = "") -> dict:
     results.sort(key=lambda x: _parse_match_date(x["date"]), reverse=True)
 
     result["upcoming_fixtures"] = upcoming[:8]
-    result["recent_results"] = results[:8]
+    # EVERY completed match this season, newest first — not just the
+    # latest few. (Key name kept as "recent_results" so older cached
+    # frontends keep working.)
+    result["recent_results"] = results
+
+    # Season record computed from the same list that is displayed, so
+    # the summary can never disagree with the rows beneath it.
+    w = sum(1 for r in results if r["outcome"] == "W")
+    d = sum(1 for r in results if r["outcome"] == "D")
+    l = sum(1 for r in results if r["outcome"] == "L")
+    gf = ga = 0
+    for r in results:
+        try:
+            a, b = r["result"].split(" - ")
+            gf += int(a); ga += int(b)
+        except (ValueError, AttributeError):
+            pass
+    played_per_table = None
+    if standings_entry:
+        try:
+            played_per_table = int(standings_entry.get("played"))
+        except (TypeError, ValueError):
+            played_per_table = None
+    result["season_summary"] = {
+        "matches_listed": len(results), "won": w, "drawn": d, "lost": l,
+        "goals_for": gf, "goals_against": ga,
+        # lets the UI be honest if the league table counts more games
+        # than we have match rows for
+        "played_per_table": played_per_table,
+    }
 
     if not standings_entry and not upcoming and not results:
         result["error"] = (
