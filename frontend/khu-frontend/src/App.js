@@ -679,19 +679,20 @@ function LeagueFilterSelect({ leagues, value, onChange }) {
 
 /**
  * DateGroupedMatchList — groups matches by calendar date (not league).
- * Matches are re-sorted chronologically here because the backend's
- * pre-sort order is league-first (see LEAGUE_DISPLAY_ORDER), which is
- * the right order for GroupedMatchList but the wrong order once we're
- * grouping by date across every league at once.
+ * Matches are re-sorted here because the backend's pre-sort order is
+ * league-first. Fixtures use soonest-first; Results pass newestFirst so
+ * the latest day is at the top. Every card shows its own league name.
  */
-function DateGroupedMatchList({ matches, onOpenMatch, onOpenTeam, isFavorite, toggleFavorite }) {
+function DateGroupedMatchList({ matches, onOpenMatch, onOpenTeam, isFavorite, toggleFavorite, newestFirst = false }) {
   const sorted = [...matches].sort((a, b) => {
     const da = parseMatchDateJS(a.date);
     const db = parseMatchDateJS(b.date);
     if (!da && !db) return 0;
     if (!da) return 1;   // undated matches sort last
     if (!db) return -1;
-    return da - db;
+    if (da - db !== 0) return newestFirst ? db - da : da - db;
+    // Same kick-off time: keep a league's matches together.
+    return String(a.league || "").localeCompare(String(b.league || ""));
   });
 
   let lastDate = null;
@@ -706,42 +707,6 @@ function DateGroupedMatchList({ matches, onOpenMatch, onOpenTeam, isFavorite, to
           <div key={i}>
             {showHeader && (
               <div className="date-group-header">{formatDateHeader(d)}</div>
-            )}
-            <MatchCard
-              match={m}
-              onOpenMatch={onOpenMatch}
-              onOpenTeam={onOpenTeam}
-              isFavorite={isFavorite}
-              toggleFavorite={toggleFavorite}
-            />
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
-/**
- * GroupedMatchList — groups matches by LEAGUE, inserting a header
- * whenever the league changes. Used for Results: the backend already
- * sorts each league's matches most-recent-first (see
- * _group_and_sort_matches in scraper.py — it sorts by
- * (league_display_order, -date_timestamp) internally), so this just
- * needs to walk the list in the order it already arrives and add
- * headers — no re-sorting needed here.
- */
-function GroupedMatchList({ matches, onOpenMatch, onOpenTeam, isFavorite, toggleFavorite }) {
-  let lastLeague = null;
-
-  return (
-    <div className="match-list">
-      {matches.map((m, i) => {
-        const showHeader = m.league !== lastLeague;
-        lastLeague = m.league;
-        return (
-          <div key={i}>
-            {showHeader && (
-              <div className="league-group-header">{m.league}</div>
             )}
             <MatchCard
               match={m}
@@ -833,7 +798,8 @@ function ResultsView({ results, leagues, loading, onOpenMatch, onOpenTeam, isFav
       ) : results?.error ? (
         <ErrorState title="Could not load results" message={results.error} />
       ) : filtered.length > 0 ? (
-        <GroupedMatchList
+        <DateGroupedMatchList
+          newestFirst
           matches={filtered}
           onOpenMatch={onOpenMatch}
           onOpenTeam={onOpenTeam}
