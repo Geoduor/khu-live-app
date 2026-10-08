@@ -22,16 +22,35 @@ function appLink() {
   try { return window.location.host || "khu-live-app.vercel.app"; } catch (e) { return "khu-live-app.vercel.app"; }
 }
 
-function loadImage(src, timeoutMs = 5000) {
+function tryLoad(src, timeoutMs) {
   return new Promise((resolve) => {
-    if (!src) return resolve(null);
     const img = new Image();
     img.crossOrigin = "anonymous";
-    const t = setTimeout(() => resolve(null), timeoutMs);
+    const t = setTimeout(() => { img.onload = img.onerror = null; resolve(null); }, timeoutMs);
     img.onload = () => { clearTimeout(t); resolve(img); };
     img.onerror = () => { clearTimeout(t); resolve(null); };
     img.src = src;
   });
+}
+
+/**
+ * Loads an image for canvas use. Logos come through the backend proxy,
+ * which can be slow on a cold start, so we allow a generous timeout and
+ * retry once. The retry adds a cache-busting parameter: the same logo
+ * may already sit in the browser cache from a plain <img> load (no CORS
+ * headers), and a cached copy like that can't be drawn into a canvas
+ * we later export.
+ */
+async function loadImage(src, timeoutMs = 12000) {
+  if (!src) return null;
+  const first = await tryLoad(src, timeoutMs);
+  if (first) return first;
+  const sep = src.includes("?") ? "&" : "?";
+  return tryLoad(`${src}${sep}cors=${Date.now()}`, timeoutMs);
+}
+
+function khuCrestUrl() {
+  return `${process.env.PUBLIC_URL || ""}/khu-crest.png`;
 }
 
 function roundRect(ctx, x, y, w, h, r) {
@@ -113,15 +132,21 @@ function background(ctx, w, h) {
   ctx.fillStyle = GREEN; ctx.fillRect(third * 2, 0, third, 18);
 }
 
-function header(ctx, w) {
+function header(ctx, w, crest) {
   ctx.textBaseline = "alphabetic";
+  let x = 60;
+  if (crest && crest.width) {
+    const h = 92, cw = crest.width * (h / crest.height);
+    ctx.drawImage(crest, 60, 38, cw, h);
+    x = 60 + cw + 22;
+  }
   ctx.textAlign = "left";
   ctx.font = `900 54px ${FONT}`;
   ctx.fillStyle = INK;
-  ctx.fillText("KHU ", 60, 108);
+  ctx.fillText("KHU ", x, 108);
   const kw = ctx.measureText("KHU ").width;
   ctx.fillStyle = RED;
-  ctx.fillText("LIVE", 60 + kw, 108);
+  ctx.fillText("LIVE", x + kw, 108);
   ctx.textAlign = "right";
   ctx.font = `700 24px ${FONT}`;
   ctx.fillStyle = MUTED;
@@ -171,10 +196,10 @@ export async function renderMatchCard(match, sourceLine = "Data: kenyahockeyunio
   const canvas = document.createElement("canvas");
   canvas.width = W; canvas.height = H;
   const ctx = canvas.getContext("2d");
-  const [homeImg, awayImg] = await Promise.all([loadImage(match.home_logo), loadImage(match.away_logo)]);
+  const [homeImg, awayImg, crest] = await Promise.all([loadImage(match.home_logo), loadImage(match.away_logo), loadImage(khuCrestUrl())]);
 
   background(ctx, W, H);
-  header(ctx, W);
+  header(ctx, W, crest);
 
   ctx.textAlign = "center";
   ctx.textBaseline = "alphabetic";
@@ -269,10 +294,10 @@ export async function renderTableCard({ title, subtitle, rows }, sourceLine = "D
   const canvas = document.createElement("canvas");
   canvas.width = W; canvas.height = H;
   const ctx = canvas.getContext("2d");
-  const imgs = await Promise.all(list.map((r) => loadImage(r.logo)));
+  const [crest, ...imgs] = await Promise.all([loadImage(khuCrestUrl()), ...list.map((r) => loadImage(r.logo))]);
 
   background(ctx, W, H);
-  header(ctx, W);
+  header(ctx, W, crest);
 
   ctx.textAlign = "left";
   ctx.textBaseline = "alphabetic";
