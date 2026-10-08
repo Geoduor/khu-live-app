@@ -57,14 +57,19 @@ There was no dedicated app for KHU fans. KHU Live fills that gap.
 - Standings for all 8 leagues: Premier League (Men/Women), Super League
   (Men/Women), National League — 4 zones (Men only).
 - Upcoming fixtures, grouped by date, filterable by league.
-- Results, grouped by league (most recent first within each), filterable
-  by league.
+- Results, grouped by date with the newest day first, filterable by
+  league.
 - Live-match detection with push notifications when a favorited team's
   match goes live.
 - Team profiles: league position, recent form (W/D/L), upcoming fixtures,
-  recent results — built entirely from data already scraped and trusted
+  every result this season with a season record — built entirely from data already scraped and trusted
   elsewhere in the app (see Architecture.md for why).
 - National League playoff bracket view.
+- **Cups (tournaments)**: hosted tournaments with matches by stage and
+  computed group tables, kept separate from league data.
+- **Share cards**: "Share result" and "Share table" make a clean image
+  (with the app name) for WhatsApp and other apps — the main free
+  growth loop.
 
 ### Data reliability
 - Three data sources feed the same fixtures/results pool, each filling
@@ -81,7 +86,8 @@ There was no dedicated app for KHU fans. KHU Live fills that gap.
 
 ### Data entry tools
 - **Admin portal** (`/admin.html`): upload a KHU PDF calendar, manually
-  add/edit/delete results, create and manage agent accounts.
+  add/edit/delete results, manage tournaments and their matches, create
+  and manage agent accounts.
 - **Agent portal** (`/agent.html`): a lightweight login for people helping
   enter results, without needing the master admin credential. Every
   result records who entered it.
@@ -124,5 +130,9 @@ There was no dedicated app for KHU fans. KHU Live fills that gap.
   standings rely solely on the live scrape).
 - Consider surfacing "source" (live / PDF / manual) in the UI itself for
   full transparency, not just in the API response.
+- Match detail pages with scorers and cards; top-scorers page.
+- Tournament entry screen in the agent portal (API already supports it).
+- Move persistence off Render's ephemeral disk (managed database) so
+  seed-file exports are no longer needed.
 - Off Pitch Africa — a related, separate client project reusing this
   app's scraping patterns — is tracked independently.

@@ -23,8 +23,10 @@ These require no authentication and are what the frontend uses directly.
 | GET | `/api/results` | Completed results, grouped by league, most-recent-first within each league |
 | GET | `/api/live` | Currently-live matches |
 | GET | `/api/teams/all` | Every team across every league |
-| GET | `/api/team?url=&name=` | One team's profile — position, form, upcoming fixtures, recent results. Built from cached standings/fixtures/results data, not scraped fresh (see ARCHITECTURE.md §6) |
+| GET | `/api/team?url=&name=` | One team's profile — position, form, upcoming fixtures, **every result this season** and a `season_summary` (matches listed, W/D/L, goals for/against, played per table). Built from cached standings/fixtures/results data, not scraped fresh (see ARCHITECTURE.md §6) |
 | GET | `/api/match?url=` | Detail for one match |
+| GET | `/api/tournaments` | All tournaments with `matches_total` / `matches_played`. Separate from league data |
+| GET | `/api/tournaments/{id}` | One tournament: details, matches grouped by stage (latest stage first, so the Final tops the list) and computed group tables |
 | GET | `/api/playoffs/nlm` | National League playoff bracket |
 | GET | `/api/logo?url=` | Proxies a KHU-hosted team logo image (works around suspected hotlink protection) |
 | POST | `/api/refresh` | Manually trigger an immediate refresh cycle instead of waiting for the next scheduled one |
@@ -63,6 +65,28 @@ environment variable.
 | DELETE | `/api/admin/results/{match_key}` | admin or agent | Remove one manual result |
 | GET | `/api/admin/results/export-seed` | admin only | Export for permanent seed-file persistence — same pattern as PDF fixtures |
 
+## Admin & agents — tournaments
+
+Tournaments live in their own tables and never touch league standings.
+Group tables are computed from matches: 3 points per win, 1 per draw;
+tiebreak is points → goal difference → goals for → name. Match
+validation: both team names required and different; both scores or
+neither (0–99); date as `YYYY-MM-DD` or `YYYY-MM-DD HH:MM`.
+
+| Method | Path | Auth | Description |
+|---|---|---|---|
+| POST | `/api/admin/tournaments/save` | admin | Create (no `id`) or edit a tournament. Body: `{id?, name, start_date, end_date, venue, description, status}` |
+| DELETE | `/api/admin/tournaments/{id}` | admin | Delete a tournament and all its matches |
+| POST | `/api/admin/tournaments/{id}/matches/save` | admin or agent | Add (no `match_id`) or edit a match. Body: `{match_id?, stage, group_name, home_team, away_team, home_score?, away_score?, date, venue}` |
+| DELETE | `/api/admin/tournaments/matches/{match_id}` | admin or agent | Delete one match |
+| GET | `/api/admin/tournaments/export-seed` | admin | Export for permanent persistence — save as `backend/tournaments_seed.json` and commit |
+
+## Admin & agents — team / player stats
+
+Same pattern as manual results (`set`, `list`, `DELETE .../{stat_key}`, `export-seed`), under
+`/api/admin/team-stats/*` and `/api/admin/player-stats/*`. Seeds:
+`team_stats_seed.json`, `player_stats_seed.json`.
+
 ## Admin — agent accounts
 
 Admin-only (`x-admin-token`).
@@ -73,6 +97,7 @@ Admin-only (`x-admin-token`).
 | GET | `/api/admin/agents/list` | List every agent (active and deactivated) — never returns password hashes |
 | POST | `/api/admin/agents/{username}/deactivate` | Immediately revoke an agent's access, including any session they're already logged into |
 | POST | `/api/admin/agents/{username}/reactivate` | Restore a deactivated agent |
+| GET | `/api/admin/agents/export-seed` | Export agents **including password hashes**. Do not commit — paste into the `AGENTS_SEED` environment variable on Render |
 
 ## Agent login
 
@@ -84,11 +109,23 @@ Public endpoint (no token needed to call it — it *issues* the token).
 
 ---
 
+## Admin login
+
+| Method | Path | Description |
+|---|---|---|
+| POST | `/api/admin/login` | Body: `{username, password}` checked against `ADMIN_USERNAME` / `ADMIN_PASSWORD`. Returns `{admin_token}`, used as `x-admin-token`. `503` if the env vars aren't set |
+
+Both login endpoints share a throttle: 5 failed attempts from one IP
+locks it out for 15 minutes (`429`).
+
+---
+
 ## Error handling
 
 - `401` — missing/invalid `x-admin-token` or `x-agent-token`
 - `400` — invalid input (e.g. unknown `league_short`, malformed date)
 - `404` — resource not found (e.g. deleting a `match_key` that doesn't exist)
+- `429` — too many failed logins from this IP
 - `409` — conflict (e.g. creating an agent username that already exists)
 - `503` — cache not populated yet (very first startup, before the first refresh completes)
 

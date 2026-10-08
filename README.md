@@ -138,7 +138,7 @@ Backend on Render (free tier), frontend on Vercel. Render's disk is **ephemeral*
 
 - Public data (manual results, team/player stats, tournaments): export the seed JSON from the admin portal and commit it to `backend/` (`tournaments_seed.json`, etc.).
 - Agent accounts contain password hashes, so they are **not** committed. Export them and store the value in the `AGENTS_SEED` environment variable.
-- Set `ADMIN_USERNAME`, `ADMIN_PASSWORD` and `ALLOWED_ORIGINS` on Render (see `render.yaml` and `backend/env.example`).
+- Set `ADMIN_TOKEN`, `ADMIN_USERNAME`, `ADMIN_PASSWORD` and `ALLOWED_ORIGINS` on Render (see `render.yaml` and `backend/env.example`).
 - `admin.html` and `agent.html` hardcode the backend URL; update it if your Render service name differs.
 
 ## Important notes

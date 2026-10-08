@@ -31,9 +31,9 @@ Set `REACT_APP_API_URL` in a `.env.local` file if your backend isn't at
 ## Before opening a PR
 
 1. **Backend**: verify `python3 -c "import main"` succeeds cleanly and
-   run any relevant test script for the area you touched (there's no
-   persistent test suite yet — see individual functions' docstrings for
-   the manual testing patterns used during development).
+   run `python verify_robustness.py` (and `verify_manual_results_v2.py`
+   if you touched manual results). There's no CI yet, so run them
+   yourself.
 2. **Frontend**: run `CI=true npm run build` before pushing — this is
    what Vercel uses, and it treats ESLint warnings (like unused
    variables) as hard errors. A build that passes locally without

@@ -107,6 +107,13 @@ save its output over the seed file, and commit it — that's what makes
 the addition survive future cold starts permanently, not just until the
 next restart.
 
+Seed files in use: `pdf_fixtures_seed.json`, `manual_results_seed.json`,
+`team_stats_seed.json`, `player_stats_seed.json`, `tournaments_seed.json`
+— all public data, committed to git. **Agent accounts are the exception**:
+they contain password hashes and the repo is public, so they persist via
+the `AGENTS_SEED` environment variable (export from
+`/api/admin/agents/export-seed`) instead.
+
 ## 5. Team name matching
 
 KHU is not internally consistent about team names across different pages
@@ -163,8 +170,9 @@ Two admin surfaces, both static HTML files served alongside the React
 build (no build-step dependency, zero risk to the main app bundle):
 
 - `public/admin.html` — master control: add/edit/delete manual results,
-  upload PDF calendars, create/deactivate agent accounts. Gated by
-  `ADMIN_TOKEN`.
+  upload PDF calendars, create/deactivate agent accounts. Also
+  manages tournaments and matches. Log in with `ADMIN_USERNAME` /
+  `ADMIN_PASSWORD`; the page receives the `ADMIN_TOKEN` from the server.
 - `public/agent.html` — a lightweight login for people helping enter
   results day-to-day, without the master token. Agent passwords are
   salted PBKDF2-SHA256 hashes (Python stdlib `hashlib`/`secrets` — no
@@ -175,23 +183,40 @@ build (no build-step dependency, zero risk to the main app bundle):
 Every manually-entered result records `entered_by` (the agent's display
 name, or "Admin"), giving a real accountability trail.
 
-## 9. Frontend structure
+## 9. Tournaments & share cards
+
+**Tournaments** are deliberately separate from leagues: their own tables
+(`tournaments`, `tournament_matches`), their own endpoints, and their own
+tab ("Cups"). `backend/tournaments.py` holds the pure logic — validation,
+match state (NS/LIVE/FT), group tables, and stage ordering — so it can
+be tested without the web layer. Entry is through `admin.html` (admin) or
+the API (agents).
+
+**Share cards** are generated entirely in the browser
+(`src/utils/shareCard.js`) with Canvas 2D — no dependency, no server
+cost. Cards are 1080×1350 (result) or a variable-height table image,
+include the app name and the "Unofficial Fan App" line, and are shared
+through the Web Share API with files (`navigator.canShare({files})`),
+falling back to a download. Team logos come through the `/api/logo`
+proxy with `crossOrigin="anonymous"` so the canvas isn't tainted; initials
+are drawn when a logo is missing.
+
+## 10. Frontend structure
 
 | Path | Responsibility |
 |---|---|
-| `src/App.js` | Main app shell, all views (Home, Table, Fixtures, Results), navigation |
+| `src/App.js` | Main app shell, all views (Home, Table, Fixtures, Results, Cups), navigation |
 | `src/api.js` | Backend API client, including the logo-proxy URL rewriter |
-| `src/components/` | `MatchCard`, `LeagueTable`, `TeamProfile`, `TeamLogo`, `PlayoffBracket`, `InstallBanner`, etc. |
+| `src/components/` | `MatchCard`, `LeagueTable`, `TeamProfile`, `TeamLogo`, `TournamentsView`, `ShareButton`, `PlayoffBracket`, `InstallBanner`, etc. |
+| `src/utils/` | `shareCard.js` — canvas share-image generation |
 | `src/hooks/` | `useTheme`, `useFavorites`, `usePushNotifications`, `useInstallPrompt`, `useDiffedStandings` |
 | `public/` | Static assets, manifest, service worker, `admin.html`, `agent.html` |
 
 Fixtures and Results share the same date-grouping and league-filter
-dropdown components (`DateGroupedMatchList`, `LeagueFilterSelect`) —
-Results additionally groups by league (mirroring the backend's own
-league-then-date sort order) since agents/fans tend to want a specific
-league's recent results together, most-recent-first.
+dropdown components (`DateGroupedMatchList`, `LeagueFilterSelect`).
+Results uses `newestFirst`, so the most recent day appears first.
 
-## 10. Known limitations
+## 11. Known limitations
 
 - Refresh cycles are heavier now (team-page-based) than the original
   calendar-based design was intended to be — acceptable for a 15-minute
@@ -201,6 +226,11 @@ league's recent results together, most-recent-first.
   conservative — they will sometimes fail to match two names that really
   are the same team, rather than risk merging two that aren't. A missing
   logo is preferred over a wrong one.
-- No automated tests run in CI yet — verification has been done via
-  targeted manual test scripts during development, not a persistent test
-  suite.
+- No CI yet. `backend/verify_robustness.py` is an offline test script
+  (scraper block handling, auth, manual results, tournaments, seed
+  restore) to run before deploying, plus `CI=true npm run build` for the
+  frontend — but neither runs automatically.
+- Scraping can be blocked by KHU's bot protection. The scraper detects
+  interstitials, aborts a league after 2 consecutive blocked pages and
+  keeps previously scraped matches rather than replacing them with a
+  partial result.

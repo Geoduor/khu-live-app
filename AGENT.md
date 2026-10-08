@@ -165,13 +165,30 @@ Two static HTML admin surfaces, served alongside the React build with
 zero build-step coupling:
 
 - `public/admin.html` — master control (PDF upload, manual results,
-  agent account management). Gated by `ADMIN_TOKEN`.
+  agent account management, tournaments). Log in with `ADMIN_USERNAME` /
+  `ADMIN_PASSWORD`; the server returns `ADMIN_TOKEN`.
 - `public/agent.html` — lightweight login for people helping enter
   results. Passwords are salted PBKDF2-SHA256 (stdlib only, no new
   dependency). Deactivating an agent takes effect immediately, even for
   an already-issued session — every write re-checks `agents.active`.
 
 Every manual result records `entered_by`.
+
+## Tournaments & share cards
+
+- Tournaments are **separate from league data** (own tables/endpoints/tab).
+  Never merge them into standings. Logic lives in `backend/tournaments.py`;
+  group tables use 3-1-0 and tiebreak points → GD → GF → name.
+- Tournament data persists via `tournaments_seed.json` (export from
+  admin, commit). Agent accounts persist via `AGENTS_SEED` env var, never
+  committed (password hashes, public repo).
+- Share cards are canvas-generated client-side (`src/utils/shareCard.js`).
+  Every card must keep the app name and "Unofficial Fan App" line.
+  Logos load via `/api/logo` with `crossOrigin="anonymous"`.
+- CRA's CI build treats lint warnings as errors (e.g. `no-loop-func`) —
+  always run `CI=true npm run build`.
+- Git: work on a branch and **do not push to main without the owner's
+  explicit permission**.
 
 ## Known gotchas / hard-won fixes
 
@@ -228,10 +245,13 @@ Every manual result records `entered_by`.
 4. After changing `scraper.py` or `pdf_fixtures.py`'s output schema,
    re-check `main.py`'s merge functions and the frontend's `MatchCard`
    still agree on field names.
-5. After adding PDF fixtures or manual results you want to persist
-   permanently, export and commit the matching seed file (see above).
+5. After adding PDF fixtures, manual results, stats or tournaments you
+   want to persist permanently, export and commit the matching seed file
+   (see above). Agents: export to the `AGENTS_SEED` env var instead.
+6. Before deploying, run `python verify_robustness.py` (backend) and
+   `CI=true npm run build` (frontend).
 
 ---
 
-*Last updated: September 2026, after the team-page-based scraping
-rewrite, multi-source results merging, and the agent/manual-entry system.*
+*Last updated: October 2026, after scraper block-handling, share cards,
+the tournaments (Cups) section and admin hardening.*
