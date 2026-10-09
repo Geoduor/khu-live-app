@@ -15,6 +15,7 @@ import OnboardingPicker from "./components/OnboardingPicker";
 import TeamLogo from "./components/TeamLogo";
 import InstallBanner from "./components/InstallBanner";
 import TournamentsView from "./components/TournamentsView";
+import TopScorers from "./components/TopScorers";
 import ShareButton from "./components/ShareButton";
 import { renderTableCard, shareCanvas, slug, shareText } from "./utils/shareCard";
 
@@ -579,9 +580,16 @@ function HomeView({ leagues, loadingLeagues, onSelectLeague, fixtures, results, 
 // TABLE VIEW
 // ══════════════════════════════════════════════════
 function TableView({ leagues, selectedLeague, setSelectedLeague, standings, loading, onOpenTeam, isFavorite, toggleFavorite }) {
+  const [view, setView] = useState("table"); // "table" | "scorers"
+  const currentLeague = leagues.find((l) => l.key === selectedLeague);
   return (
     <div className="section">
-      <div className="sec-head"><span className="sec-title">League Table</span></div>
+      <div className="sec-head"><span className="sec-title">{view === "table" ? "League Table" : "Top Scorers"}</span></div>
+
+      <div className="tour-tabs" style={{ marginBottom: 10 }}>
+        <button className={view === "table" ? "on" : ""} onClick={() => setView("table")}>Standings</button>
+        <button className={view === "scorers" ? "on" : ""} onClick={() => setView("scorers")}>Top scorers</button>
+      </div>
 
       <div className="league-pill-row">
         {leagues.map(l => (
@@ -596,7 +604,9 @@ function TableView({ leagues, selectedLeague, setSelectedLeague, standings, load
         ))}
       </div>
 
-      {loading ? (
+      {view === "scorers" ? (
+        <TopScorers leagueShort={currentLeague?.short || ""} leagueName={currentLeague?.name || standings?.league || "League"} onOpenTeam={onOpenTeam} />
+      ) : loading ? (
         <LoadingState message="Fetching live standings from KHU..." />
       ) : standings?.error ? (
         <ErrorState title="Could not load standings" message={standings.error} />

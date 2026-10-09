@@ -55,6 +55,9 @@ export const getAllTeamsFlat = () => api.get("/api/teams/all").then(r => r.data)
 export const updatePushFavorites = (endpoint, favoriteTeams) =>
   api.post("/api/push/update-favorites", { endpoint, favoriteTeams }).then(r => r.data);
 
+export const getTopScorers = (leagueShort = "") =>
+  api.get("/api/players/top-scorers", { params: leagueShort ? { league_short: leagueShort } : {} }).then(r => r.data);
+
 // ── Tournaments (separate from league data) ──
 export const getTournaments = () => api.get("/api/tournaments").then(r => r.data);
 export const getTournament = (id) => api.get(`/api/tournaments/${encodeURIComponent(id)}`).then(r => r.data);

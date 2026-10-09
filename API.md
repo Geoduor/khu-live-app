@@ -24,7 +24,8 @@ These require no authentication and are what the frontend uses directly.
 | GET | `/api/live` | Currently-live matches |
 | GET | `/api/teams/all` | Every team across every league |
 | GET | `/api/team?url=&name=` | One team's profile — position, form, upcoming fixtures, **every result this season** and a `season_summary` (matches listed, W/D/L, goals for/against, played per table). Built from cached standings/fixtures/results data, not scraped fresh (see ARCHITECTURE.md §6) |
-| GET | `/api/match?url=` | Detail for one match |
+| GET | `/api/match?url=` | Detail for one match. Scraped details plus, when the match is in our cache, `league`, `state`, `scorers`, `cards` and logo URLs (the KHU match page itself doesn't publish scorers) |
+| GET | `/api/players/top-scorers?league_short=` | Goals leaderboard. Merges admin/agent season stat lines (authoritative) with goals tallied from scorers recorded on results — no double counting |
 | GET | `/api/tournaments` | All tournaments with `matches_total` / `matches_played`. Separate from league data |
 | GET | `/api/tournaments/{id}` | One tournament: details, matches grouped by stage (latest stage first, so the Final tops the list) and computed group tables |
 | GET | `/api/playoffs/nlm` | National League playoff bracket |

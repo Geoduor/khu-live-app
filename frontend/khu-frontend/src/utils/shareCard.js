@@ -100,6 +100,12 @@ function wrapLines(ctx, text, maxWidth, maxLines = 2) {
   return lines;
 }
 
+function titleLineCount(title, font, maxWidth) {
+  const c = document.createElement("canvas").getContext("2d");
+  c.font = font;
+  return wrapLines(c, String(title || "").toUpperCase(), maxWidth, 2).length;
+}
+
 function initials(name) {
   const parts = String(name || "?").replace(/[^A-Za-z0-9 ]/g, " ").split(/\s+/).filter(Boolean);
   return ((parts[0] || "?")[0] + (parts[1] ? parts[1][0] : "")).toUpperCase();
@@ -305,7 +311,7 @@ export async function renderTableCard({ title, subtitle, rows }, sourceLine = "D
   const W = 1080;
   const list = rows.slice(0, 14);
   const rowH = 92;
-  const topH = 330;
+  const topH = 330 + (titleLineCount(title, `900 62px ${FONT}`, W - 120) - 1) * 66;
   const H = topH + list.length * rowH + 250;
   const canvas = document.createElement("canvas");
   canvas.width = W; canvas.height = H;
@@ -366,6 +372,74 @@ export async function renderTableCard({ title, subtitle, rows }, sourceLine = "D
     ctx.font = `900 36px ${FONT}`;
     ctx.fillStyle = AMBER;
     ctx.fillText(String(r.points ?? ""), colX.pts, cy);
+  });
+  ctx.textBaseline = "alphabetic";
+
+  footer(ctx, W, H, sourceLine);
+  return canvas;
+}
+
+/**
+ * Top-scorers card. `rows`: [{ player_name, team_name, goals }]
+ */
+export async function renderScorersCard({ title, subtitle, rows }, sourceLine = "Data: kenyahockeyunion.org") {
+  await ensureFonts();
+  const W = 1080;
+  const list = rows.slice(0, 10);
+  const rowH = 100;
+  const topH = 320 + (titleLineCount(title || "TOP SCORERS", `900 62px ${FONT}`, W - 120) - 1) * 66;
+  const H = topH + list.length * rowH + 250;
+  const canvas = document.createElement("canvas");
+  canvas.width = W; canvas.height = H;
+  const ctx = canvas.getContext("2d");
+  const crest = await loadImage(khuCrestUrl());
+
+  background(ctx, W, H);
+  header(ctx, W, crest);
+
+  ctx.textAlign = "left";
+  ctx.textBaseline = "alphabetic";
+  ctx.font = `900 62px ${FONT}`;
+  ctx.fillStyle = INK;
+  const tl = wrapLines(ctx, String(title || "TOP SCORERS").toUpperCase(), W - 120, 2);
+  tl.forEach((l, i) => ctx.fillText(l, 60, 205 + i * 66));
+  if (subtitle) {
+    ctx.font = `500 30px ${FONT}`;
+    ctx.fillStyle = MUTED;
+    ctx.fillText(subtitle, 60, 205 + (tl.length - 1) * 66 + 50);
+  }
+
+  const hy = topH - 14;
+  ctx.font = `700 24px ${FONT}`;
+  ctx.fillStyle = MUTED;
+  ctx.textAlign = "left";
+  ctx.fillText("PLAYER", 60, hy);
+  ctx.textAlign = "right";
+  ctx.fillStyle = AMBER;
+  ctx.fillText("GOALS", W - 70, hy);
+
+  list.forEach((r, i) => {
+    const top = topH + i * rowH;
+    ctx.fillStyle = i % 2 === 0 ? "rgba(255,255,255,0.75)" : "rgba(255,255,255,0.35)";
+    roundRect(ctx, 40, top, W - 80, rowH - 8, 22);
+    ctx.fill();
+    const cy = top + (rowH - 8) / 2;
+    ctx.textBaseline = "middle";
+    ctx.textAlign = "center";
+    ctx.font = `800 32px ${FONT}`;
+    ctx.fillStyle = i === 0 ? AMBER : MUTED;
+    ctx.fillText(String(i + 1), 92, cy);
+    ctx.textAlign = "left";
+    ctx.font = `800 34px ${FONT}`;
+    ctx.fillStyle = INK;
+    ctx.fillText(wrapLines(ctx, r.player_name, 600, 1)[0] || "", 150, cy - 14);
+    ctx.font = `500 25px ${FONT}`;
+    ctx.fillStyle = MUTED;
+    ctx.fillText(wrapLines(ctx, r.team_name || "", 600, 1)[0] || "", 150, cy + 22);
+    ctx.textAlign = "right";
+    ctx.font = `900 48px ${FONT}`;
+    ctx.fillStyle = AMBER;
+    ctx.fillText(String(r.goals ?? 0), W - 70, cy);
   });
   ctx.textBaseline = "alphabetic";
 

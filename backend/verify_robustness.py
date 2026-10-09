@@ -90,5 +90,26 @@ conn=db.get_connection(); conn.execute("DELETE FROM tournaments"); conn.execute(
 check("seed restore", db.import_tournaments_seed(seedj["tournaments"], seedj["matches"])==1 and len(db.load_tournament_matches(tid))==4)
 check("delete tournament", c.delete(f"/api/admin/tournaments/{tid}", headers=H).status_code==200 and c.get(f"/api/tournaments/{tid}").status_code==404)
 
+print("7. Match detail enrichment + top scorers")
+murl="https://www.kenyahockeyunion.org/match/test-1/"
+main.cache["fixtures_results"]={"results":[{"league":"Premier League Men","home_team":"Alpha","away_team":"Beta","home_score":2,"away_score":1,
+    "match_url":murl,"date":"2026-10-01 10:00","state":"FT","home_logo_url":"https://www.kenyahockeyunion.org/a.png","away_logo_url":"",
+    "scorers":[{"team":"home","player_name":"Ann Otieno","minute":12},{"team":"home","player_name":"Ann Otieno","minute":60},{"team":"away","player_name":"Bob Kamau","minute":30}],
+    "cards":[{"team":"away","player_name":"Bob Kamau","card_type":"yellow","minute":44}]},
+   {"league":"Premier League Men","home_team":"Beta","away_team":"Alpha","home_score":0,"away_score":1,"match_url":"","date":"2026-10-08 10:00","state":"FT",
+    "scorers":[{"team":"away","player_name":"Ann Otieno","minute":5}],"cards":[]}],"fixtures":[],"live":[]}
+main.scrape_match_detail=lambda u: {"date":"","matchday":"","venue":"","home_team":"Alpha","away_team":"Beta","home_score":None,"away_score":None,"is_live":False,"source_url":u}
+md=c.get("/api/match",params={"url":murl}).json()
+check("match detail has scorers/cards/league/state", len(md["scorers"])==3 and len(md["cards"])==1 and md["league"]=="Premier League Men" and md["state"]=="FT", str(md))
+check("match detail falls back to cached score", md["home_score"]==2 and md["away_score"]==1)
+check("match detail rejects off-site url", c.get("/api/match",params={"url":"https://evil.com/?kenyahockeyunion.org"}).status_code==400)
+ts=c.get("/api/players/top-scorers").json()["players"]
+check("top scorers derived + ordered", ts[0]["player_name"]=="Ann Otieno" and ts[0]["goals"]==3 and ts[1]["goals"]==1, str(ts))
+check("top scorers league filter", len(c.get("/api/players/top-scorers",params={"league_short":"PLW"}).json()["players"])==0
+      and len(c.get("/api/players/top-scorers",params={"league_short":"PLM"}).json()["players"])==2)
+db.save_player_stats("PLM","Alpha","Ann Otieno",{"goals":7,"appearances":9,"yellow_cards":0,"red_cards":0,"green_cards":0})
+ts=c.get("/api/players/top-scorers").json()["players"]
+check("manual stat line wins over derived (no double count)", ts[0]["goals"]==7 and sum(1 for p in ts if p["player_name"]=="Ann Otieno")==1, str(ts))
+
 print("\nRESULT:", "all checks passed" if not fails else f"{len(fails)} FAILURE(S): {fails}")
 sys.exit(1 if fails else 0)

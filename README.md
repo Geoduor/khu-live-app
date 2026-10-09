@@ -19,7 +19,8 @@ Data is scraped directly and respectfully from [kenyahockeyunion.org](https://ww
 - **Fixtures & results**, scraped per-league via JoomSport's calendar view (`?action=calendar`), not homepage guessing
 - **Team profile pages** — league position, last-5 form, every result this season with a season record (W/D/L, goals), upcoming fixtures
 - **Results grouped by date** — newest day first
-- **Match detail pages** — date, venue, matchday name, live/final score
+- **Match detail pages** — date, venue, logos, live/final score, a minute-by-minute events list (goals and cards when recorded) and a Share button
+- **Top scorers** — a leaderboard per league (Table tab → Top scorers), shareable as an image
 - **Row-diff animations** — standings visibly flash and show rank-change arrows on each live poll, so the table feels alive instead of just reloading
 
 ### Sharing & tournaments

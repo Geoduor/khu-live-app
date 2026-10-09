@@ -799,3 +799,31 @@ html{ max-width:100%; overflow-x:hidden; }
 .tour-tabs button.on{ background:var(--red); color:#fff; border-color:var(--red); }
 .tour-stage{ margin-bottom:18px; }
 .tour-table-head{ display:flex; align-items:center; justify-content:space-between; margin-bottom:8px; }
+
+/* ── Match detail: logos + events ── */
+img.md-logo{ width:64px; height:64px; object-fit:contain; border-radius:14px; background:#fff; padding:6px; margin:0 auto 8px; display:block; box-shadow:0 2px 8px rgba(0,0,0,.08); }
+.md-logo.team-logo-fallback{ width:64px; height:64px; margin:0 auto 8px; font-size:20px; border-radius:14px; }
+.match-detail-card > .match-detail-matchday{ text-align:center; margin-bottom:12px; }
+.match-detail-team{ text-align:center; }
+.md-events{ margin-top:18px; border-top:1px solid var(--border); padding-top:12px; }
+.md-events-title{ font-size:11px; font-weight:800; letter-spacing:.08em; text-transform:uppercase; color:var(--muted); text-align:center; margin-bottom:8px; }
+.md-ev-row{ display:grid; grid-template-columns:1fr 1fr; gap:10px; padding:5px 0; font-size:13px; }
+.md-ev-side{ min-width:0; overflow-wrap:anywhere; }
+.md-ev-home{ text-align:right; }
+.md-ev-away{ text-align:left; }
+.md-ev-icon{ margin:0 5px; }
+.md-ev-min{ color:var(--muted); font-size:12px; }
+
+/* ── Top scorers ── */
+.ts-head{ display:flex; align-items:center; justify-content:space-between; gap:8px; margin-bottom:10px; font-size:12px; color:var(--muted); }
+.ts-list{ display:flex; flex-direction:column; gap:8px; }
+.ts-row{ display:flex; align-items:center; gap:12px; padding:10px 12px; border:1px solid var(--border); border-radius:14px; background:var(--card, transparent); }
+.ts-rank{ width:26px; text-align:center; font-weight:800; color:var(--muted); }
+.ts-rank-1{ color:var(--amber); }
+.ts-who{ flex:1; min-width:0; }
+.ts-name{ font-weight:800; font-size:14px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.ts-team{ font-size:12px; color:var(--muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.ts-goals{ font-weight:900; font-size:22px; color:var(--amber); text-align:right; line-height:1; }
+.ts-goals span{ display:block; font-size:10px; font-weight:700; color:var(--muted); margin-top:2px; }
+.ts-note{ margin-top:10px; font-size:10px; color:var(--muted); }
+.empty-note{ padding:24px 12px; text-align:center; font-size:13px; color:var(--muted); }

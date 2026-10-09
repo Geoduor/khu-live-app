@@ -130,7 +130,7 @@ There was no dedicated app for KHU fans. KHU Live fills that gap.
   standings rely solely on the live scrape).
 - Consider surfacing "source" (live / PDF / manual) in the UI itself for
   full transparency, not just in the API response.
-- Match detail pages with scorers and cards; top-scorers page.
+- Scorers/cards and top scorers depend on data being entered (KHU's site doesn't publish them) — consider making scorer entry quicker for agents.
 - Tournament entry screen in the agent portal (API already supports it).
 - Move persistence off Render's ephemeral disk (managed database) so
   seed-file exports are no longer needed.

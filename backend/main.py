@@ -2332,16 +2332,50 @@ def set_player_stats(payload: PlayerStatsInput, x_admin_token: str = Header(defa
     return {"message": f"Saved stats for {payload.player_name}.", "stat_key": stat_key}
 
 
+def _derive_scorers_from_results() -> dict:
+    """
+    Goals tallied from the goal scorers recorded on individual results
+    (manual entries). Key: (league_short, team, player) lower-cased.
+    """
+    short_by_name = {lg["name"]: lg["short"] for lg in LEAGUES.values()}
+    fr = cache.get("fixtures_results") or {}
+    out: dict = {}
+    for m in fr.get("results", []) or []:
+        short = short_by_name.get(m.get("league", ""), "")
+        for sc in m.get("scorers", []) or []:
+            name = (sc.get("player_name") or "").strip()
+            team = m.get("home_team") if sc.get("team") == "home" else m.get("away_team")
+            if not name or not team:
+                continue
+            key = (short, team.lower(), name.lower())
+            row = out.setdefault(key, {"league_short": short, "team_name": team, "player_name": name,
+                                       "goals": 0, "appearances": 0, "yellow_cards": 0, "red_cards": 0,
+                                       "green_cards": 0, "derived": True})
+            row["goals"] += 1
+    return out
+
+
 @app.get("/api/players/top-scorers")
 def get_top_scorers(league_short: str = ""):
     """
-    Public endpoint — player stat leaderboard, sorted by goals scored
-    descending. Optionally filter to one league via ?league_short=PLM.
+    Public endpoint — player goals leaderboard, sorted by goals desc.
+    Optionally filter to one league via ?league_short=PLM.
+
+    Two sources, merged: season-to-date stat lines entered by admin/agents
+    (authoritative — they win for the same player) and goals tallied from
+    the scorers recorded on individual results.
     """
-    stats = db.load_player_stats()
+    manual = db.load_player_stats()
+    manual_keys = {((s.get("league_short") or ""), (s.get("team_name") or "").lower(), (s.get("player_name") or "").lower())
+                   for s in manual}
+    stats = list(manual)
+    for key, row in _derive_scorers_from_results().items():
+        if key not in manual_keys:
+            stats.append(row)
     if league_short:
         stats = [s for s in stats if s.get("league_short", "").upper() == league_short.strip().upper()]
-    stats.sort(key=lambda s: s.get("goals", 0), reverse=True)
+    stats = [s for s in stats if (s.get("goals") or 0) > 0 or not s.get("derived")]
+    stats.sort(key=lambda s: (-(s.get("goals") or 0), (s.get("player_name") or "").lower()))
     return {"players": stats, "count": len(stats)}
 
 
@@ -2734,6 +2768,42 @@ def get_team_profile(url: str = "", name: str = ""):
     return data
 
 
+def _enrich_match_detail(data: dict, url: str) -> dict:
+    """
+    Add what the KHU match page doesn't publish but our own data holds:
+    league, state, goal scorers, cards and logos — looked up from the
+    cached fixtures/results by the same match_url. Returns a copy; never
+    touches the cached scrape itself.
+    """
+    out = dict(data)
+    fr = cache.get("fixtures_results") or {}
+    found = None
+    for key in ("results", "fixtures", "live"):
+        for m in fr.get(key, []) or []:
+            if m.get("match_url") == url:
+                found = (key, m)
+                break
+        if found:
+            break
+    if found:
+        key, m = found
+        out["league"] = m.get("league", "")
+        out["scorers"] = m.get("scorers", []) or []
+        out["cards"] = m.get("cards", []) or []
+        out["home_logo_url"] = m.get("home_logo_url", "")
+        out["away_logo_url"] = m.get("away_logo_url", "")
+        out["state"] = m.get("state") or ("FT" if key == "results" else "LIVE" if out.get("is_live") else "NS")
+        # Prefer our merged score/date when the scrape came back empty
+        if out.get("home_score") is None and m.get("home_score") is not None:
+            out["home_score"], out["away_score"] = m.get("home_score"), m.get("away_score")
+        if not out.get("venue") and m.get("venue"):
+            out["venue"] = m["venue"]
+    else:
+        out.setdefault("scorers", [])
+        out.setdefault("cards", [])
+    return out
+
+
 @app.get("/api/match")
 def get_match_detail(url: str):
     """
@@ -2741,15 +2811,15 @@ def get_match_detail(url: str):
     'url' comes from the 'match_url' field already present in fixtures/results
     data — never guessed or constructed.
     """
-    if "kenyahockeyunion.org" not in url:
+    if not _is_khu_image_url(url):  # host check (works for any KHU page URL)
         raise HTTPException(status_code=400, detail="Invalid match URL — must be a kenyahockeyunion.org link")
 
     cached = _match_cache.get(url)
     # Live matches should never be served from cache — always fetch fresh
     if cached and (time.time() - cached[1]) < TEAM_CACHE_TTL and not cached[0].get("is_live"):
-        return cached[0]
+        return _enrich_match_detail(cached[0], url)
 
     data = scrape_match_detail(url)
     if not data.get("error"):
         _match_cache[url] = (data, time.time())
-    return data
+    return _enrich_match_detail(data, url)
