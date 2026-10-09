@@ -236,6 +236,13 @@ export async function renderMatchCard(match, sourceLine = "Data: kenyahockeyunio
     ctx.fillText(match.date, W / 2, y + 6);
     y += 50;
   }
+  if (match.venue) {
+    // Venue sits under the date so it can never collide with the goals list
+    ctx.font = `500 26px ${FONT}`;
+    ctx.fillStyle = MUTED;
+    ctx.fillText(wrapLines(ctx, `Venue: ${match.venue}`, W - 160, 1)[0], W / 2, y);
+    y += 40;
+  }
 
   const pill = match.state === "LIVE" ? "LIVE" : match.state === "NS" ? "UPCOMING" : "FULL TIME";
   ctx.font = `800 28px ${FONT}`;
@@ -273,7 +280,7 @@ export async function renderMatchCard(match, sourceLine = "Data: kenyahockeyunio
 
   // Scorers (only when we have them) — home on the left, away on the right.
   const hs = groupScorers(match.scorers, "home"), as = groupScorers(match.scorers, "away");
-  let sy = 990;
+  let sy = 950;
   if (hs.length || as.length) {
     ctx.font = `700 24px ${FONT}`;
     ctx.fillStyle = MUTED;
@@ -281,7 +288,7 @@ export async function renderMatchCard(match, sourceLine = "Data: kenyahockeyunio
     sy += 14;
     ctx.font = `600 32px ${FONT}`;
     ctx.fillStyle = INK;
-    const rows = Math.min(Math.max(hs.length, as.length), 4);
+    const rows = Math.min(Math.max(hs.length, as.length), 3);
     const baseY = sy + 44;
     ctx.textAlign = "center";
     for (let i = 0; i < rows; i++) {
@@ -291,13 +298,6 @@ export async function renderMatchCard(match, sourceLine = "Data: kenyahockeyunio
     }
     sy = baseY + rows * 46;
   }
-  if (match.venue) {
-    ctx.textAlign = "center";
-    ctx.font = `500 28px ${FONT}`;
-    ctx.fillStyle = MUTED;
-    ctx.fillText(`Venue: ${match.venue}`, W / 2, Math.min(sy + 40, H - 230));
-  }
-
   footer(ctx, W, H, sourceLine);
   return canvas;
 }
