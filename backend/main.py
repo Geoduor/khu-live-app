@@ -40,7 +40,6 @@ from scraper import (
     LEAGUES,
     LEAGUE_DISPLAY_ORDER,
     HEADERS as SCRAPER_HEADERS,
-    BASE_URL as KHU_BASE_URL,
 )
 from pdf_fixtures import parse_pdf_fixtures, merge_pdf_fixtures_into_scraped
 import database as db

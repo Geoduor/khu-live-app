@@ -28,7 +28,7 @@
  * cleaned up even when the strategy itself was supposed to do so.
  */
 
-const CACHE_VERSION = "v2"; // bump this string whenever service-worker.js changes meaningfully
+const CACHE_VERSION = "v3"; // bump this string whenever service-worker.js changes meaningfully
 const CACHE_NAME = `khu-app-shell-${CACHE_VERSION}`;
 const DATA_CACHE_NAME = `khu-app-data-${CACHE_VERSION}`;
 
@@ -73,24 +73,37 @@ self.addEventListener("activate", (event) => {
 });
 
 // ── Fetch: route requests based on type ──
+// Only GET requests are cached (the Cache API rejects everything else).
+// Admin/agent calls, manual refresh and share-card logo data are never
+// cached: they're private, one-off, or large.
+const NEVER_CACHE = ["/api/admin/", "/api/agent/", "/api/push/", "/api/refresh", "/api/logo-data", "/api/live"];
+
+function offlineFallback(request) {
+  return caches.match(request).then((hit) => hit || Response.error());
+}
+
 self.addEventListener("fetch", (event) => {
-  const url = new URL(event.request.url);
+  const request = event.request;
+  if (request.method !== "GET") return; // let the browser handle POST/DELETE untouched
+
+  const url = new URL(request.url);
 
   // API calls to the backend — network-first, cache as fallback
   if (url.pathname.startsWith("/api/")) {
-    if (url.pathname === "/api/live") {
-      event.respondWith(fetch(event.request));
-      return;
+    if (NEVER_CACHE.some((p) => url.pathname.startsWith(p))) {
+      return; // straight to the network, no service-worker involvement
     }
 
     event.respondWith(
-      fetch(event.request)
+      fetch(request)
         .then((response) => {
-          const clone = response.clone();
-          caches.open(DATA_CACHE_NAME).then((cache) => cache.put(event.request, clone));
+          if (response.ok) {
+            const clone = response.clone();
+            caches.open(DATA_CACHE_NAME).then((cache) => cache.put(request, clone)).catch(() => {});
+          }
           return response;
         })
-        .catch(() => caches.match(event.request))
+        .catch(() => offlineFallback(request))
     );
     return;
   }
@@ -100,13 +113,15 @@ self.addEventListener("fetch", (event) => {
   // a fresh deployment is picked up on normal refresh, not just hard
   // refresh. Cache is only used as a fallback when genuinely offline.
   event.respondWith(
-    fetch(event.request)
+    fetch(request)
       .then((response) => {
-        const clone = response.clone();
-        caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
+        if (response.ok && url.origin === self.location.origin) {
+          const clone = response.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put(request, clone)).catch(() => {});
+        }
         return response;
       })
-      .catch(() => caches.match(event.request))
+      .catch(() => offlineFallback(request))
   );
 });
 

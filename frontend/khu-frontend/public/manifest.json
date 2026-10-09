@@ -16,7 +16,7 @@
   "start_url": ".",
   "display": "standalone",
   "orientation": "portrait",
-  "theme_color": "#0D1117",
-  "background_color": "#0D1117",
+  "theme_color": "#FBF8F7",
+  "background_color": "#FBF8F7",
   "description": "Unofficial fan app for live standings, fixtures, and results — sourced from kenyahockeyunion.org, not affiliated with or endorsed by Kenya Hockey Union."
 }

@@ -31,7 +31,7 @@ export function teamLogoUrl(rawUrl) {
 
 const api = axios.create({
   baseURL: API_BASE,
-  timeout: 15000,
+  timeout: 60000, // Render's free tier can take ~30-60s to wake from sleep
 });
 
 // ── Leagues ──

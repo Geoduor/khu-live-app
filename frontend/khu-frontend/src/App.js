@@ -46,6 +46,7 @@ function App() {
   const [isTabVisible, setIsTabVisible] = useState(!document.hidden);
 
   const [backendError, setBackendError] = useState(null);
+  const [wakeAttempt, setWakeAttempt] = useState(0); // >0 while the server is waking up
 
   // ── Navigation overlay: team profile / match detail ──
   // Kept as a simple stack so "Back" always returns to exactly where you were,
@@ -93,17 +94,36 @@ function App() {
   }, []);
 
   // ── Load leagues list on mount ──
+  // The backend runs on a free tier that sleeps when idle, so the first
+  // visit of the day can take up to a minute. Retry quietly with a
+  // friendly "waking up" screen instead of failing straight away.
   useEffect(() => {
-    getLeagues()
-      .then(data => {
-        setLeagues(data.leagues || []);
-        setLoadingLeagues(false);
-      })
-      .catch(err => {
-        console.error("Failed to load leagues:", err);
-        setBackendError("Cannot connect to backend server. Make sure it's running on http://localhost:8000");
-        setLoadingLeagues(false);
-      });
+    let cancelled = false;
+    const MAX_ATTEMPTS = 6;
+    const attempt = (n) => {
+      getLeagues()
+        .then(data => {
+          if (cancelled) return;
+          setLeagues(data.leagues || []);
+          setLoadingLeagues(false);
+          setBackendError(null);
+          setWakeAttempt(0);
+        })
+        .catch(err => {
+          if (cancelled) return;
+          console.error("Failed to load leagues:", err);
+          if (n < MAX_ATTEMPTS) {
+            setWakeAttempt(n);
+            setTimeout(() => attempt(n + 1), Math.min(4000 * n, 12000));
+          } else {
+            setWakeAttempt(0);
+            setBackendError("KHU Live can't reach its server right now. Check your internet connection and try again in a moment.");
+            setLoadingLeagues(false);
+          }
+        });
+    };
+    attempt(1);
+    return () => { cancelled = true; };
   }, []);
 
   // ── Load health status ──
@@ -208,17 +228,30 @@ function App() {
   }, [isTabVisible]);
 
   // ── If backend is completely unreachable, show a clear error screen ──
+  if (wakeAttempt > 0) {
+    return (
+      <div className="App">
+        <div className="flag-stripe">
+          <div className="s1" /><div className="s2" /><div className="s3" /><div className="s4" />
+        </div>
+        <div className="loading-wrap" style={{ padding: "64px 24px", textAlign: "center" }}>
+          <div className="spinner" />
+          <div style={{ fontSize: 16, fontWeight: 800, marginTop: 6 }}>Getting the latest scores…</div>
+          <div style={{ fontSize: 13, color: "var(--muted)", maxWidth: 300, lineHeight: 1.5 }}>
+            KHU Live is waking up. The first visit can take up to a minute — it will load by itself.
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   if (backendError) {
     return (
       <div className="App">
         <div className="flag-stripe">
           <div className="s1" /><div className="s2" /><div className="s3" /><div className="s4" />
         </div>
-        <ErrorState
-          title="Backend Not Running"
-          message={backendError}
-          detail="Run 'uvicorn main:app --reload --port 8000' in your backend folder, then refresh this page."
-        />
+        <ErrorState title="Can't connect right now" message={backendError} />
       </div>
     );
   }
@@ -246,6 +279,7 @@ function App() {
               className="theme-toggle-btn"
               onClick={toggleTheme}
               title={isDark ? "Switch to light mode" : "Switch to dark mode"}
+              aria-label={isDark ? "Switch to light mode" : "Switch to dark mode"}
             >
               {isDark ? "☀️" : "🌙"}
             </button>
@@ -255,6 +289,7 @@ function App() {
                 onClick={handleBellClick}
                 disabled={pushLoading}
                 title={isSubscribed ? "Live match alerts ON" : "Get notified when matches go live"}
+                aria-label={isSubscribed ? "Live match alerts are on" : "Turn on live match alerts"}
               >
                 {isSubscribed ? "🔔" : "🔕"}
               </button>
