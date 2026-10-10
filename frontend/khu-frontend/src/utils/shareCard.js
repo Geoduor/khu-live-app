@@ -3,8 +3,8 @@
  * table (canvas, no extra dependency) and shares it via the phone's
  * share sheet (WhatsApp etc.), falling back to a download.
  *
- * Every card carries the app name + link + an "Unofficial fan app" line,
- * so each share doubles as a free invitation to the app.
+ * Every card carries the app name, an "Unofficial fan app" label in the
+ * header, and just the link in the footer.
  *
  * Callers pass logo URLs that are already resolved through the backend
  * logo proxy (api.teamLogoUrl); a logo that fails to load is replaced by
@@ -18,8 +18,11 @@ const INK = "#1a0f12";
 const MUTED = "#6f6468";
 const FONT = "'Inter', 'Segoe UI', Roboto, Helvetica, Arial, sans-serif";
 
+// The one link every shared image and share message carries.
+const SHARE_URL = "offpitchafrica.com";
+
 function appLink() {
-  try { return window.location.host || "khu-live-app.vercel.app"; } catch (e) { return "khu-live-app.vercel.app"; }
+  return SHARE_URL;
 }
 
 function tryLoad(src, timeoutMs) {
@@ -175,19 +178,27 @@ function header(ctx, w, crest) {
   ctx.fillText("UNOFFICIAL FAN APP", w - 60, 106);
 }
 
-function footer(ctx, w, h, sourceLine) {
+/**
+ * Footer: just the link, set in a red pill so it reads as the call to
+ * action. (`sourceLine` is accepted for compatibility but no longer drawn;
+ * the header still carries the "Unofficial fan app" label.)
+ */
+function footer(ctx, w, h) {
   ctx.fillStyle = "rgba(26,15,18,0.10)";
   ctx.fillRect(60, h - 190, w - 120, 2);
-  ctx.textAlign = "center";
-  ctx.textBaseline = "alphabetic";
+  const text = appLink();
   ctx.font = `800 46px ${FONT}`;
+  const pw = Math.min(w - 160, ctx.measureText(text).width + 120);
+  const ph = 84;
+  const cy = h - 95;
   ctx.fillStyle = RED;
-  ctx.fillText(appLink(), w / 2, h - 118);
-  ctx.font = `500 26px ${FONT}`;
-  ctx.fillStyle = MUTED;
-  ctx.fillText("Live scores · tables · fixtures — open it, tap Add to Home Screen", w / 2, h - 76);
-  ctx.font = `500 21px ${FONT}`;
-  ctx.fillText(`Unofficial fan app · Not affiliated with Kenya Hockey Union · ${sourceLine}`, w / 2, h - 40);
+  roundRect(ctx, w / 2 - pw / 2, cy - ph / 2, pw, ph, ph / 2);
+  ctx.fill();
+  ctx.fillStyle = "#fff";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText(text, w / 2, cy + 2);
+  ctx.textBaseline = "alphabetic";
 }
 
 async function ensureFonts() {
@@ -474,5 +485,5 @@ export function slug(s) {
 }
 
 export function shareText(line) {
-  return `${line}\nFollow Kenya hockey live: https://${appLink()}`;
+  return `${line}\nhttps://${appLink()}`;
 }
