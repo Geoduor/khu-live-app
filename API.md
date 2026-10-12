@@ -30,18 +30,18 @@ These require no authentication and are what the frontend uses directly.
 | GET | `/api/tournaments/{id}` | One tournament: details, matches grouped by stage (latest stage first, so the Final tops the list) and computed group tables |
 | GET | `/api/playoffs/nlm` | National League playoff bracket |
 | GET | `/api/logo?url=` | Proxies a KHU-hosted team logo image (works around suspected hotlink protection) |
-| POST | `/api/refresh` | Manually trigger an immediate refresh cycle instead of waiting for the next scheduled one |
+| POST | `/api/refresh` | Start a background refresh and return immediately (`Refresh started`, or `A refresh is already running`). Rate-limited to once per 60 s; only one scrape runs at a time |
 
 ## Push notifications
 
 | Method | Path | Description |
 |---|---|---|
 | GET | `/api/push/vapid-public-key` | Public key for the browser's Push subscription |
-| POST | `/api/push/subscribe` | Register a device for push notifications |
+| POST | `/api/push/subscribe` | Register a device for push notifications. The endpoint must belong to a known push service (Google/FCM, Mozilla, Windows, Apple); otherwise 400 |
 | POST | `/api/push/unsubscribe` | Remove a push subscription |
 | POST | `/api/push/update-favorites` | Update which teams a subscription gets notified about |
 | GET | `/api/push/favorites?endpoint=` | Get a subscription's current favorited teams |
-| POST | `/api/push/test` | Send a test notification (development use) |
+| POST | `/api/push/test` | Send a test notification. **Admin only** (`x-admin-token` header) |
 
 ## Admin — PDF fixtures
 

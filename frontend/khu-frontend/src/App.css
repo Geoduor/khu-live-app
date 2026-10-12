@@ -827,3 +827,118 @@ img.md-logo{ width:64px; height:64px; object-fit:contain; border-radius:14px; ba
 .ts-goals span{ display:block; font-size:10px; font-weight:700; color:var(--muted); margin-top:2px; }
 .ts-note{ margin-top:10px; font-size:10px; color:var(--muted); }
 .empty-note{ padding:24px 12px; text-align:center; font-size:13px; color:var(--muted); }
+
+/* ═══════════════════════════════════════════════════════════════
+   DESIGN REFRESH v2 — "Pitch & Pavilion"
+   Cleaner solid surfaces (glass blur kept only on header/nav),
+   a deep-green pitch scoreboard hero, SVG nav icons, tabular
+   numerals for scores/tables, softer shadows, 44px touch targets.
+   Brand red/green/black/white and the "Unofficial Fan App" label
+   are unchanged. Declared last so it overrides the base rules above.
+   ═══════════════════════════════════════════════════════════════ */
+:root,
+:root[data-theme="light"]{
+  --bg:#F6F3F1; --card:#FFFFFF; --surface:#F0ECEA;
+  --border:rgba(26,20,20,0.08); --border-hover:rgba(26,20,20,0.22);
+  --muted:#6E5F61;
+  --shadow-sm:0 1px 2px rgba(26,20,20,0.06), 0 2px 8px rgba(26,20,20,0.04);
+  --shadow-md:0 2px 4px rgba(26,20,20,0.05), 0 8px 24px rgba(26,20,20,0.08);
+  --pitch-1:#0B4A22; --pitch-2:#06361A;
+  --gradient-bg:
+    radial-gradient(ellipse 80% 40% at 0% 0%, rgba(187,0,0,0.05) 0%, transparent 60%),
+    linear-gradient(180deg, #FAF8F7 0%, #F6F3F1 100%);
+}
+:root[data-theme="dark"]{
+  --bg:#0E0B0C; --card:#181314; --surface:#221B1D;
+  --border:rgba(255,255,255,0.08); --border-hover:rgba(255,255,255,0.2);
+  --muted:#A59496;
+  --shadow-sm:0 1px 2px rgba(0,0,0,0.4);
+  --shadow-md:0 8px 24px rgba(0,0,0,0.45);
+  --pitch-1:#0A3F1E; --pitch-2:#052814;
+  --gradient-bg:
+    radial-gradient(ellipse 80% 40% at 0% 0%, rgba(187,0,0,0.14) 0%, transparent 60%),
+    linear-gradient(180deg, #120D0E 0%, #0E0B0C 100%);
+}
+:root[data-theme="dark"]{ --pitch-2:#052814; }
+
+body{ -webkit-font-smoothing:antialiased; font-feature-settings:"cv11","ss01"; }
+.score-display,.scoreboard-hero-score,.pts-td,.league-table td,.league-table th{ font-variant-numeric:tabular-nums; }
+
+/* Surfaces: opaque, calm */
+.glass-surface,.match-card,.league-card,.bracket-match{
+  background:var(--card); backdrop-filter:none; -webkit-backdrop-filter:none;
+  border:1px solid var(--border); box-shadow:var(--shadow-sm);
+}
+.match-card{ border-radius:16px; padding:14px 16px; }
+.match-card-clickable:hover,.league-card:hover{ transform:translateY(-1px); box-shadow:var(--shadow-md); }
+.match-card-live{
+  background:var(--card); border-color:rgba(224,40,31,0.45);
+  box-shadow:0 0 0 3px rgba(224,40,31,0.08), var(--shadow-sm);
+  position:relative; overflow:hidden;
+}
+.match-card-live::before{ content:''; position:absolute; left:0; top:0; bottom:0; width:4px; background:var(--live); }
+.score-display{ text-shadow:none; font-size:34px; }
+.match-time{ color:var(--muted); font-weight:700; }
+.match-league{ color:var(--red); }
+.team-name{ font-size:14px; font-weight:700; }
+
+/* Header */
+.header{ background:var(--header-bg); }
+.logo-khu{ font-size:22px; letter-spacing:1.5px; }
+.theme-toggle-btn,.bell-btn,.refresh-btn{ min-width:40px; height:40px; border-radius:12px; background:var(--card); box-shadow:var(--shadow-sm); }
+.status-bar{ background:transparent; }
+.main{ padding-top:96px; }
+
+/* Bottom nav — floating, SVG icons, pill indicator */
+.bnav{
+  background:var(--nav-bg); border:1px solid var(--border);
+  box-shadow:0 8px 28px rgba(26,20,20,0.16); border-radius:24px; padding:4px;
+  bottom:calc(14px + env(safe-area-inset-bottom));
+}
+.bnav-btn{ padding:8px 2px 7px; border-radius:18px; font-size:10.5px; letter-spacing:.2px; min-height:52px; }
+.bnav-btn.active{ color:var(--red); }
+.bnav-icon-wrap{ width:44px; height:28px; border-radius:14px; }
+.bnav-icon{ display:flex; }
+.bnav-btn.active .bnav-icon-wrap{ background:rgba(187,0,0,0.12); }
+:root[data-theme="dark"] .bnav-btn.active{ color:#ff5a52; }
+:root[data-theme="dark"] .bnav-btn.active .bnav-icon-wrap{ background:rgba(255,90,82,0.16); }
+
+/* Section headings */
+.sec-title,.section > h2{ font-family:'Barlow Condensed',sans-serif; font-weight:800; font-size:24px; letter-spacing:.2px; }
+.date-group-header{ font-size:12px; text-transform:uppercase; letter-spacing:.8px; border:none; padding:18px 2px 6px; }
+.league-group-header{ color:var(--red); font-size:13px; letter-spacing:.8px; }
+
+/* Pills */
+.pill{ background:var(--card); box-shadow:var(--shadow-sm); backdrop-filter:none; padding:9px 18px; }
+.pill.active{ background:var(--red); box-shadow:0 4px 14px rgba(187,0,0,0.3); }
+.league-pill-icon{ background:var(--card); box-shadow:var(--shadow-sm); backdrop-filter:none; }
+.league-pill.active .league-pill-icon{ background:var(--red); box-shadow:0 4px 14px rgba(187,0,0,0.3); }
+
+/* Scoreboard hero — deep pitch green with centre-circle markings */
+.scoreboard-hero{
+  background:
+    radial-gradient(circle at 50% 120%, transparent 0 58px, rgba(255,255,255,0.10) 58px 60px, transparent 60px),
+    linear-gradient(160deg, var(--pitch-1), var(--pitch-2));
+  color:#fff; border:none; border-radius:22px; padding:18px 18px 16px;
+  box-shadow:0 10px 28px rgba(6,54,26,0.35);
+  backdrop-filter:none; -webkit-backdrop-filter:none;
+}
+.scoreboard-hero::before{ border-color:rgba(255,255,255,0.08); }
+.scoreboard-hero-brand{ color:rgba(255,255,255,0.65); }
+.scoreboard-hero-tag{ color:#fff; background:var(--live); padding:3px 9px; border-radius:20px; font-size:10px; }
+.scoreboard-hero-score{ color:#fff; text-shadow:none; font-size:52px; }
+.scoreboard-hero-dash{ color:rgba(255,255,255,0.45); }
+.scoreboard-hero-vs{ color:rgba(255,255,255,0.7); }
+.scoreboard-hero-time,.scoreboard-hero-league,.scoreboard-hero-empty{ color:rgba(255,255,255,0.8); }
+.scoreboard-hero-team{ color:#fff; }
+
+/* Tables */
+.league-table th{ background:transparent; font-size:10px; }
+.league-table tr:nth-child(even) td{ background:rgba(26,20,20,0.018); }
+:root[data-theme="dark"] .league-table tr:nth-child(even) td{ background:rgba(255,255,255,0.025); }
+.pts-td{ color:var(--white); font-weight:800; }
+
+/* Focus + touch */
+button:focus-visible,[role="button"]:focus-visible,select:focus-visible{ outline:2px solid var(--red); outline-offset:2px; }
+@media (prefers-reduced-motion:reduce){ *{ animation-duration:.01ms !important; transition-duration:.01ms !important; } }
+@media (min-width:700px){ .main,.section{ max-width:640px; margin-left:auto; margin-right:auto; } .header-inner{ max-width:640px; margin:0 auto; } }

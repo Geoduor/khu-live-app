@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import api from "../api";
 
 /**
@@ -23,7 +23,9 @@ function urlBase64ToUint8Array(base64String) {
   return outputArray;
 }
 
-export function usePushNotifications() {
+export function usePushNotifications(favoriteTeamUrls = []) {
+  const favoritesRef = useRef(favoriteTeamUrls);
+  favoritesRef.current = favoriteTeamUrls;
   const [permission, setPermission] = useState(
     typeof Notification !== "undefined" ? Notification.permission : "unsupported"
   );
@@ -39,8 +41,16 @@ export function usePushNotifications() {
     navigator.serviceWorker.ready.then((reg) => {
       reg.pushManager.getSubscription().then((sub) => {
         setIsSubscribed(!!sub);
+        // The backend keeps subscriptions on a disk that is wiped whenever
+        // the free server restarts, while this browser still holds its
+        // subscription — so alerts would silently stop. Re-register it
+        // (a harmless upsert) every time the app opens.
+        if (sub) {
+          api.post("/api/push/subscribe", { ...sub.toJSON(), favoriteTeams: favoritesRef.current || [] })
+            .catch(() => {});
+        }
       });
-    });
+    }).catch(() => {});
   }, [supported]);
 
   const subscribe = useCallback(async (favoriteTeamUrls) => {

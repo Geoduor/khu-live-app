@@ -11,10 +11,12 @@ export default function TeamProfile({ teamUrl, teamName, onBack, onOpenTeam, isF
   useEffect(() => {
     setLoading(true);
     setData(null);
+    let alive = true;
     getTeamProfile(teamUrl, teamName)
-      .then(setData)
-      .catch(() => setData({ error: "Could not load team profile" }))
-      .finally(() => setLoading(false));
+      .then((d) => alive && setData(d))
+      .catch(() => alive && setData({ error: "Could not load team profile" }))
+      .finally(() => alive && setLoading(false));
+    return () => { alive = false; };
   }, [teamUrl, teamName]);
 
   return (

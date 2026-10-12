@@ -19,12 +19,16 @@ import TopScorers from "./components/TopScorers";
 import ShareButton from "./components/ShareButton";
 import { renderTableCard, shareCanvas, slug, shareText } from "./utils/shareCard";
 
+const svg = (children) => (
+  <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor"
+       strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{children}</svg>
+);
 const TABS = [
-  { id: "home", icon: "🏠", label: "Home" },
-  { id: "table", icon: "📊", label: "Table" },
-  { id: "fixtures", icon: "📅", label: "Fixtures" },
-  { id: "results", icon: "🏑", label: "Results" },
-  { id: "tournaments", icon: "🏆", label: "Cups" },
+  { id: "home", label: "Home", icon: svg(<><path d="M3 11l9-7 9 7" /><path d="M5 10v10h14V10" /><path d="M10 20v-6h4v6" /></>) },
+  { id: "table", label: "Table", icon: svg(<><path d="M4 20V10" /><path d="M10 20V4" /><path d="M16 20v-8" /><path d="M22 20H2" /></>) },
+  { id: "fixtures", label: "Fixtures", icon: svg(<><rect x="3" y="5" width="18" height="16" rx="3" /><path d="M3 10h18" /><path d="M8 3v4M16 3v4" /></>) },
+  { id: "results", label: "Results", icon: svg(<><circle cx="12" cy="12" r="9" /><path d="M8 12.5l2.7 2.7L16 9.5" /></>) },
+  { id: "tournaments", label: "Cups", icon: svg(<><path d="M8 4h8v5a4 4 0 0 1-8 0V4z" /><path d="M8 6H4v1a4 4 0 0 0 4 4M16 6h4v1a4 4 0 0 1-4 4" /><path d="M12 13v4M8 20h8M10 17h4" /></>) },
 ];
 
 const POLL_INTERVAL_MS = 45000; // 45s — matches FotMob/SofaScore live polling cadence
@@ -57,8 +61,8 @@ function App() {
   const openBracket = () => setOverlay({ type: "bracket" });
   const closeOverlay = () => setOverlay(null);
 
-  const { supported: pushSupported, isSubscribed, loading: pushLoading, subscribe, unsubscribe } = usePushNotifications();
   const { favorites, favoriteList, isFavorite, toggleFavorite } = useFavorites();
+  const { supported: pushSupported, isSubscribed, loading: pushLoading, subscribe, unsubscribe } = usePushNotifications(Object.keys(favorites));
   const { toggleTheme, isDark } = useTheme();
   const { hasSeenOnboarding, markOnboardingSeen } = useOnboarding();
 
@@ -140,19 +144,30 @@ function App() {
   }, [checkHealth]);
 
   // ── Load standings when league selection changes ──
+  // Every request gets a ticket; only the newest one may update the screen,
+  // so a slow reply for the league you just left can't overwrite the one
+  // you're looking at (also covers the 45s poll answering after a switch).
+  const standingsTicket = useRef(0);
+  const fetchStandings = useCallback((leagueKey) => {
+    const ticket = ++standingsTicket.current;
+    return getStandings(leagueKey).then((data) => {
+      if (ticket === standingsTicket.current) setStandings(data);
+      return ticket === standingsTicket.current;
+    });
+  }, []);
+
   useEffect(() => {
     setLoadingStandings(true);
-    getStandings(selectedLeague)
-      .then(data => {
-        setStandings(data);
-        setLoadingStandings(false);
-      })
+    const myTicket = standingsTicket.current + 1; // the ticket fetchStandings is about to take
+    fetchStandings(selectedLeague)
+      .then((current) => { if (current) setLoadingStandings(false); })
       .catch(err => {
+        if (myTicket !== standingsTicket.current) return; // a newer request owns the screen now
         console.error("Failed to load standings:", err);
         setStandings({ error: "Could not load standings", standings: [] });
         setLoadingStandings(false);
       });
-  }, [selectedLeague]);
+  }, [selectedLeague, fetchStandings]);
 
   // ── Load fixtures ──
   useEffect(() => {
@@ -204,7 +219,7 @@ function App() {
     if (!isTabVisible) return; // don't poll while tab is hidden
 
     const interval = setInterval(() => {
-      getStandings(selectedLeagueRef.current).then(setStandings).catch(() => {});
+      fetchStandings(selectedLeagueRef.current).catch(() => {});
       getFixtures().then(setFixtures).catch(() => {});
       getResults().then(setResults).catch(() => {});
       getLiveMatches().then(setLive).catch(() => {});
@@ -212,13 +227,13 @@ function App() {
     }, POLL_INTERVAL_MS);
 
     return () => clearInterval(interval);
-  }, [isTabVisible, checkHealth]);
+  }, [isTabVisible, checkHealth, fetchStandings]);
 
   // ── Immediately refresh the moment the tab becomes visible again ──
   // (e.g. user was on another app/tab and comes back — don't make them wait 45s)
   useEffect(() => {
     if (isTabVisible) {
-      getStandings(selectedLeague).then(setStandings).catch(() => {});
+      fetchStandings(selectedLeague).catch(() => {});
       getFixtures().then(setFixtures).catch(() => {});
       getResults().then(setResults).catch(() => {});
       getLiveMatches().then(setLive).catch(() => {});
