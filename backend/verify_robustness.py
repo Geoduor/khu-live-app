@@ -111,5 +111,24 @@ db.save_player_stats("PLM","Alpha","Ann Otieno",{"goals":7,"appearances":9,"yell
 ts=c.get("/api/players/top-scorers").json()["players"]
 check("manual stat line wins over derived (no double count)", ts[0]["goals"]==7 and sum(1 for p in ts if p["player_name"]=="Ann Otieno")==1, str(ts))
 
+print("8. Push validation, admin-only test push, refresh lock, EAT date filter")
+sub={"endpoint":"https://fcm.googleapis.com/fcm/send/abc","keys":{"p256dh":"k","auth":"a"}}
+check("push subscribe accepts known push host", c.post("/api/push/subscribe",json=sub).status_code==200)
+bad=dict(sub,endpoint="http://169.254.169.254/latest")
+check("push subscribe rejects internal/unknown host", c.post("/api/push/subscribe",json=bad).status_code==400)
+bad2=dict(sub,endpoint="https://evil.com/?x=googleapis.com")
+check("push subscribe rejects spoofed host", c.post("/api/push/subscribe",json=bad2).status_code==400)
+check("push test needs admin token", c.post("/api/push/test").status_code in (401,403))
+main._refresh_lock.acquire()
+try:
+    check("refresh_all_data skips when lock held", main.refresh_all_data(force=True) in (None, False))
+finally:
+    main._refresh_lock.release()
+from datetime import datetime, timedelta, timezone
+eat=datetime.now(timezone(timedelta(hours=3))).replace(tzinfo=None)
+fx=[{"date":(eat+timedelta(hours=1)).strftime("%d-%m-%Y %H:%M")},{"date":(eat-timedelta(hours=5)).strftime("%d-%m-%Y %H:%M")},{"date":eat.strftime("%d-%m-%Y")}]
+kept=main._filter_future_fixtures(fx)
+check("EAT filter keeps upcoming + date-only today, drops past", len(kept)==2, str(len(kept)))
+
 print("\nRESULT:", "all checks passed" if not fails else f"{len(fails)} FAILURE(S): {fails}")
 sys.exit(1 if fails else 0)

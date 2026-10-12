@@ -47,6 +47,12 @@ export default function MatchCard({ match, onOpenMatch, onOpenTeam, isFavorite, 
     <div
       className={`match-card ${state === "LIVE" ? "match-card-live" : ""} ${clickable ? "match-card-clickable" : ""}`}
       onClick={() => clickable && onOpenMatch(match.match_url)}
+      {...(clickable ? {
+        role: "button",
+        tabIndex: 0,
+        "aria-label": `${match.home_team} versus ${match.away_team} — open match details`,
+        onKeyDown: (e) => { if ((e.key === "Enter" || e.key === " ") && e.target === e.currentTarget) { e.preventDefault(); onOpenMatch(match.match_url); } },
+      } : {})}
     >
       <div className="match-meta">
         <div>

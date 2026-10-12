@@ -43,10 +43,12 @@ export default function MatchDetail({ matchUrl, onBack, onOpenTeam }) {
   useEffect(() => {
     setLoading(true);
     setData(null);
+    let alive = true;
     getMatchDetail(matchUrl)
-      .then(setData)
-      .catch(() => setData({ error: "Could not load match detail" }))
-      .finally(() => setLoading(false));
+      .then((d) => alive && setData(d))
+      .catch(() => alive && setData({ error: "Could not load match detail" }))
+      .finally(() => alive && setLoading(false));
+    return () => { alive = false; };
   }, [matchUrl]);
 
   return (

@@ -199,7 +199,7 @@
     if (!sel) return;
     const current = sel.value;
     sel.innerHTML = ['<option value="">Select a team...</option>']
-      .concat(teams.map((t) => `<option value="${t.name.replace(/"/g, '&quot;')}" data-url="${(t.team_url || '').replace(/"/g, '&quot;')}">${t.name}</option>`))
+      .concat(teams.map((t) => `<option value="${esc(t.name)}" data-url="${esc(t.team_url || '')}">${esc(t.name)}</option>`))
       .join('');
     if (current && teams.some((t) => t.name === current)) sel.value = current;
   }
@@ -221,10 +221,14 @@
     }
   }
 
+  function esc(v) { return String(v == null ? '' : v).replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+  // For values placed inside an inline onclick="...": a JSON string literal, then HTML-escaped.
+  function js(v) { return esc(JSON.stringify(String(v == null ? '' : v))); }
+
   function teamLabel(side) {
     const name = $(side === 'home' ? 'homeTeam' : 'awayTeam').value.trim();
     const base = side === 'home' ? 'Home' : 'Away';
-    return name ? `${base}: ${name}` : base;
+    return name ? `${base}: ${esc(name)}` : base;
   }
 
   function updateTeamLabels() {
@@ -444,14 +448,14 @@
       container.innerHTML = data.results.map((r) => `
         <div class="result-row">
           <div>
-            <div><strong>${r.home_team}</strong> ${r.home_score} - ${r.away_score} <strong>${r.away_team}</strong></div>
-            <div class="result-meta">${r.league_short} · ${r.date}${r.entered_by ? ' · by ' + r.entered_by : ''}</div>
+            <div><strong>${esc(r.home_team)}</strong> ${esc(r.home_score)} - ${esc(r.away_score)} <strong>${esc(r.away_team)}</strong></div>
+            <div class="result-meta">${esc(r.league_short)} · ${esc(r.date)}${r.entered_by ? ' · by ' + esc(r.entered_by) : ''}</div>
           </div>
-          <button class="del-btn" onclick="deleteResult('${r.match_key}')">Delete</button>
+          <button class="del-btn" onclick="deleteResult(${js(r.match_key)})">Delete</button>
         </div>
       `).join('');
     } catch (e) {
-      container.innerHTML = `<div class="empty-note">${e.message}</div>`;
+      container.innerHTML = `<div class="empty-note">${esc(e.message)}</div>`;
     }
   }
 

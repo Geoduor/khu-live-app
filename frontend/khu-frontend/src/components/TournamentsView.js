@@ -78,9 +78,11 @@ function TournamentDetail({ id, onBack }) {
 
   useEffect(() => {
     setData(null); setError("");
+    let alive = true;
     getTournament(id)
-      .then(setData)
-      .catch(() => setError("Could not load this tournament."));
+      .then((d) => alive && setData(d))
+      .catch(() => alive && setError("Could not load this tournament."));
+    return () => { alive = false; };
   }, [id]);
 
   const t = data?.tournament;

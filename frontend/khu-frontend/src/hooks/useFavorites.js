@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import api from "../api";
 
 const STORAGE_KEY = "khu_favorite_teams";
@@ -27,6 +27,9 @@ export function useFavorites() {
       return {};
     }
   });
+
+  const favoritesRef = useRef(favorites);
+  useEffect(() => { favoritesRef.current = favorites; }, [favorites]);
 
   useEffect(() => {
     try {
@@ -59,16 +62,15 @@ export function useFavorites() {
   const isFavorite = useCallback((teamUrl) => Boolean(favorites[teamUrl]), [favorites]);
 
   const toggleFavorite = useCallback((teamUrl, teamName) => {
-    setFavorites((prev) => {
-      const next = { ...prev };
-      if (next[teamUrl]) {
-        delete next[teamUrl];
-      } else {
-        next[teamUrl] = teamName || teamUrl;
-      }
-      syncToPushSubscription(Object.keys(next));
-      return next;
-    });
+    const next = { ...favoritesRef.current };
+    if (next[teamUrl]) {
+      delete next[teamUrl];
+    } else {
+      next[teamUrl] = teamName || teamUrl;
+    }
+    favoritesRef.current = next;
+    setFavorites(next);
+    syncToPushSubscription(Object.keys(next));
   }, [syncToPushSubscription]);
 
   const favoriteList = Object.entries(favorites).map(([team_url, team_name]) => ({ team_url, team_name }));

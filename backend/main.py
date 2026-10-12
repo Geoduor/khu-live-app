@@ -15,7 +15,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional, List
 from apscheduler.schedulers.background import BackgroundScheduler
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 import logging
 import os
 import json
@@ -40,7 +40,6 @@ from scraper import (
     LEAGUES,
     LEAGUE_DISPLAY_ORDER,
     HEADERS as SCRAPER_HEADERS,
-    BASE_URL as KHU_BASE_URL,
 )
 from pdf_fixtures import parse_pdf_fixtures, merge_pdf_fixtures_into_scraped
 import database as db
@@ -1399,7 +1398,27 @@ def refresh_fixtures_results():
         return False
 
 
+_refresh_lock = threading.Lock()
+
+
 def refresh_all_data(force: bool = False):
+    """
+    Single-flight wrapper: the first scrape on boot, the 15-minute
+    scheduler and a manual refresh can all fire at once. Running two full
+    scrapes together doubles the load on KHU's server and lets the two
+    runs overwrite each other's cache — so a second caller simply skips.
+    """
+    if not _refresh_lock.acquire(blocking=False):
+        logger.info("⚪ A refresh is already running — skipping this one")
+        return False
+    try:
+        _refresh_all_data_locked(force)
+        return True
+    finally:
+        _refresh_lock.release()
+
+
+def _refresh_all_data_locked(force: bool = False):
     """
     Refresh every league + homepage. Called on startup, every 15 minutes
     (scheduled/automatic), and on manual refresh (force=True).
@@ -1698,12 +1717,23 @@ def _filter_future_fixtures(fixtures: list) -> list:
     data we're unsure about is worse than occasionally showing something
     that should've been filtered.
     """
-    now = datetime.now()
-    return [
-        m for m in fixtures
-        if _parse_match_date(m.get("date", "")) == datetime.min
-        or _parse_match_date(m.get("date", "")) >= now
-    ]
+    # Fixture times on KHU's site are Kenyan local time (EAT, UTC+3), but
+    # the server clock is UTC — compare like with like, or a 15:00 match
+    # would stay "upcoming" until 18:00 Nairobi time.
+    now = datetime.now(timezone(timedelta(hours=3))).replace(tzinfo=None)
+
+    def still_upcoming(m: dict) -> bool:
+        raw = (m.get("date", "") or "").strip()
+        dt = _parse_match_date(raw)
+        if dt == datetime.min:
+            return True
+        if ":" not in raw:
+            # A date with no kickoff time means "sometime that day" — keep it
+            # all day instead of hiding it from midnight onwards.
+            dt = dt + timedelta(days=1)
+        return dt >= now
+
+    return [m for m in fixtures if still_upcoming(m)]
 
 
 @app.get("/api/fixtures")
@@ -1905,24 +1935,31 @@ def manual_refresh():
     signal than a scheduled guess. Same pattern as Gmail/Twitter/FotMob
     pull-to-refresh.
 
-    Still rate-limited to 1 per 10s so button-mashing can't hammer KHU.
+    Rate-limited to 1 per minute (and one scrape at a time) so nobody can hammer KHU.
     """
-    if not db.can_manual_refresh(min_interval_seconds=10):
+    if not db.can_manual_refresh(min_interval_seconds=60):
         raise HTTPException(
             status_code=429,
-            detail="Please wait a few seconds before refreshing again."
+            detail="Please wait a minute before refreshing again."
         )
+    if _refresh_lock.locked():
+        return {
+            "message": "A refresh is already running",
+            "status": cache["status"],
+            "last_refresh_success": cache["last_refresh_success"],
+            "circuit_breaker_state": db.get_circuit_state()["state"],
+        }
 
     logger.info("Manual refresh triggered by user — bypassing circuit breaker.")
     db.record_manual_refresh()
-    refresh_all_data(force=True)
+    # A full scrape takes minutes — never hold the HTTP request open for it.
+    threading.Thread(target=refresh_all_data, kwargs={"force": True}, name="manual-refresh", daemon=True).start()
 
-    breaker_state = db.get_circuit_state()
     return {
-        "message": "Refresh complete",
+        "message": "Refresh started",
         "status": cache["status"],
         "last_refresh_success": cache["last_refresh_success"],
-        "circuit_breaker_state": breaker_state["state"],
+        "circuit_breaker_state": db.get_circuit_state()["state"],
     }
 
 
@@ -1972,9 +2009,13 @@ async def upload_fixtures_pdf(
     if not file.filename.lower().endswith(".pdf"):
         raise HTTPException(status_code=400, detail="Please upload a .pdf file.")
 
+    content = await file.read(15 * 1024 * 1024 + 1)
+    if len(content) > 15 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="PDF is too large (15 MB maximum).")
+
     # Write to a temp file — pdfplumber needs a real file path/handle.
     with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
-        tmp.write(await file.read())
+        tmp.write(content)
         tmp_path = tmp.name
 
     try:
@@ -2671,6 +2712,21 @@ def get_vapid_public_key():
     return {"publicKey": push.VAPID_PUBLIC_KEY_B64URL}
 
 
+_PUSH_HOST_SUFFIXES = ("googleapis.com", "push.services.mozilla.com", "notify.windows.com", "push.apple.com")
+
+
+def _valid_push_endpoint(endpoint: str) -> bool:
+    """Only real browser push services. Without this, anyone could register
+    an arbitrary URL and make this server POST to it on every notification."""
+    try:
+        from urllib.parse import urlparse
+        u = urlparse(endpoint or "")
+        host = (u.hostname or "").lower()
+        return u.scheme == "https" and any(host == suf or host.endswith("." + suf) for suf in _PUSH_HOST_SUFFIXES)
+    except Exception:
+        return False
+
+
 @app.post("/api/push/subscribe")
 def subscribe_to_push(subscription: PushSubscriptionPayload):
     """
@@ -2679,6 +2735,8 @@ def subscribe_to_push(subscription: PushSubscriptionPayload):
     alerts for matches involving those teams (Tier 2 — scoped).
     If omitted/empty, they get alerts for every KHU match (Tier 1 — broad).
     """
+    if not _valid_push_endpoint(subscription.endpoint):
+        raise HTTPException(status_code=400, detail="Unsupported push service endpoint.")
     data = subscription.dict()
     favorite_teams = data.pop("favoriteTeams", None)
     push.save_subscription(data, favorite_teams=favorite_teams)
@@ -2713,8 +2771,11 @@ def unsubscribe_from_push(payload: dict):
 
 
 @app.post("/api/push/test")
-def send_test_push():
-    """Manual trigger to test push notifications are working end-to-end."""
+def send_test_push(x_admin_token: str = Header(default="")):
+    """Manual trigger to test push notifications are working end-to-end.
+    Admin-only: it notifies EVERY subscriber, so it must not be public."""
+    if not _is_admin(x_admin_token):
+        raise HTTPException(status_code=401, detail="Missing or invalid admin token.")
     result = push.send_notification_to_all(
         title="🏑 KHU Test Notification",
         body="If you see this, push notifications are working!",
@@ -2732,6 +2793,14 @@ def send_test_push():
 
 
 TEAM_CACHE_TTL = 600  # 10 minutes
+_PROFILE_CACHE_MAX = 300
+
+
+def _cache_put(store: dict, key, value):
+    """Bounded insert — keys come from the URL query, so never grow forever."""
+    if key not in store and len(store) >= _PROFILE_CACHE_MAX:
+        store.pop(next(iter(store)))
+    store[key] = value
 _team_cache = {}   # team_url -> (data, fetched_at)
 _match_cache = {}  # match_url -> (data, fetched_at)
 
@@ -2752,19 +2821,19 @@ def get_team_profile(url: str = "", name: str = ""):
     'name' is the team name as already known from wherever the user
     tapped through from (standings row, match card, etc).
     """
-    if url and "kenyahockeyunion.org" not in url:
+    if url and not _is_khu_image_url(url):
         raise HTTPException(status_code=400, detail="Invalid team URL — must be a kenyahockeyunion.org link")
     if not url and not name:
         raise HTTPException(status_code=400, detail="Need at least a team name or URL to look up a profile")
 
-    cache_key = f"{url}::{name}"
+    cache_key = f"{url}::{name[:120]}"
     cached = _team_cache.get(cache_key)
     if cached and (time.time() - cached[1]) < TEAM_CACHE_TTL:
         return cached[0]
 
     data = build_team_profile_from_cache(name, url)
     if not data.get("error"):
-        _team_cache[cache_key] = (data, time.time())
+        _cache_put(_team_cache, cache_key, (data, time.time()))
     return data
 
 
@@ -2821,5 +2890,5 @@ def get_match_detail(url: str):
 
     data = scrape_match_detail(url)
     if not data.get("error"):
-        _match_cache[url] = (data, time.time())
+        _cache_put(_match_cache, url, (data, time.time()))
     return _enrich_match_detail(data, url)

@@ -356,7 +356,7 @@
     if (!sel) return;
     const current = sel.value;
     sel.innerHTML = ['<option value="">Select a team...</option>']
-      .concat(teams.map((t) => `<option value="${t.name.replace(/"/g, '&quot;')}" data-url="${(t.team_url || '').replace(/"/g, '&quot;')}">${t.name}</option>`))
+      .concat(teams.map((t) => `<option value="${esc(t.name)}" data-url="${esc(t.team_url || '')}">${esc(t.name)}</option>`))
       .join('');
     if (current && teams.some((t) => t.name === current)) sel.value = current;
   }
@@ -381,7 +381,7 @@
   function teamLabel(side) {
     const name = $(side === 'home' ? 'homeTeam' : 'awayTeam').value.trim();
     const base = side === 'home' ? 'Home' : 'Away';
-    return name ? `${base}: ${name}` : base;
+    return name ? `${base}: ${esc(name)}` : base;
   }
 
   function updateTeamLabels() {
@@ -608,14 +608,14 @@
       container.innerHTML = data.results.map((r) => `
         <div class="result-row">
           <div>
-            <div><strong>${r.home_team}</strong> ${r.home_score} - ${r.away_score} <strong>${r.away_team}</strong></div>
-            <div class="result-meta">${r.league_short} · ${r.date}${r.venue ? ' · ' + r.venue : ''}</div>
+            <div><strong>${esc(r.home_team)}</strong> ${esc(r.home_score)} - ${esc(r.away_score)} <strong>${esc(r.away_team)}</strong></div>
+            <div class="result-meta">${esc(r.league_short)} · ${esc(r.date)}${r.venue ? ' · ' + esc(r.venue) : ''}</div>
           </div>
-          <button class="del-btn" onclick="deleteResult('${r.match_key}')">Delete</button>
+          <button class="del-btn" onclick="deleteResult(${js(r.match_key)})">Delete</button>
         </div>
       `).join('');
     } catch (e) {
-      container.innerHTML = `<div class="empty-note">${e.message}</div>`;
+      container.innerHTML = `<div class="empty-note">${esc(e.message)}</div>`;
     }
   }
 
@@ -679,6 +679,8 @@
   // ───────── Tournaments (separate from leagues) ─────────
   let currentTournamentId = null;
   function esc(v) { return String(v == null ? '' : v).replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+  // For values placed inside an inline onclick="...": a JSON string literal, then HTML-escaped.
+  function js(v) { return esc(JSON.stringify(String(v == null ? '' : v))); }
   function adminHeaders() { return { 'Content-Type': 'application/json', 'x-admin-token': token() }; }
 
   async function saveTournament() {
@@ -714,8 +716,8 @@
             <div class="result-meta">${esc(t.start_date)} ${t.venue ? '· ' + esc(t.venue) : ''} · ${t.matches_total} match(es)</div>
           </div>
           <div>
-            <button class="del-btn" style="background:#006600;color:#fff" onclick="selectTournament('${esc(t.id)}')">Manage matches</button>
-            <button class="del-btn" onclick="deleteTournament('${esc(t.id)}')">Delete</button>
+            <button class="del-btn" style="background:#006600;color:#fff" onclick="selectTournament(${js(t.id)})">Manage matches</button>
+            <button class="del-btn" onclick="deleteTournament(${js(t.id)})">Delete</button>
           </div>
         </div>`).join('');
     } catch (e) { box.innerHTML = '<div class="empty-note">Could not load tournaments.</div>'; }
@@ -743,7 +745,7 @@
             <div><strong>${esc(m.home_team)}</strong> ${m.state === 'FT' ? esc(m.home_score) + ' - ' + esc(m.away_score) : 'vs'} <strong>${esc(m.away_team)}</strong></div>
             <div class="result-meta">${esc(m.stage)} · ${esc(m.date)}${m.entered_by ? ' · by ' + esc(m.entered_by) : ''}</div>
           </div>
-          <button class="del-btn" onclick="deleteTournamentMatch('${esc(m.match_id)}')">Delete</button>
+          <button class="del-btn" onclick="deleteTournamentMatch(${js(m.match_id)})">Delete</button>
         </div>`).join('');
     } catch (e) { list.innerHTML = '<div class="empty-note">' + esc(e.message) + '</div>'; }
   }
@@ -818,14 +820,14 @@
       container.innerHTML = data.agents.map((a) => `
         <div class="result-row">
           <div>
-            <div><strong>${a.display_name}</strong> (${a.username}) ${a.active ? '' : ' — <span style="color: var(--red)">deactivated</span>'}</div>
-            <div class="result-meta">Added ${a.created_at.slice(0, 10)}</div>
+            <div><strong>${esc(a.display_name)}</strong> (${esc(a.username)}) ${a.active ? '' : ' — <span style="color: var(--red)">deactivated</span>'}</div>
+            <div class="result-meta">Added ${esc(String(a.created_at || '').slice(0, 10))}</div>
           </div>
-          <button class="del-btn" onclick="toggleAgent('${a.username}', ${a.active})">${a.active ? 'Deactivate' : 'Reactivate'}</button>
+          <button class="del-btn" onclick="toggleAgent(${js(a.username)}, ${a.active ? 'true' : 'false'})">${a.active ? 'Deactivate' : 'Reactivate'}</button>
         </div>
       `).join('');
     } catch (e) {
-      container.innerHTML = `<div class="empty-note">${e.message}</div>`;
+      container.innerHTML = `<div class="empty-note">${esc(e.message)}</div>`;
     }
   }
 
@@ -900,14 +902,14 @@
       if (!data.stats.length) { container.innerHTML = '<div class="empty-note">No corrections applied yet.</div>'; return; }
       container.innerHTML = data.stats.map((s) => {
         const fields = Object.entries(s).filter(([k]) => !['league_short','team_name','stat_key'].includes(k))
-          .map(([k, v]) => `${k}=${Array.isArray(v) ? v.join(',') : v}`).join(', ');
+          .map(([k, v]) => `${esc(k)}=${esc(Array.isArray(v) ? v.join(',') : v)}`).join(', ');
         return `<div class="result-row">
-          <div><div><strong>${s.team_name}</strong> (${s.league_short})</div><div class="result-meta">${fields}</div></div>
-          <button class="del-btn" onclick="deleteTeamStat('${s.stat_key}')">Delete</button>
+          <div><div><strong>${esc(s.team_name)}</strong> (${esc(s.league_short)})</div><div class="result-meta">${fields}</div></div>
+          <button class="del-btn" onclick="deleteTeamStat(${js(s.stat_key)})">Delete</button>
         </div>`;
       }).join('');
     } catch (e) {
-      container.innerHTML = `<div class="empty-note">${e.message}</div>`;
+      container.innerHTML = `<div class="empty-note">${esc(e.message)}</div>`;
     }
   }
 
@@ -979,12 +981,12 @@
       container.innerHTML = data.players
         .sort((a, b) => (b.goals || 0) - (a.goals || 0))
         .map((p) => `<div class="result-row">
-          <div><div><strong>${p.player_name}</strong> — ${p.team_name} (${p.league_short})</div>
-          <div class="result-meta">⚽ ${p.goals || 0} goals · ${p.appearances || 0} apps · 🟩${p.green_cards || 0} 🟨${p.yellow_cards || 0} 🟥${p.red_cards || 0}</div></div>
-          <button class="del-btn" onclick="deletePlayerStat('${p.stat_key}')">Delete</button>
+          <div><div><strong>${esc(p.player_name)}</strong> — ${esc(p.team_name)} (${esc(p.league_short)})</div>
+          <div class="result-meta">⚽ ${esc(p.goals || 0)} goals · ${esc(p.appearances || 0)} apps · 🟩${esc(p.green_cards || 0)} 🟨${esc(p.yellow_cards || 0)} 🟥${esc(p.red_cards || 0)}</div></div>
+          <button class="del-btn" onclick="deletePlayerStat(${js(p.stat_key)})">Delete</button>
         </div>`).join('');
     } catch (e) {
-      container.innerHTML = `<div class="empty-note">${e.message}</div>`;
+      container.innerHTML = `<div class="empty-note">${esc(e.message)}</div>`;
     }
   }
 
