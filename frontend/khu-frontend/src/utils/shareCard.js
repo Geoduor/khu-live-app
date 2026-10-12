@@ -18,8 +18,13 @@ const INK = "#1a0f12";
 const MUTED = "#6f6468";
 const FONT = "'Inter', 'Segoe UI', Roboto, Helvetica, Arial, sans-serif";
 
+// Always show OUR app's address on share cards — never window.location, which
+// would print whatever host the app happens to be opened from (an embed, a
+// preview URL, a partner site). Override with REACT_APP_PUBLIC_URL if the
+// app moves to a custom domain.
+const APP_URL = (process.env.REACT_APP_PUBLIC_URL || "https://khu-live-app.vercel.app").replace(/\/+$/, "");
 function appLink() {
-  try { return window.location.host || "khu-live-app.vercel.app"; } catch (e) { return "khu-live-app.vercel.app"; }
+  return APP_URL.replace(/^https?:\/\//, "");
 }
 
 function tryLoad(src, timeoutMs) {
@@ -474,5 +479,5 @@ export function slug(s) {
 }
 
 export function shareText(line) {
-  return `${line}\nFollow Kenya hockey live: https://${appLink()}`;
+  return `${line}\nFollow Kenya hockey live: ${APP_URL}`;
 }

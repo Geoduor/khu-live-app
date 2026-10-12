@@ -151,22 +151,33 @@ function App() {
   const fetchStandings = useCallback((leagueKey) => {
     const ticket = ++standingsTicket.current;
     return getStandings(leagueKey).then((data) => {
-      if (ticket === standingsTicket.current) setStandings(data);
-      return ticket === standingsTicket.current;
+      if (ticket !== standingsTicket.current) return false;
+      setStandings(data);
+      setLoadingStandings(false);
+      try { localStorage.setItem(`khu_standings_${leagueKey}`, JSON.stringify(data)); } catch { /* storage unavailable */ }
+      return true;
     });
   }, []);
 
   useEffect(() => {
-    setLoadingStandings(true);
+    // Stale-while-revalidate: show the last table we saw for this league
+    // instantly, then replace it as soon as the fresh one arrives.
+    let cached = null;
+    try { cached = JSON.parse(localStorage.getItem(`khu_standings_${selectedLeague}`) || "null"); } catch { /* ignore */ }
+    if (cached && Array.isArray(cached.standings) && cached.standings.length) {
+      setStandings(cached);
+      setLoadingStandings(false);
+    } else {
+      setLoadingStandings(true);
+    }
     const myTicket = standingsTicket.current + 1; // the ticket fetchStandings is about to take
-    fetchStandings(selectedLeague)
-      .then((current) => { if (current) setLoadingStandings(false); })
-      .catch(err => {
-        if (myTicket !== standingsTicket.current) return; // a newer request owns the screen now
-        console.error("Failed to load standings:", err);
-        setStandings({ error: "Could not load standings", standings: [] });
-        setLoadingStandings(false);
-      });
+    fetchStandings(selectedLeague).catch(err => {
+      if (myTicket !== standingsTicket.current) return; // a newer request owns the screen now
+      console.error("Failed to load standings:", err);
+      if (cached && cached.standings && cached.standings.length) return; // keep showing the cached table
+      setStandings({ error: "Could not load standings", standings: [] });
+      setLoadingStandings(false);
+    });
   }, [selectedLeague, fetchStandings]);
 
   // ── Load fixtures ──
@@ -229,11 +240,14 @@ function App() {
     return () => clearInterval(interval);
   }, [isTabVisible, checkHealth, fetchStandings]);
 
+  const firstVisibilityRun = useRef(true);
   // ── Immediately refresh the moment the tab becomes visible again ──
   // (e.g. user was on another app/tab and comes back — don't make them wait 45s)
   useEffect(() => {
     if (isTabVisible) {
-      fetchStandings(selectedLeague).catch(() => {});
+      // On first mount the league effect already fetched standings.
+      if (!firstVisibilityRun.current) fetchStandings(selectedLeague).catch(() => {});
+      firstVisibilityRun.current = false;
       getFixtures().then(setFixtures).catch(() => {});
       getResults().then(setResults).catch(() => {});
       getLiveMatches().then(setLive).catch(() => {});
