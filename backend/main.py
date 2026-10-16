@@ -12,7 +12,7 @@ Strategy (matches how ESPN/SofaScore/FotMob handle unreliable upstream sources):
 
 from fastapi import FastAPI, HTTPException, UploadFile, File, Header, Response, Request
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Optional, List
 from apscheduler.schedulers.background import BackgroundScheduler
 from datetime import datetime, timedelta, timezone
@@ -21,6 +21,8 @@ import os
 import json
 import re
 import secrets
+import hmac
+import hashlib
 import tempfile
 import copy
 import time
@@ -37,6 +39,8 @@ from scraper import (
     match_calendar_date_key,
     polite_delay,
     get_last_challenge_info,
+    safe_get,
+    is_allowed_khu_url,
     LEAGUES,
     LEAGUE_DISPLAY_ORDER,
     HEADERS as SCRAPER_HEADERS,
@@ -73,11 +77,40 @@ ADMIN_USERNAME = os.environ.get("ADMIN_USERNAME", "")
 ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "")
 
 
+ADMIN_SESSION_TTL_SECONDS = 8 * 60 * 60  # browser admin sessions last 8 hours
+
+
+def _sign_admin_session(expires_at: int) -> str:
+    return hmac.new(ADMIN_TOKEN.encode("utf-8"), f"admin-session|{expires_at}".encode("utf-8"),
+                    hashlib.sha256).hexdigest()
+
+
+def _make_admin_session() -> str:
+    """Short-lived signed token for the admin web page. The browser only ever
+    holds THIS, never the permanent master ADMIN_TOKEN, so a stolen browser
+    token stops working after 8 hours (or the moment ADMIN_TOKEN is changed)."""
+    exp = int(time.time()) + ADMIN_SESSION_TTL_SECONDS
+    return f"s1.{exp}.{_sign_admin_session(exp)}"
+
+
+def _valid_admin_session(token: str) -> bool:
+    try:
+        ver, exp_s, sig = (token or "").split(".", 2)
+        exp = int(exp_s)
+    except ValueError:
+        return False
+    if ver != "s1" or exp < time.time() or not ADMIN_TOKEN:
+        return False
+    return secrets.compare_digest(sig.encode("utf-8"), _sign_admin_session(exp).encode("utf-8"))
+
+
 def _is_admin(x_admin_token: str) -> bool:
-    """Constant-time check of the master token (fails closed if unset)."""
-    return bool(ADMIN_TOKEN) and secrets.compare_digest(
-        (x_admin_token or "").encode("utf-8"), ADMIN_TOKEN.encode("utf-8")
-    )
+    """Constant-time check of the master token OR a valid signed admin
+    session (fails closed if ADMIN_TOKEN is unset)."""
+    if not ADMIN_TOKEN:
+        return False
+    tok = x_admin_token or ""
+    return secrets.compare_digest(tok.encode("utf-8"), ADMIN_TOKEN.encode("utf-8")) or _valid_admin_session(tok)
 
 
 # ── Login brute-force throttle (in-memory, per client IP) ──
@@ -86,23 +119,64 @@ _LOGIN_WINDOW_SECONDS = 15 * 60
 _login_failures: dict = {}
 
 
+# How many reverse proxies sit in front of this app (Render adds one). The
+# client-supplied part of X-Forwarded-For is everything LEFT of the entries our
+# own proxies appended, so we take the entry that many hops from the RIGHT —
+# taking the first one (as before) let an attacker dodge every lockout by
+# sending a made-up "X-Forwarded-For: <random>" header with each request.
+TRUSTED_PROXY_HOPS = int(os.environ.get("TRUSTED_PROXY_HOPS", "1"))
+
+
 def _client_ip(request: Request) -> str:
     fwd = request.headers.get("x-forwarded-for", "")
     if fwd:
-        return fwd.split(",")[0].strip()
+        parts = [p.strip() for p in fwd.split(",") if p.strip()]
+        if parts:
+            return parts[-min(TRUSTED_PROXY_HOPS, len(parts))]
     return request.client.host if request.client else "unknown"
 
 
-def _login_check_allowed(ip: str):
+# ── Generic per-IP rate limiter (in-memory, fixed sliding window) ──
+_rate_hits: dict = {}
+_RATE_MAX_KEYS = 20000
+
+
+def _rate_limit(request: Request, bucket: str, limit: int, window_seconds: int = 60):
+    """Raise 429 if this client already made `limit` calls to `bucket` in the window."""
+    now = time.time()
+    key = (bucket, _client_ip(request))
+    hits = [t for t in _rate_hits.get(key, []) if now - t < window_seconds]
+    if len(hits) >= limit:
+        _rate_hits[key] = hits
+        raise HTTPException(status_code=429, detail="Too many requests — slow down and try again shortly.",
+                            headers={"Retry-After": str(window_seconds)})
+    hits.append(now)
+    _rate_hits[key] = hits
+    if len(_rate_hits) > _RATE_MAX_KEYS:  # never grow without bound
+        for k in [k for k, v in _rate_hits.items() if not v or now - v[-1] > window_seconds][:5000]:
+            _rate_hits.pop(k, None)
+        while len(_rate_hits) > _RATE_MAX_KEYS:
+            _rate_hits.pop(next(iter(_rate_hits)))
+
+
+def _login_check_allowed(ip: str, extra_key: str = "", extra_max: int = 0):
     now = time.time()
     fails = [t for t in _login_failures.get(ip, []) if now - t < _LOGIN_WINDOW_SECONDS]
     _login_failures[ip] = fails
+    if extra_key:  # per-account / global cap so a botnet can't brute-force across many IPs
+        efails = [t for t in _login_failures.get(extra_key, []) if now - t < _LOGIN_WINDOW_SECONDS]
+        _login_failures[extra_key] = efails
+        if len(efails) >= extra_max:
+            raise HTTPException(status_code=429, detail="Too many failed login attempts. Try again in 15 minutes.")
     if len(fails) >= _LOGIN_MAX_FAILS:
         raise HTTPException(status_code=429, detail="Too many failed login attempts. Try again in 15 minutes.")
 
 
-def _login_record_failure(ip: str):
-    _login_failures.setdefault(ip, []).append(time.time())
+def _login_record_failure(ip: str, *extra_keys: str):
+    for k in (ip,) + extra_keys:
+        _login_failures.setdefault(k, []).append(time.time())
+    if len(_login_failures) > 20000:
+        _login_failures.pop(next(iter(_login_failures)))
 
 
 def _authorize_writer(x_admin_token: str = "", x_agent_token: str = "") -> str:
@@ -136,9 +210,9 @@ class ScorerInput(BaseModel):
     side that player's team occupies in THIS match, not a fixed team
     identity, since the same team can be home in one match and away in
     another."""
-    team: str  # "home" | "away"
-    player_name: str
-    minute: Optional[int] = None
+    team: str = Field(max_length=10)  # "home" | "away"
+    player_name: str = Field(max_length=80)
+    minute: Optional[int] = Field(default=None, ge=0, le=200)
 
 
 class CardInput(BaseModel):
@@ -147,10 +221,10 @@ class CardInput(BaseModel):
     warning), yellow (temporary suspension), and red (permanent
     ejection) — validated against exactly these three, never guessed
     at a fourth."""
-    team: str  # "home" | "away"
-    player_name: str
-    card_type: str  # "green" | "yellow" | "red"
-    minute: Optional[int] = None
+    team: str = Field(max_length=10)  # "home" | "away"
+    player_name: str = Field(max_length=80)
+    card_type: str = Field(max_length=10)  # "green" | "yellow" | "red"
+    minute: Optional[int] = Field(default=None, ge=0, le=200)
 
 
 class ManualResultInput(BaseModel):
@@ -164,28 +238,28 @@ class ManualResultInput(BaseModel):
     sent by admin/agent so the backend can find the exact cached team
     row by URL first (more reliable than name matching alone).
     """
-    league_short: str
-    home_team: str
-    away_team: str
-    home_team_url: Optional[str] = ""
-    away_team_url: Optional[str] = ""
-    home_score: int
-    away_score: int
-    date: str
-    venue: Optional[str] = ""
-    scorers: Optional[List[ScorerInput]] = []
-    cards: Optional[List[CardInput]] = []
+    league_short: str = Field(max_length=20)
+    home_team: str = Field(max_length=120)
+    away_team: str = Field(max_length=120)
+    home_team_url: Optional[str] = Field(default="", max_length=500)
+    away_team_url: Optional[str] = Field(default="", max_length=500)
+    home_score: int = Field(ge=0, le=99)
+    away_score: int = Field(ge=0, le=99)
+    date: str = Field(max_length=32)
+    venue: Optional[str] = Field(default="", max_length=120)
+    scorers: Optional[List[ScorerInput]] = Field(default=[], max_length=40)
+    cards: Optional[List[CardInput]] = Field(default=[], max_length=40)
 
 
 class AgentCreateInput(BaseModel):
-    username: str
-    password: str
-    display_name: str
+    username: str = Field(max_length=40)
+    password: str = Field(max_length=128)
+    display_name: str = Field(max_length=60)
 
 
 class AgentLoginInput(BaseModel):
-    username: str
-    password: str
+    username: str = Field(max_length=80)
+    password: str = Field(max_length=128)
 
 
 class TeamStatsInput(BaseModel):
@@ -197,8 +271,8 @@ class TeamStatsInput(BaseModel):
     most recent last, matching the format already used everywhere else
     (see scraper.py's parse_standings_table).
     """
-    league_short: str
-    team_name: str
+    league_short: str = Field(max_length=20)
+    team_name: str = Field(max_length=120)
     played: Optional[int] = None
     won: Optional[int] = None
     drawn: Optional[int] = None
@@ -207,7 +281,7 @@ class TeamStatsInput(BaseModel):
     goals_against: Optional[int] = None
     goal_diff: Optional[int] = None
     points: Optional[int] = None
-    form: Optional[List[str]] = None
+    form: Optional[List[str]] = Field(default=None, max_length=12)
 
 
 class PlayerStatsInput(BaseModel):
@@ -218,9 +292,9 @@ class PlayerStatsInput(BaseModel):
     Resubmitting the same league/team/player upserts (replaces the
     whole line), so send the new total each time, not a delta.
     """
-    league_short: str
-    team_name: str
-    player_name: str
+    league_short: str = Field(max_length=20)
+    team_name: str = Field(max_length=120)
+    player_name: str = Field(max_length=80)
     goals: Optional[int] = 0
     appearances: Optional[int] = 0
     yellow_cards: Optional[int] = 0
@@ -236,11 +310,28 @@ class PushSubscription(BaseModel):
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+_DOCS_ON = os.environ.get("KHU_ENABLE_DOCS") == "1"
 app = FastAPI(
     title="Kenya Hockey Union API",
     description="Real-time data from kenyahockeyunion.org, with persistent local caching",
     version="1.1.0",
+    # Interactive docs list every admin route — off unless explicitly enabled.
+    docs_url="/docs" if _DOCS_ON else None,
+    redoc_url="/redoc" if _DOCS_ON else None,
+    openapi_url="/openapi.json" if _DOCS_ON else None,
 )
+
+
+@app.middleware("http")
+async def _security_headers(request: Request, call_next):
+    resp = await call_next(request)
+    resp.headers.setdefault("X-Content-Type-Options", "nosniff")
+    resp.headers.setdefault("Referrer-Policy", "no-referrer")
+    resp.headers.setdefault("X-Frame-Options", "DENY")
+    resp.headers.setdefault("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+    if request.url.path.startswith("/api/admin") or request.url.path.endswith("login"):
+        resp.headers["Cache-Control"] = "no-store"
+    return resp
 
 # CORS origins: locally we allow everything for convenience. In production
 # (Render), set ALLOWED_ORIGINS to your real Vercel URL(s), comma-separated,
@@ -252,12 +343,14 @@ allowed_origins = (
     else ["*"]  # local dev fallback — fine for testing, tighten in production
 )
 
+if "*" in allowed_origins:
+    logger.warning("ALLOWED_ORIGINS is not set — CORS is open to every website. Set it in production.")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=allowed_origins,
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_credentials=False,  # auth uses headers, never cookies
+    allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
+    allow_headers=["Content-Type", "x-admin-token", "x-agent-token"],
 )
 
 # ── In-memory mirror of the DB cache, for fast reads ──
@@ -1605,13 +1698,12 @@ _LOGO_CACHE_MAX_ENTRIES = 500
 
 def _is_khu_image_url(url: str) -> bool:
     """True only for http(s) URLs whose HOST is kenyahockeyunion.org (or www.)."""
-    try:
-        from urllib.parse import urlparse
-        u = urlparse(url or "")
-        host = (u.hostname or "").lower()
-        return u.scheme in ("http", "https") and host in ("kenyahockeyunion.org", "www.kenyahockeyunion.org")
-    except Exception:
-        return False
+    return is_allowed_khu_url(url)
+
+
+_LOGO_MAX_BYTES = 2 * 1024 * 1024
+# SVG is deliberately NOT allowed: it can carry scripts.
+_LOGO_TYPES = ("image/png", "image/jpeg", "image/jpg", "image/gif", "image/webp", "image/x-icon", "image/vnd.microsoft.icon")
 
 
 def _fetch_logo(url: str):
@@ -1623,44 +1715,62 @@ def _fetch_logo(url: str):
         return _LOGO_CACHE[url]
 
     try:
-        resp = _KHU_SCRAPER.get(url, headers=SCRAPER_HEADERS, timeout=10)
+        resp = safe_get(_KHU_SCRAPER, url, headers=SCRAPER_HEADERS, timeout=10, stream=True)
         resp.raise_for_status()
+        declared = int(resp.headers.get("Content-Length") or 0)
+        if declared > _LOGO_MAX_BYTES:
+            resp.close()
+            raise HTTPException(status_code=413, detail="Image too large.")
+        body = b""
+        for chunk in resp.iter_content(65536):
+            body += chunk
+            if len(body) > _LOGO_MAX_BYTES:
+                resp.close()
+                raise HTTPException(status_code=413, detail="Image too large.")
+    except HTTPException:
+        raise
     except Exception as e:
         logger.warning(f"Logo proxy fetch failed for {url}: {e}")
         raise HTTPException(status_code=404, detail="Could not fetch logo image.")
 
-    content_type = resp.headers.get("Content-Type", "image/png")
-    if not content_type.startswith("image/"):
-        raise HTTPException(status_code=415, detail="URL did not return an image.")
+    content_type = (resp.headers.get("Content-Type", "") or "").split(";")[0].strip().lower()
+    if content_type not in _LOGO_TYPES:
+        raise HTTPException(status_code=415, detail="URL did not return a supported image.")
 
     # Simple bounded in-memory cache — logos rarely change, no need to
     # re-fetch from KHU on every single page load. Evict oldest entry
     # if we hit the cap, rather than growing unbounded.
     if len(_LOGO_CACHE) >= _LOGO_CACHE_MAX_ENTRIES:
         _LOGO_CACHE.pop(next(iter(_LOGO_CACHE)))
-    _LOGO_CACHE[url] = (resp.content, content_type)
-    return resp.content, content_type
+    _LOGO_CACHE[url] = (body, content_type)
+    return body, content_type
 
 
 @app.get("/api/logo")
-def proxy_logo(url: str):
+def proxy_logo(url: str, request: Request):
     """
     Fetch a team logo server-side and stream it back. Only allows URLs
     on kenyahockeyunion.org's own domain — this is NOT a general-purpose
     open proxy, just a narrow fix for one specific image-loading problem.
     """
+    _rate_limit(request, "logo", 240, 60)
     content, content_type = _fetch_logo(url)
-    return Response(content=content, media_type=content_type, headers={"Cache-Control": "public, max-age=86400"})
+    return Response(content=content, media_type=content_type, headers={
+        "Cache-Control": "public, max-age=86400",
+        "X-Content-Type-Options": "nosniff",
+        "Content-Security-Policy": "default-src 'none'; sandbox",
+    })
 
 
 @app.get("/api/logo-data")
-def proxy_logo_data(url: str):
+def proxy_logo_data(url: str, request: Request):
     """
     Same logo, but as a JSON data URL. Used by the share-card generator:
     a data URL can always be drawn onto a canvas and exported, with none
     of the cross-origin image/caching pitfalls of a plain <img> load.
     """
     import base64
+    _rate_limit(request, "logo", 240, 60)
     content, content_type = _fetch_logo(url)
     return {"data_url": f"data:{content_type};base64,{base64.b64encode(content).decode('ascii')}"}
 
@@ -1935,12 +2045,12 @@ def manual_refresh():
     signal than a scheduled guess. Same pattern as Gmail/Twitter/FotMob
     pull-to-refresh.
 
-    Rate-limited to 1 per minute (and one scrape at a time) so nobody can hammer KHU.
+    Rate-limited to 1 per 5 minutes (and one scrape at a time) so nobody can hammer KHU.
     """
-    if not db.can_manual_refresh(min_interval_seconds=60):
+    if not db.can_manual_refresh(min_interval_seconds=300):
         raise HTTPException(
             status_code=429,
-            detail="Please wait a minute before refreshing again."
+            detail="Data was refreshed moments ago — please wait a few minutes before refreshing again."
         )
     if _refresh_lock.locked():
         return {
@@ -2278,7 +2388,8 @@ def set_team_stats(payload: TeamStatsInput, x_admin_token: str = Header(default=
     as the live scrape reported it. Applied immediately to the current
     league standings cache, not just persisted for next refresh.
     """
-    _authorize_writer(x_admin_token, x_agent_token)
+    if not _is_admin(x_admin_token):
+        raise HTTPException(status_code=401, detail="Missing or invalid admin token.")
 
     league = LEAGUES_BY_SHORT.get(payload.league_short.strip().upper())
     if not league:
@@ -2316,7 +2427,8 @@ def set_team_stats(payload: TeamStatsInput, x_admin_token: str = Header(default=
 @app.get("/api/admin/team-stats/list")
 def list_team_stats(x_admin_token: str = Header(default=""), x_agent_token: str = Header(default="")):
     """List every manual team-stat correction currently stored."""
-    _authorize_writer(x_admin_token, x_agent_token)
+    if not _is_admin(x_admin_token):
+        raise HTTPException(status_code=401, detail="Missing or invalid admin token.")
     stats = db.load_team_stats()
     return {"stats": stats, "count": len(stats)}
 
@@ -2328,7 +2440,8 @@ def remove_team_stats(stat_key: str, x_admin_token: str = Header(default=""), x_
     value immediately (the recompute runs right here), not on the next
     scheduled refresh.
     """
-    _authorize_writer(x_admin_token, x_agent_token)
+    if not _is_admin(x_admin_token):
+        raise HTTPException(status_code=401, detail="Missing or invalid admin token.")
     deleted = db.delete_team_stats(stat_key)
     if not deleted:
         raise HTTPException(status_code=404, detail=f"No team-stat correction found with key '{stat_key}'.")
@@ -2359,7 +2472,8 @@ def export_team_stats_seed(x_admin_token: str = Header(default="")):
 @app.post("/api/admin/player-stats/set")
 def set_player_stats(payload: PlayerStatsInput, x_admin_token: str = Header(default=""), x_agent_token: str = Header(default="")):
     """Set (replacing any previous line) one player's season-to-date stats."""
-    _authorize_writer(x_admin_token, x_agent_token)
+    if not _is_admin(x_admin_token):
+        raise HTTPException(status_code=401, detail="Missing or invalid admin token.")
 
     league = LEAGUES_BY_SHORT.get(payload.league_short.strip().upper())
     if not league:
@@ -2423,7 +2537,8 @@ def get_top_scorers(league_short: str = ""):
 @app.get("/api/admin/player-stats/list")
 def list_player_stats(x_admin_token: str = Header(default=""), x_agent_token: str = Header(default="")):
     """List every player stat line currently stored (admin/agent view — includes stat_key for deletion)."""
-    _authorize_writer(x_admin_token, x_agent_token)
+    if not _is_admin(x_admin_token):
+        raise HTTPException(status_code=401, detail="Missing or invalid admin token.")
     stats = db.load_player_stats()
     return {"players": stats, "count": len(stats)}
 
@@ -2431,7 +2546,8 @@ def list_player_stats(x_admin_token: str = Header(default=""), x_agent_token: st
 @app.delete("/api/admin/player-stats/{stat_key}")
 def remove_player_stats(stat_key: str, x_admin_token: str = Header(default=""), x_agent_token: str = Header(default="")):
     """Remove one player's stat line."""
-    _authorize_writer(x_admin_token, x_agent_token)
+    if not _is_admin(x_admin_token):
+        raise HTTPException(status_code=401, detail="Missing or invalid admin token.")
     deleted = db.delete_player_stats(stat_key)
     if not deleted:
         raise HTTPException(status_code=404, detail=f"No player stats found with key '{stat_key}'.")
@@ -2456,8 +2572,8 @@ def admin_create_agent(payload: AgentCreateInput, x_admin_token: str = Header(de
     """Create a new agent account. Admin-only — agents can't create other agents."""
     if not _is_admin(x_admin_token):
         raise HTTPException(status_code=401, detail="Missing or invalid admin token.")
-    if len(payload.password) < 6:
-        raise HTTPException(status_code=400, detail="Password must be at least 6 characters.")
+    if len(payload.password) < 10:
+        raise HTTPException(status_code=400, detail="Password must be at least 10 characters.")
     created = db.create_agent(payload.username.strip(), payload.password, payload.display_name.strip())
     if not created:
         raise HTTPException(status_code=409, detail=f"Username '{payload.username}' already exists.")
@@ -2522,10 +2638,11 @@ def agent_login(payload: AgentLoginInput, request: Request):
     attempt can't be used to discover valid usernames.
     """
     ip = _client_ip(request)
-    _login_check_allowed(ip)
+    acct = "agent:" + payload.username.strip().lower()[:80]
+    _login_check_allowed(ip, acct, 10)
     display_name = db.verify_agent_login(payload.username.strip(), payload.password)
     if not display_name:
-        _login_record_failure(ip)
+        _login_record_failure(ip, acct)
         raise HTTPException(status_code=401, detail="Incorrect username or password.")
     token = db.create_agent_session(payload.username.strip())
     return {"token": token, "display_name": display_name}
@@ -2547,13 +2664,14 @@ def admin_login(payload: AgentLoginInput, request: Request):
     if not ADMIN_USERNAME or not ADMIN_PASSWORD:
         raise HTTPException(status_code=503, detail="Admin login isn't configured yet — set ADMIN_USERNAME and ADMIN_PASSWORD in the environment.")
     ip = _client_ip(request)
-    _login_check_allowed(ip)
+    _login_check_allowed(ip, "admin:global", 30)
     username_ok = secrets.compare_digest(payload.username.strip().encode("utf-8"), ADMIN_USERNAME.encode("utf-8"))
     password_ok = secrets.compare_digest(payload.password.encode("utf-8"), ADMIN_PASSWORD.encode("utf-8"))
     if not (username_ok and password_ok):
-        _login_record_failure(ip)
+        _login_record_failure(ip, "admin:global")
         raise HTTPException(status_code=401, detail="Incorrect username or password.")
-    return {"admin_token": ADMIN_TOKEN}
+    # Hand the browser a short-lived signed session, NOT the permanent master token.
+    return {"admin_token": _make_admin_session(), "expires_in": ADMIN_SESSION_TTL_SECONDS}
 
 
 # ══════════════════════════════════════════════════════
@@ -2561,25 +2679,25 @@ def admin_login(payload: AgentLoginInput, request: Request):
 # ══════════════════════════════════════════════════════
 
 class TournamentInput(BaseModel):
-    id: Optional[str] = None
-    name: str
-    start_date: str = ""
-    end_date: str = ""
-    venue: str = ""
-    description: str = ""
-    status: str = "upcoming"
+    id: Optional[str] = Field(default=None, max_length=80)
+    name: str = Field(max_length=150)
+    start_date: str = Field(default="", max_length=32)
+    end_date: str = Field(default="", max_length=32)
+    venue: str = Field(default="", max_length=150)
+    description: str = Field(default="", max_length=2000)
+    status: str = Field(default="upcoming", max_length=20)
 
 
 class TournamentMatchInput(BaseModel):
-    match_id: Optional[str] = None
-    stage: str = ""
-    group_name: str = ""
-    home_team: str
-    away_team: str
-    home_score: Optional[int] = None
-    away_score: Optional[int] = None
-    date: str = ""
-    venue: str = ""
+    match_id: Optional[str] = Field(default=None, max_length=80)
+    stage: str = Field(default="", max_length=80)
+    group_name: str = Field(default="", max_length=80)
+    home_team: str = Field(max_length=120)
+    away_team: str = Field(max_length=120)
+    home_score: Optional[int] = Field(default=None, ge=0, le=99)
+    away_score: Optional[int] = Field(default=None, ge=0, le=99)
+    date: str = Field(default="", max_length=32)
+    venue: str = Field(default="", max_length=150)
 
 
 def _tournament_summary(t: dict, matches: list) -> dict:
@@ -2690,20 +2808,20 @@ from typing import Optional
 
 
 class PushSubscriptionKeys(BaseModel):
-    p256dh: str
-    auth: str
+    p256dh: str = Field(max_length=200)
+    auth: str = Field(max_length=100)
 
 
 class PushSubscriptionPayload(BaseModel):
-    endpoint: str
+    endpoint: str = Field(max_length=600)
     keys: PushSubscriptionKeys
     expirationTime: Optional[float] = None
-    favoriteTeams: Optional[list] = None  # Tier 2 scoping — empty/None = Tier 1 (all matches)
+    favoriteTeams: Optional[List[str]] = Field(default=None, max_length=60)  # Tier 2 scoping — empty/None = Tier 1 (all matches)
 
 
 class UpdateFavoritesPayload(BaseModel):
-    endpoint: str
-    favoriteTeams: list
+    endpoint: str = Field(max_length=600)
+    favoriteTeams: List[str] = Field(max_length=60)
 
 
 @app.get("/api/push/vapid-public-key")
@@ -2728,15 +2846,20 @@ def _valid_push_endpoint(endpoint: str) -> bool:
 
 
 @app.post("/api/push/subscribe")
-def subscribe_to_push(subscription: PushSubscriptionPayload):
+def subscribe_to_push(subscription: PushSubscriptionPayload, request: Request):
     """
     Store a browser's push subscription so we can notify it on live matches.
     If favoriteTeams is provided and non-empty, this subscriber only gets
     alerts for matches involving those teams (Tier 2 — scoped).
     If omitted/empty, they get alerts for every KHU match (Tier 1 — broad).
     """
+    _rate_limit(request, "push-sub", 10, 600)
     if not _valid_push_endpoint(subscription.endpoint):
         raise HTTPException(status_code=400, detail="Unsupported push service endpoint.")
+    if any(len(t) > 500 for t in (subscription.favoriteTeams or [])):
+        raise HTTPException(status_code=400, detail="Invalid favorite team.")
+    if not push.has_subscription(subscription.endpoint) and push.count_subscriptions() >= push.MAX_SUBSCRIPTIONS:
+        raise HTTPException(status_code=503, detail="Notification list is full right now.")
     data = subscription.dict()
     favorite_teams = data.pop("favoriteTeams", None)
     push.save_subscription(data, favorite_teams=favorite_teams)
@@ -2745,26 +2868,31 @@ def subscribe_to_push(subscription: PushSubscriptionPayload):
 
 
 @app.post("/api/push/update-favorites")
-def update_push_favorites(payload: UpdateFavoritesPayload):
+def update_push_favorites(payload: UpdateFavoritesPayload, request: Request):
     """
     Update which teams an existing subscriber wants alerts for —
     called whenever the user changes their favorites in the app,
     without needing to fully re-subscribe.
     """
+    _rate_limit(request, "push-misc", 60, 60)
+    if any(len(t) > 500 for t in payload.favoriteTeams):
+        raise HTTPException(status_code=400, detail="Invalid favorite team.")
     push.update_favorite_teams(payload.endpoint, payload.favoriteTeams)
     return {"message": "Favorite teams updated for notifications"}
 
 
 @app.get("/api/push/favorites")
-def get_push_favorites(endpoint: str):
+def get_push_favorites(endpoint: str, request: Request):
     """Fetch the current favorite team URLs for a given subscription endpoint."""
-    return {"favoriteTeams": push.get_favorite_teams(endpoint)}
+    _rate_limit(request, "push-misc", 60, 60)
+    return {"favoriteTeams": push.get_favorite_teams(endpoint[:600])}
 
 
 @app.post("/api/push/unsubscribe")
-def unsubscribe_from_push(payload: dict):
+def unsubscribe_from_push(payload: dict, request: Request):
+    _rate_limit(request, "push-misc", 60, 60)
     endpoint = payload.get("endpoint")
-    if not endpoint:
+    if not endpoint or not isinstance(endpoint, str) or len(endpoint) > 600:
         raise HTTPException(status_code=400, detail="endpoint is required")
     push.remove_subscription(endpoint)
     return {"message": "Unsubscribed"}
@@ -2806,7 +2934,7 @@ _match_cache = {}  # match_url -> (data, fetched_at)
 
 
 @app.get("/api/team")
-def get_team_profile(url: str = "", name: str = ""):
+def get_team_profile(request: Request, url: str = "", name: str = ""):
     """
     Build a team's profile (position, form, recent results, upcoming
     fixtures) entirely from data we've already scraped and trust for
@@ -2821,8 +2949,11 @@ def get_team_profile(url: str = "", name: str = ""):
     'name' is the team name as already known from wherever the user
     tapped through from (standings row, match card, etc).
     """
+    _rate_limit(request, "team", 60, 60)
     if url and not _is_khu_image_url(url):
         raise HTTPException(status_code=400, detail="Invalid team URL — must be a kenyahockeyunion.org link")
+    name = (name or "")[:120]
+    url = (url or "")[:500]
     if not url and not name:
         raise HTTPException(status_code=400, detail="Need at least a team name or URL to look up a profile")
 
@@ -2835,6 +2966,12 @@ def get_team_profile(url: str = "", name: str = ""):
     if not data.get("error"):
         _cache_put(_team_cache, cache_key, (data, time.time()))
     return data
+
+
+def _known_match_urls() -> set:
+    fr = cache.get("fixtures_results") or {}
+    return {m.get("match_url") for key in ("results", "fixtures", "live")
+            for m in (fr.get(key) or []) if m.get("match_url")}
 
 
 def _enrich_match_detail(data: dict, url: str) -> dict:
@@ -2874,14 +3011,20 @@ def _enrich_match_detail(data: dict, url: str) -> dict:
 
 
 @app.get("/api/match")
-def get_match_detail(url: str):
+def get_match_detail(url: str, request: Request):
     """
     Fetch a single match's detail page (date, venue, teams, score).
     'url' comes from the 'match_url' field already present in fixtures/results
     data — never guessed or constructed.
     """
-    if not _is_khu_image_url(url):  # host check (works for any KHU page URL)
+    _rate_limit(request, "match", 60, 60)
+    if not _is_khu_image_url(url) or len(url) > 500:  # host check (works for any KHU page URL)
         raise HTTPException(status_code=400, detail="Invalid match URL — must be a kenyahockeyunion.org link")
+    # Only fetch pages we already know are matches (from the cached fixtures/
+    # results). Otherwise anyone could use this endpoint to make our server
+    # request any URL on KHU's site, over and over.
+    if url not in _known_match_urls():
+        raise HTTPException(status_code=404, detail="Unknown match.")
 
     cached = _match_cache.get(url)
     # Live matches should never be served from cache — always fetch fresh

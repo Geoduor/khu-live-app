@@ -469,7 +469,7 @@
     : "https://khu-backend.onrender.com";
 
   function apiBase() { return API_BASE; }
-  function token() { return localStorage.getItem('khu_admin_token') || ''; }
+  function token() { return sessionStorage.getItem('khu_admin_token') || ''; }
 
   function showScreen() {
     if (token()) {
@@ -511,7 +511,7 @@
       const data = await res.json();
       if (!res.ok) throw new Error(data.detail || 'Login failed.');
 
-      localStorage.setItem('khu_admin_token', data.admin_token);
+      sessionStorage.setItem('khu_admin_token', data.admin_token);
       $('adminPassword').value = '';
       showScreen();
     } catch (e) {
@@ -524,7 +524,7 @@
   }
 
   function logout() {
-    localStorage.removeItem('khu_admin_token');
+    sessionStorage.removeItem('khu_admin_token');
     showScreen();
   }
 

@@ -1,19 +1,21 @@
-fastapi==0.111.0
-uvicorn==0.30.1
-requests==2.31.0
+fastapi==0.129.2
+starlette==0.52.1
+uvicorn==0.39.0
+requests==2.32.5
 beautifulsoup4==4.12.3
-lxml==5.2.2
-httpx==0.27.0
+lxml==6.0.4
+httpx==0.28.1
 python-dotenv==1.0.1
 apscheduler==3.10.4
 pywebpush==2.0.1
 py-vapid==1.9.0
-pydantic==2.7.1
-pdfplumber==0.11.4
-python-multipart==0.0.9
+pydantic==2.12.5
+pdfplumber==0.11.10
+python-multipart==0.0.32
 # NOTE: the newest cloudscraper the package index offers is 1.2.71 — no
 # 2.x is available. A "cloudscraper==2.1.0.post1" pin lived here briefly
 # (commit 5300093) and broke `pip install -r requirements.txt` with
 # "No matching distribution found". Only pin a version that actually
 # installs.
 cloudscraper==1.2.71
+pdfminer.six==20260107

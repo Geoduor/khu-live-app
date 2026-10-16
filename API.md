@@ -131,3 +131,12 @@ locks it out for 15 minutes (`429`).
 - `503` — cache not populated yet (very first startup, before the first refresh completes)
 
 All error responses follow FastAPI's default shape: `{"detail": "message"}`.
+
+
+## Security behaviour (see SECURITY.md)
+- `POST /api/admin/login` returns a short-lived signed session (`admin_token`, `expires_in` seconds), not the master token. Send it as `x-admin-token`; the master `ADMIN_TOKEN` still works for scripts.
+- Login routes lock out after repeated failures (429). Public routes are rate-limited per IP (429 + `Retry-After`).
+- `GET /api/match` only serves matches already in our fixtures/results; others return 404.
+- `/api/admin/team-stats/*` and `/api/admin/player-stats/*` are admin-only; agents can add/list/delete results.
+- `POST /api/refresh` is limited to once per 5 minutes.
+- Request bodies have length/range limits (422 when exceeded).

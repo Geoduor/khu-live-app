@@ -514,14 +514,24 @@ def delete_player_stats(stat_key: str) -> bool:
 # AGENTS — people allowed to log in and add manual results
 # ══════════════════════════════════════════════════════
 
+# Password hashing: PBKDF2-SHA256. New accounts use 600,000 iterations (OWASP
+# 2023 guidance); the salt is prefixed "v2$" to mark that. Older accounts
+# (plain hex salt) were made with 100,000 and are upgraded automatically the
+# next time that person logs in successfully.
+_PBKDF2_V2_ITERATIONS = 600_000
+_PBKDF2_V1_ITERATIONS = 100_000
+
+
+def _iterations_for(salt: str) -> int:
+    return _PBKDF2_V2_ITERATIONS if (salt or "").startswith("v2$") else _PBKDF2_V1_ITERATIONS
+
+
 def _hash_password(password: str, salt: str = None) -> tuple:
     """PBKDF2-SHA256 with a random per-user salt — stdlib only, no
-    bcrypt/argon2 dependency to install and keep working on Render.
-    100,000 iterations is a reasonable, unremarkable-to-guess cost for
-    this use case (small trusted group, not a public sign-up system)."""
+    bcrypt/argon2 dependency to install and keep working on Render."""
     if salt is None:
-        salt = secrets.token_hex(16)
-    hash_hex = hashlib.pbkdf2_hmac("sha256", password.encode(), salt.encode(), 100_000).hex()
+        salt = "v2$" + secrets.token_hex(16)
+    hash_hex = hashlib.pbkdf2_hmac("sha256", password.encode(), salt.encode(), _iterations_for(salt)).hex()
     return hash_hex, salt
 
 
@@ -562,6 +572,17 @@ def verify_agent_login(username: str, password: str):
     computed_hash, _ = _hash_password(password, row["password_salt"])
     if not secrets.compare_digest(computed_hash, row["password_hash"]):
         return None
+    if not (row["password_salt"] or "").startswith("v2$"):
+        # Legacy hash verified — quietly re-hash with the stronger setting.
+        try:
+            new_hash, new_salt = _hash_password(password)
+            conn = get_connection()
+            conn.execute("UPDATE agents SET password_hash = ?, password_salt = ? WHERE username = ?",
+                         (new_hash, new_salt, row["username"]))
+            conn.commit()
+            conn.close()
+        except Exception:
+            pass
     return row["display_name"]
 
 

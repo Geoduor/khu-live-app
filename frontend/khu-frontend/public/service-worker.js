@@ -151,7 +151,10 @@ self.addEventListener("notificationclick", (event) => {
   // relative path ("/"). Comparing them raw never matched, so every
   // click opened a brand-new window instead of focusing the tab the
   // user already had open.
-  const targetUrl = new URL(event.notification.data || "/", self.location.origin).href;
+  // Same-origin only: a notification can never send someone to another site.
+  let target = new URL(event.notification.data || "/", self.location.origin);
+  if (target.origin !== self.location.origin) target = new URL("/", self.location.origin);
+  const targetUrl = target.href;
   event.waitUntil(
     self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((clientList) => {
       for (const client of clientList) {

@@ -328,6 +328,40 @@ def polite_delay():
     time.sleep(delay)
 
 
+_ALLOWED_FETCH_HOSTS = ("kenyahockeyunion.org", "www.kenyahockeyunion.org")
+
+
+def is_allowed_khu_url(url: str) -> bool:
+    """http(s) URL whose hostname is exactly KHU's (no look-alike hosts)."""
+    try:
+        from urllib.parse import urlparse
+        u = urlparse(url or "")
+        return u.scheme in ("http", "https") and (u.hostname or "").lower() in _ALLOWED_FETCH_HOSTS
+    except Exception:
+        return False
+
+
+def safe_get(session, url: str, max_redirects: int = 3, **kwargs):
+    """
+    GET that follows redirects ONLY while every hop stays on KHU's own
+    host. Plain requests follows redirects anywhere, so an open redirect
+    (or a hijacked page) on the KHU host could otherwise make this server
+    fetch internal addresses or other sites on an attacker's behalf.
+    """
+    kwargs["allow_redirects"] = False
+    for _ in range(max_redirects + 1):
+        if not is_allowed_khu_url(url):
+            raise requests.RequestException(f"Blocked fetch to non-KHU host: {url[:120]}")
+        resp = session.get(url, **kwargs)
+        if resp.is_redirect or resp.status_code in (301, 302, 303, 307, 308):
+            loc = resp.headers.get("Location", "")
+            from urllib.parse import urljoin
+            url = urljoin(url, loc)
+            continue
+        return resp
+    raise requests.RequestException("Too many redirects")
+
+
 def fetch_page(url: str, timeout: int = 20):
     """
     Fetch a page and return BeautifulSoup.
@@ -344,7 +378,7 @@ def fetch_page(url: str, timeout: int = 20):
     for attempt in range(total_attempts):
         try:
             logger.info(f"Fetching (attempt {attempt+1}): {url}")
-            resp = _scraper.get(url, headers=HEADERS, timeout=timeout)
+            resp = safe_get(_scraper, url, headers=HEADERS, timeout=timeout)
             resp.raise_for_status()
             soup = BeautifulSoup(resp.text, "lxml")
             if _looks_like_bot_challenge(soup):
@@ -655,6 +689,8 @@ def scrape_standings(league_key: str) -> dict:
         # Dump the raw HTML to a debug file so we can inspect what the
         # scraper actually received when the site changes its markup.
         try:
+            if os.environ.get("KHU_DEBUG_DUMP") != "1":
+                raise RuntimeError("debug dumps disabled")
             debug_path = os.path.join(os.path.dirname(__file__), "debug_standings_page.html")
             with open(debug_path, "w", encoding="utf-8") as f:
                 f.write(str(soup))

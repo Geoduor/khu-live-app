@@ -109,6 +109,27 @@ def init_push_table():
     logger.info("Push subscriptions table ready (with favorites support).")
 
 
+# Hard cap so nobody can fill the table (and make every live-match alert fan
+# out to thousands of fake endpoints).
+MAX_SUBSCRIPTIONS = 5000
+
+
+def count_subscriptions() -> int:
+    conn = get_connection()
+    try:
+        return conn.execute("SELECT COUNT(*) FROM push_subscriptions").fetchone()[0]
+    finally:
+        conn.close()
+
+
+def has_subscription(endpoint: str) -> bool:
+    conn = get_connection()
+    try:
+        return conn.execute("SELECT 1 FROM push_subscriptions WHERE endpoint = ?", (endpoint,)).fetchone() is not None
+    finally:
+        conn.close()
+
+
 def save_subscription(subscription: dict, favorite_teams: list = None):
     """
     Store a browser's push subscription so we can notify it later.
