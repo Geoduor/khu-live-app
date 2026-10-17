@@ -6,7 +6,7 @@ know or care whether a fixture came from the live site or a PDF.
 
 WHY THIS EXISTS:
 KHU periodically publishes/updates the season fixture list as a PDF
-(e.g. "20260814_KHU_2026_Season_Calendar_Ver_02.pdf") — sometimes ahead
+(e.g. "20260913_KHU_2026_Season_Calendar_Ver_02_2.pdf") — sometimes ahead
 of the live JoomSport site being updated, sometimes with matches the
 site calendar view doesn't have yet. Confirmed as a RECURRING pattern,
 not a one-off.
@@ -18,6 +18,7 @@ malformed or a team name is unrecognized, it is either skipped
 """
 
 import logging
+import re
 from datetime import datetime
 
 import pdfplumber
@@ -111,12 +112,18 @@ def _parse_pdf_date(date_str: str, time_str: str) -> str:
     date_str = date_str.replace("\n", " ").strip()
     time_str = (time_str or "").strip() or "00:00"
 
-    try:
-        dt = datetime.strptime(f"{date_str} {time_str}", "%A, %B %d, %Y %H:%M")
-        return dt.strftime("%Y-%m-%d %H:%M")
-    except ValueError:
-        logger.warning(f"Could not parse PDF date/time: {date_str!r} {time_str!r}")
-        return ""
+    # Anchor on "<Month> <day>, <year>" and ignore the weekday prefix: pdfplumber
+    # sometimes clips it ("ay, October 17, 2026"), which broke strptime("%A, ...").
+    m = re.search(r"([A-Za-z]{3,9})\.?\s+(\d{1,2})\s*,\s*(\d{4})", date_str)
+    if m:
+        mon = m.group(1)[:3].title()
+        try:
+            dt = datetime.strptime(f"{mon} {m.group(2)} {m.group(3)} {time_str}", "%b %d %Y %H:%M")
+            return dt.strftime("%Y-%m-%d %H:%M")
+        except ValueError:
+            pass
+    logger.warning(f"Could not parse PDF date/time: {date_str!r} {time_str!r}")
+    return ""
 
 
 def parse_pdf_fixtures(pdf_path: str) -> dict:

@@ -24,7 +24,14 @@ function BracketMatchup({ match, onOpenTeam }) {
     <div className="bracket-match">
       <div className="bracket-match-meta">
         <span>{match.venue}</span>
-        <span>{match.status}</span>
+        <span>
+          {match.date
+            ? new Date(match.date.replace(" ", "T")).toLocaleString("en-KE", {
+                weekday: "short", day: "numeric", month: "short",
+                hour: "2-digit", minute: "2-digit", hour12: false,
+              })
+            : match.status}
+        </span>
       </div>
       {[match.home, match.away].map((team, i) => (
         <div
