@@ -1899,7 +1899,7 @@ def get_nlm_playoff_bracket():
     National League Men cross-zone playoff bracket.
 
     HONEST DATA NOTE: the bracket STRUCTURE below is confirmed from
-    KHU's official 2026 season document (EZ/CZ meet in one half,
+    KHU's official 2026 season calendar Ver 02-2 (EZ/CZ meet in one half,
     WZ/SZ in the other, converging at the semis/final). Quarter-final
     SEEDING (which real teams occupy each slot) is derived live from
     each zone's actual scraped standings — position #1 and #2 — since
@@ -1935,34 +1935,34 @@ def get_nlm_playoff_bracket():
 
     bracket = {
         "quarter_finals": [
-            {"id": "QF1", "venue": "Pitch 1", "status": "TBA",
+            {"id": "QF1", "venue": "Impala Club", "status": "TBA", "date": "2026-11-27 15:00", "match_no": "365",
              "home": {**seed(ez1), "seed_label": "NLM-EZ #1"},
              "away": {**seed(cz2), "seed_label": "NLM-CZ #2"}},
-            {"id": "QF2", "venue": "Pitch 1", "status": "TBA",
+            {"id": "QF2", "venue": "UoN Grounds", "status": "TBA", "date": "2026-11-27 15:00", "match_no": "366",
              "home": {**seed(ez2), "seed_label": "NLM-EZ #2"},
              "away": {**seed(cz1), "seed_label": "NLM-CZ #1"}},
-            {"id": "QF3", "venue": "Pitch 2", "status": "TBA",
+            {"id": "QF3", "venue": "Jamhuri HS", "status": "TBA", "date": "2026-11-27 15:00", "match_no": "367",
              "home": {**seed(wz1), "seed_label": "NLM-WZ #1"},
              "away": {**seed(sz2), "seed_label": "NLM-SZ #2"}},
-            {"id": "QF4", "venue": "Pitch 2", "status": "TBA",
+            {"id": "QF4", "venue": "Mathare Depot", "status": "TBA", "date": "2026-11-27 15:00", "match_no": "368",
              "home": {**seed(wz2), "seed_label": "NLM-WZ #2"},
              "away": {**seed(sz1), "seed_label": "NLM-SZ #1"}},
         ],
         "semi_finals": [
-            {"id": "SF1", "venue": "Pitch 1", "status": "TBA",
+            {"id": "SF1", "venue": "Impala Club", "status": "TBA", "date": "2026-11-28 13:00", "match_no": "369",
              "home": {"name": "Winner QF1", "team_url": "", "logo_url": "", "seed_label": ""},
              "away": {"name": "Winner QF2", "team_url": "", "logo_url": "", "seed_label": ""}},
-            {"id": "SF2", "venue": "Pitch 2", "status": "TBA",
+            {"id": "SF2", "venue": "Impala Club", "status": "TBA", "date": "2026-11-28 15:00", "match_no": "370",
              "home": {"name": "Winner QF3", "team_url": "", "logo_url": "", "seed_label": ""},
              "away": {"name": "Winner QF4", "team_url": "", "logo_url": "", "seed_label": ""}},
         ],
         "third_place": {
-            "id": "3RD", "venue": "Nairobi", "status": "TBA",
+            "id": "3RD", "venue": "Impala Club", "status": "TBA", "date": "2026-11-29 09:00", "match_no": "371",
             "home": {"name": "Loser SF1", "team_url": "", "logo_url": "", "seed_label": ""},
             "away": {"name": "Loser SF2", "team_url": "", "logo_url": "", "seed_label": ""},
         },
         "final": {
-            "id": "FINAL", "venue": "Nairobi", "status": "TBA",
+            "id": "FINAL", "venue": "Impala Club", "status": "TBA", "date": "2026-11-29 11:00", "match_no": "372",
             "home": {"name": "Winner SF1", "team_url": "", "logo_url": "", "seed_label": ""},
             "away": {"name": "Winner SF2", "team_url": "", "logo_url": "", "seed_label": ""},
         },
