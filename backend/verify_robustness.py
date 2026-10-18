@@ -130,5 +130,12 @@ fx=[{"date":(eat+timedelta(hours=1)).strftime("%d-%m-%Y %H:%M")},{"date":(eat-ti
 kept=main._filter_future_fixtures(fx)
 check("EAT filter keeps upcoming + date-only today, drops past", len(kept)==2, str(len(kept)))
 
+from pdf_fixtures import merge_pdf_fixtures_into_scraped
+live=[{"league_short":"NLM-CZ","home_team":"Fire Flickers","away_team":"Dukes of Gloucester","date":"2026-10-24 12:00"}]
+pdfm=[{"league_short":"NLM-CZ","home_team":"Fireflickers","away_team":"Dukes","date":"2026-10-24 13:00"},
+      {"league_short":"NLM-CZ","home_team":"Dukes","away_team":"Chuka Uni","date":"2026-10-31 13:00"}]
+mg=merge_pdf_fixtures_into_scraped(live,pdfm)
+check("PDF names merge into live names (dedupe + canonical spelling)", len(mg)==2 and mg[1]["home_team"]=="Dukes of Gloucester", str(mg))
+
 print("\nRESULT:", "all checks passed" if not fails else f"{len(fails)} FAILURE(S): {fails}")
 sys.exit(1 if fails else 0)

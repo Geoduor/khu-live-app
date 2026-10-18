@@ -208,6 +208,52 @@ def parse_pdf_fixtures(pdf_path: str) -> dict:
     }
 
 
+_NOISE_TOKENS = {"university", "uni", "hockey", "club", "hc", "men", "ladies", "of", "the", "and"}
+_TOKEN_ALIASES = {"maasai": "masai", "multimedia": "mmu", "gloucester": "", "friends": ""}
+
+
+def _team_key(name: str) -> str:
+    """Loose, order-insensitive key so 'Fire Flickers' == 'Fireflickers',
+    'Maasai Mara Hockey Club' == 'Masai Mara', 'Dukes of Gloucester' == 'Dukes'."""
+    toks = re.findall(r"[a-z0-9]+", (name or "").lower())
+    toks = [_TOKEN_ALIASES.get(t, t) for t in toks]
+    toks = [t for t in toks if t and t not in _NOISE_TOKENS]
+    return "".join(toks)
+
+
+def build_team_alias_map(scraped_fixtures: list) -> dict:
+    """
+    {(LEAGUE_SHORT, loose_key): live_site_name}, built from the teams the live
+    site actually displays. A key shared by two different live names in one
+    league is ambiguous and is left out, so we never merge by guessing.
+    """
+    seen = {}
+    for m in scraped_fixtures:
+        ls = (m.get("league_short") or "").strip().upper()
+        for f in ("home_team", "away_team"):
+            nm = (m.get(f) or "").strip()
+            key = _team_key(nm)
+            if not nm or not key:
+                continue
+            seen.setdefault((ls, key), set()).add(nm)
+    return {k: next(iter(v)) for k, v in seen.items() if len(v) == 1}
+
+
+def canonicalize_pdf_matches(pdf_matches: list, scraped_fixtures: list) -> list:
+    """Rename PDF team names to the live site's spelling (same league only)."""
+    alias = build_team_alias_map(scraped_fixtures)
+    out = []
+    for pm in pdf_matches:
+        pm = dict(pm)
+        ls = (pm.get("league_short") or "").strip().upper()
+        for f in ("home_team", "away_team"):
+            live = alias.get((ls, _team_key(pm.get(f, ""))))
+            if live:
+                pm[f] = live
+        out.append(pm)
+    return out
+
+
 def merge_pdf_fixtures_into_scraped(scraped_fixtures: list, pdf_matches: list) -> list:
     """
     Merge PDF-sourced fixtures into an already-scraped fixtures list,
@@ -226,6 +272,7 @@ def merge_pdf_fixtures_into_scraped(scraped_fixtures: list, pdf_matches: list) -
             match_calendar_date_key(m.get("date", "")),
         )
 
+    pdf_matches = canonicalize_pdf_matches(pdf_matches, scraped_fixtures)
     existing_sigs = {sig(m) for m in scraped_fixtures}
 
     merged = list(scraped_fixtures)
