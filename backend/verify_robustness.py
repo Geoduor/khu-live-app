@@ -137,5 +137,9 @@ pdfm=[{"league_short":"NLM-CZ","home_team":"Fireflickers","away_team":"Dukes","d
 mg=merge_pdf_fixtures_into_scraped(live,pdfm)
 check("PDF names merge into live names (dedupe + canonical spelling)", len(mg)==2 and mg[1]["home_team"]=="Dukes of Gloucester", str(mg))
 
+import scraper
+st=[{"team":"Kisii Uni Ladies"}]
+check("placeholder suppressed when live has 'Kisii Uni Ladies'", len(scraper.inject_placeholder_teams(list(st),"super_league_women"))==1)
+check("placeholder still added when absent", len(scraper.inject_placeholder_teams([{"team":"Swans Hockey Club"}],"super_league_women"))==2)
 print("\nRESULT:", "all checks passed" if not fails else f"{len(fails)} FAILURE(S): {fails}")
 sys.exit(1 if fails else 0)

@@ -23,7 +23,7 @@ from datetime import datetime
 
 import pdfplumber
 
-from scraper import LEAGUES, match_calendar_date_key
+from scraper import LEAGUES, match_calendar_date_key, team_loose_key
 
 logger = logging.getLogger(__name__)
 
@@ -208,17 +208,7 @@ def parse_pdf_fixtures(pdf_path: str) -> dict:
     }
 
 
-_NOISE_TOKENS = {"university", "uni", "hockey", "club", "hc", "men", "ladies", "of", "the", "and"}
-_TOKEN_ALIASES = {"maasai": "masai", "multimedia": "mmu", "gloucester": "", "friends": ""}
-
-
-def _team_key(name: str) -> str:
-    """Loose, order-insensitive key so 'Fire Flickers' == 'Fireflickers',
-    'Maasai Mara Hockey Club' == 'Masai Mara', 'Dukes of Gloucester' == 'Dukes'."""
-    toks = re.findall(r"[a-z0-9]+", (name or "").lower())
-    toks = [_TOKEN_ALIASES.get(t, t) for t in toks]
-    toks = [t for t in toks if t and t not in _NOISE_TOKENS]
-    return "".join(toks)
+_team_key = team_loose_key
 
 
 def build_team_alias_map(scraped_fixtures: list) -> dict:

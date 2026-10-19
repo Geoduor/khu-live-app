@@ -156,6 +156,18 @@ PLACEHOLDER_TEAMS = {
 }
 
 
+_LOOSE_NOISE = {"university", "uni", "hockey", "club", "hc", "men", "ladies", "of", "the", "and"}
+_LOOSE_ALIASES = {"maasai": "masai", "multimedia": "mmu", "gloucester": "", "friends": ""}
+
+
+def team_loose_key(name: str) -> str:
+    """Spelling-insensitive team key: 'Kisii Uni Ladies' == 'Kisii University Ladies',
+    'Fire Flickers' == 'Fireflickers'. Only compare within one league."""
+    toks = re.findall(r"[a-z0-9]+", (name or "").lower())
+    toks = [_LOOSE_ALIASES.get(t, t) for t in toks]
+    return "".join(t for t in toks if t and t not in _LOOSE_NOISE)
+
+
 def inject_placeholder_teams(standings: list, league_key: str) -> list:
     """
     Append placeholder rows for teams confirmed to belong in this
@@ -166,9 +178,10 @@ def inject_placeholder_teams(standings: list, league_key: str) -> list:
     """
     placeholders = PLACEHOLDER_TEAMS.get(league_key, [])
     existing_names = {t["team"].strip().lower() for t in standings}
+    existing_keys = {team_loose_key(t["team"]) for t in standings}
 
     for name in placeholders:
-        if name.strip().lower() in existing_names:
+        if name.strip().lower() in existing_names or team_loose_key(name) in existing_keys:
             # KHU has published real data for this team now — don't
             # add a duplicate placeholder alongside the real entry.
             continue
