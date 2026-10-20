@@ -473,7 +473,7 @@ def seed_tournaments_from_file():
     try:
         with open(TOURNAMENTS_SEED_PATH, "r") as f:
             seed = json.load(f)
-        added = db.import_tournaments_seed(seed.get("tournaments", []), seed.get("matches", []))
+        added = db.import_tournaments_seed(seed.get("tournaments", []), seed.get("matches", []), seed.get("retired_tournament_ids", []))
         logger.info(f"Re-seeded {added} tournament(s) from tournaments_seed.json")
     except Exception as e:
         logger.error(f"Failed to load tournaments_seed.json: {e}")

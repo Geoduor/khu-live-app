@@ -1,19 +1,19 @@
 {
  "tournaments": [
   {
-   "id": "twinkle-hockey-fest-2026",
-   "name": "Twinkle Hockey Fest 2026",
+   "id": "nyota-hockey-fest-2026",
+   "name": "Nyota Hockey Fest 2026",
    "start_date": "2026-10-23",
    "end_date": "2026-10-25",
    "venue": "Dashmesh Stadium, Sikh Union, Nairobi",
-   "description": "Separate Men's and Ladies' competitions. Every team plays 3 pool games; the top 8 in each pool go to the quarter-finals on Sunday 25 Oct. Fixtures from the official tournament poster.",
+   "description": "Separate Men's and Ladies' competitions. Every team plays 3 pool games; the top 8 in each pool go to the quarter-finals on Sunday 25 Oct. Hosted by Twinkle Hockey Club. Fixtures from the official tournament poster.",
    "status": "upcoming"
   }
  ],
  "matches": [
   {
-   "match_id": "twinkle-hockey-fest-2026-m01",
-   "tournament_id": "twinkle-hockey-fest-2026",
+   "match_id": "nyota-hockey-fest-2026-m01",
+   "tournament_id": "nyota-hockey-fest-2026",
    "stage": "Men – Pool",
    "group_name": "Men Pool",
    "home_team": "USIU-A",
@@ -25,8 +25,8 @@
    "entered_by": "poster"
   },
   {
-   "match_id": "twinkle-hockey-fest-2026-m02",
-   "tournament_id": "twinkle-hockey-fest-2026",
+   "match_id": "nyota-hockey-fest-2026-m02",
+   "tournament_id": "nyota-hockey-fest-2026",
    "stage": "Men – Pool",
    "group_name": "Men Pool",
    "home_team": "Impala",
@@ -38,8 +38,8 @@
    "entered_by": "poster"
   },
   {
-   "match_id": "twinkle-hockey-fest-2026-m03",
-   "tournament_id": "twinkle-hockey-fest-2026",
+   "match_id": "nyota-hockey-fest-2026-m03",
+   "tournament_id": "nyota-hockey-fest-2026",
    "stage": "Ladies – Pool",
    "group_name": "Ladies Pool",
    "home_team": "USIU",
@@ -51,8 +51,8 @@
    "entered_by": "poster"
   },
   {
-   "match_id": "twinkle-hockey-fest-2026-m04",
-   "tournament_id": "twinkle-hockey-fest-2026",
+   "match_id": "nyota-hockey-fest-2026-m04",
+   "tournament_id": "nyota-hockey-fest-2026",
    "stage": "Men – Pool",
    "group_name": "Men Pool",
    "home_team": "HEHA",
@@ -64,8 +64,8 @@
    "entered_by": "poster"
   },
   {
-   "match_id": "twinkle-hockey-fest-2026-m05",
-   "tournament_id": "twinkle-hockey-fest-2026",
+   "match_id": "nyota-hockey-fest-2026-m05",
+   "tournament_id": "nyota-hockey-fest-2026",
    "stage": "Men – Pool",
    "group_name": "Men Pool",
    "home_team": "Jaguars",
@@ -77,8 +77,8 @@
    "entered_by": "poster"
   },
   {
-   "match_id": "twinkle-hockey-fest-2026-m06",
-   "tournament_id": "twinkle-hockey-fest-2026",
+   "match_id": "nyota-hockey-fest-2026-m06",
+   "tournament_id": "nyota-hockey-fest-2026",
    "stage": "Men – Pool",
    "group_name": "Men Pool",
    "home_team": "Daykio Heroes",
@@ -90,8 +90,8 @@
    "entered_by": "poster"
   },
   {
-   "match_id": "twinkle-hockey-fest-2026-m07",
-   "tournament_id": "twinkle-hockey-fest-2026",
+   "match_id": "nyota-hockey-fest-2026-m07",
+   "tournament_id": "nyota-hockey-fest-2026",
    "stage": "Men – Pool",
    "group_name": "Men Pool",
    "home_team": "USIU-A",
@@ -103,8 +103,8 @@
    "entered_by": "poster"
   },
   {
-   "match_id": "twinkle-hockey-fest-2026-m08",
-   "tournament_id": "twinkle-hockey-fest-2026",
+   "match_id": "nyota-hockey-fest-2026-m08",
+   "tournament_id": "nyota-hockey-fest-2026",
    "stage": "Men – Pool",
    "group_name": "Men Pool",
    "home_team": "Black Tigers",
@@ -116,8 +116,8 @@
    "entered_by": "poster"
   },
   {
-   "match_id": "twinkle-hockey-fest-2026-m09",
-   "tournament_id": "twinkle-hockey-fest-2026",
+   "match_id": "nyota-hockey-fest-2026-m09",
+   "tournament_id": "nyota-hockey-fest-2026",
    "stage": "Ladies – Pool",
    "group_name": "Ladies Pool",
    "home_team": "Twinkle A",
@@ -129,8 +129,8 @@
    "entered_by": "poster"
   },
   {
-   "match_id": "twinkle-hockey-fest-2026-m10",
-   "tournament_id": "twinkle-hockey-fest-2026",
+   "match_id": "nyota-hockey-fest-2026-m10",
+   "tournament_id": "nyota-hockey-fest-2026",
    "stage": "Men – Pool",
    "group_name": "Men Pool",
    "home_team": "Jaguars",
@@ -142,8 +142,8 @@
    "entered_by": "poster"
   },
   {
-   "match_id": "twinkle-hockey-fest-2026-m11",
-   "tournament_id": "twinkle-hockey-fest-2026",
+   "match_id": "nyota-hockey-fest-2026-m11",
+   "tournament_id": "nyota-hockey-fest-2026",
    "stage": "Ladies – Pool",
    "group_name": "Ladies Pool",
    "home_team": "UoN",
@@ -155,8 +155,8 @@
    "entered_by": "poster"
   },
   {
-   "match_id": "twinkle-hockey-fest-2026-m12",
-   "tournament_id": "twinkle-hockey-fest-2026",
+   "match_id": "nyota-hockey-fest-2026-m12",
+   "tournament_id": "nyota-hockey-fest-2026",
    "stage": "Ladies – Pool",
    "group_name": "Ladies Pool",
    "home_team": "BHC Simah A",
@@ -168,8 +168,8 @@
    "entered_by": "poster"
   },
   {
-   "match_id": "twinkle-hockey-fest-2026-m13",
-   "tournament_id": "twinkle-hockey-fest-2026",
+   "match_id": "nyota-hockey-fest-2026-m13",
+   "tournament_id": "nyota-hockey-fest-2026",
    "stage": "Ladies – Pool",
    "group_name": "Ladies Pool",
    "home_team": "K.U",
@@ -181,8 +181,8 @@
    "entered_by": "poster"
   },
   {
-   "match_id": "twinkle-hockey-fest-2026-m14",
-   "tournament_id": "twinkle-hockey-fest-2026",
+   "match_id": "nyota-hockey-fest-2026-m14",
+   "tournament_id": "nyota-hockey-fest-2026",
    "stage": "Men – Pool",
    "group_name": "Men Pool",
    "home_team": "KCA University",
@@ -194,8 +194,8 @@
    "entered_by": "poster"
   },
   {
-   "match_id": "twinkle-hockey-fest-2026-m15",
-   "tournament_id": "twinkle-hockey-fest-2026",
+   "match_id": "nyota-hockey-fest-2026-m15",
+   "tournament_id": "nyota-hockey-fest-2026",
    "stage": "Ladies – Pool",
    "group_name": "Ladies Pool",
    "home_team": "BHC Simah B",
@@ -207,8 +207,8 @@
    "entered_by": "poster"
   },
   {
-   "match_id": "twinkle-hockey-fest-2026-m16",
-   "tournament_id": "twinkle-hockey-fest-2026",
+   "match_id": "nyota-hockey-fest-2026-m16",
+   "tournament_id": "nyota-hockey-fest-2026",
    "stage": "Men – Pool",
    "group_name": "Men Pool",
    "home_team": "Parklands",
@@ -220,8 +220,8 @@
    "entered_by": "poster"
   },
   {
-   "match_id": "twinkle-hockey-fest-2026-m17",
-   "tournament_id": "twinkle-hockey-fest-2026",
+   "match_id": "nyota-hockey-fest-2026-m17",
+   "tournament_id": "nyota-hockey-fest-2026",
    "stage": "Men – Pool",
    "group_name": "Men Pool",
    "home_team": "Strikers",
@@ -233,8 +233,8 @@
    "entered_by": "poster"
   },
   {
-   "match_id": "twinkle-hockey-fest-2026-m18",
-   "tournament_id": "twinkle-hockey-fest-2026",
+   "match_id": "nyota-hockey-fest-2026-m18",
+   "tournament_id": "nyota-hockey-fest-2026",
    "stage": "Men – Pool",
    "group_name": "Men Pool",
    "home_team": "Wahio",
@@ -246,8 +246,8 @@
    "entered_by": "poster"
   },
   {
-   "match_id": "twinkle-hockey-fest-2026-m19",
-   "tournament_id": "twinkle-hockey-fest-2026",
+   "match_id": "nyota-hockey-fest-2026-m19",
+   "tournament_id": "nyota-hockey-fest-2026",
    "stage": "Men – Pool",
    "group_name": "Men Pool",
    "home_team": "Wazalendo B",
@@ -259,8 +259,8 @@
    "entered_by": "poster"
   },
   {
-   "match_id": "twinkle-hockey-fest-2026-m20",
-   "tournament_id": "twinkle-hockey-fest-2026",
+   "match_id": "nyota-hockey-fest-2026-m20",
+   "tournament_id": "nyota-hockey-fest-2026",
    "stage": "Ladies – Pool",
    "group_name": "Ladies Pool",
    "home_team": "Amira",
@@ -272,8 +272,8 @@
    "entered_by": "poster"
   },
   {
-   "match_id": "twinkle-hockey-fest-2026-m21",
-   "tournament_id": "twinkle-hockey-fest-2026",
+   "match_id": "nyota-hockey-fest-2026-m21",
+   "tournament_id": "nyota-hockey-fest-2026",
    "stage": "Men – Pool",
    "group_name": "Men Pool",
    "home_team": "Kenya Police",
@@ -285,8 +285,8 @@
    "entered_by": "poster"
   },
   {
-   "match_id": "twinkle-hockey-fest-2026-m22",
-   "tournament_id": "twinkle-hockey-fest-2026",
+   "match_id": "nyota-hockey-fest-2026-m22",
+   "tournament_id": "nyota-hockey-fest-2026",
    "stage": "Ladies – Pool",
    "group_name": "Ladies Pool",
    "home_team": "BHC Simah A",
@@ -298,8 +298,8 @@
    "entered_by": "poster"
   },
   {
-   "match_id": "twinkle-hockey-fest-2026-m23",
-   "tournament_id": "twinkle-hockey-fest-2026",
+   "match_id": "nyota-hockey-fest-2026-m23",
+   "tournament_id": "nyota-hockey-fest-2026",
    "stage": "Men – Pool",
    "group_name": "Men Pool",
    "home_team": "Sikh Union",
@@ -311,8 +311,8 @@
    "entered_by": "poster"
   },
   {
-   "match_id": "twinkle-hockey-fest-2026-m24",
-   "tournament_id": "twinkle-hockey-fest-2026",
+   "match_id": "nyota-hockey-fest-2026-m24",
+   "tournament_id": "nyota-hockey-fest-2026",
    "stage": "Men – Pool",
    "group_name": "Men Pool",
    "home_team": "Lakers Men",
@@ -324,8 +324,8 @@
    "entered_by": "poster"
   },
   {
-   "match_id": "twinkle-hockey-fest-2026-m25",
-   "tournament_id": "twinkle-hockey-fest-2026",
+   "match_id": "nyota-hockey-fest-2026-m25",
+   "tournament_id": "nyota-hockey-fest-2026",
    "stage": "Men – Pool",
    "group_name": "Men Pool",
    "home_team": "Kenya Police",
@@ -337,8 +337,8 @@
    "entered_by": "poster"
   },
   {
-   "match_id": "twinkle-hockey-fest-2026-m26",
-   "tournament_id": "twinkle-hockey-fest-2026",
+   "match_id": "nyota-hockey-fest-2026-m26",
+   "tournament_id": "nyota-hockey-fest-2026",
    "stage": "Men – Pool",
    "group_name": "Men Pool",
    "home_team": "Sikh Union",
@@ -350,8 +350,8 @@
    "entered_by": "poster"
   },
   {
-   "match_id": "twinkle-hockey-fest-2026-m27",
-   "tournament_id": "twinkle-hockey-fest-2026",
+   "match_id": "nyota-hockey-fest-2026-m27",
+   "tournament_id": "nyota-hockey-fest-2026",
    "stage": "Ladies – Pool",
    "group_name": "Ladies Pool",
    "home_team": "MSC",
@@ -363,8 +363,8 @@
    "entered_by": "poster"
   },
   {
-   "match_id": "twinkle-hockey-fest-2026-m28",
-   "tournament_id": "twinkle-hockey-fest-2026",
+   "match_id": "nyota-hockey-fest-2026-m28",
+   "tournament_id": "nyota-hockey-fest-2026",
    "stage": "Ladies – Pool",
    "group_name": "Ladies Pool",
    "home_team": "Shieywe",
@@ -376,8 +376,8 @@
    "entered_by": "poster"
   },
   {
-   "match_id": "twinkle-hockey-fest-2026-m29",
-   "tournament_id": "twinkle-hockey-fest-2026",
+   "match_id": "nyota-hockey-fest-2026-m29",
+   "tournament_id": "nyota-hockey-fest-2026",
    "stage": "Ladies – Pool",
    "group_name": "Ladies Pool",
    "home_team": "Sparrows",
@@ -389,8 +389,8 @@
    "entered_by": "poster"
   },
   {
-   "match_id": "twinkle-hockey-fest-2026-m30",
-   "tournament_id": "twinkle-hockey-fest-2026",
+   "match_id": "nyota-hockey-fest-2026-m30",
+   "tournament_id": "nyota-hockey-fest-2026",
    "stage": "Ladies – Pool",
    "group_name": "Ladies Pool",
    "home_team": "Tunza Sports M.D",
@@ -402,8 +402,8 @@
    "entered_by": "poster"
   },
   {
-   "match_id": "twinkle-hockey-fest-2026-m31",
-   "tournament_id": "twinkle-hockey-fest-2026",
+   "match_id": "nyota-hockey-fest-2026-m31",
+   "tournament_id": "nyota-hockey-fest-2026",
    "stage": "Ladies – Pool",
    "group_name": "Ladies Pool",
    "home_team": "Twinkle A",
@@ -415,8 +415,8 @@
    "entered_by": "poster"
   },
   {
-   "match_id": "twinkle-hockey-fest-2026-m32",
-   "tournament_id": "twinkle-hockey-fest-2026",
+   "match_id": "nyota-hockey-fest-2026-m32",
+   "tournament_id": "nyota-hockey-fest-2026",
    "stage": "Ladies – Pool",
    "group_name": "Ladies Pool",
    "home_team": "Strathmore B",
@@ -428,8 +428,8 @@
    "entered_by": "poster"
   },
   {
-   "match_id": "twinkle-hockey-fest-2026-m33",
-   "tournament_id": "twinkle-hockey-fest-2026",
+   "match_id": "nyota-hockey-fest-2026-m33",
+   "tournament_id": "nyota-hockey-fest-2026",
    "stage": "Ladies – Pool",
    "group_name": "Ladies Pool",
    "home_team": "K.U",
@@ -441,8 +441,8 @@
    "entered_by": "poster"
   },
   {
-   "match_id": "twinkle-hockey-fest-2026-m34",
-   "tournament_id": "twinkle-hockey-fest-2026",
+   "match_id": "nyota-hockey-fest-2026-m34",
+   "tournament_id": "nyota-hockey-fest-2026",
    "stage": "Men – Pool",
    "group_name": "Men Pool",
    "home_team": "CHB Pioneers",
@@ -454,8 +454,8 @@
    "entered_by": "poster"
   },
   {
-   "match_id": "twinkle-hockey-fest-2026-m35",
-   "tournament_id": "twinkle-hockey-fest-2026",
+   "match_id": "nyota-hockey-fest-2026-m35",
+   "tournament_id": "nyota-hockey-fest-2026",
    "stage": "Men – Pool",
    "group_name": "Men Pool",
    "home_team": "Blue Pirates",
@@ -467,8 +467,8 @@
    "entered_by": "poster"
   },
   {
-   "match_id": "twinkle-hockey-fest-2026-m36",
-   "tournament_id": "twinkle-hockey-fest-2026",
+   "match_id": "nyota-hockey-fest-2026-m36",
+   "tournament_id": "nyota-hockey-fest-2026",
    "stage": "Ladies – Pool",
    "group_name": "Ladies Pool",
    "home_team": "Strathmore A",
@@ -480,8 +480,8 @@
    "entered_by": "poster"
   },
   {
-   "match_id": "twinkle-hockey-fest-2026-m37",
-   "tournament_id": "twinkle-hockey-fest-2026",
+   "match_id": "nyota-hockey-fest-2026-m37",
+   "tournament_id": "nyota-hockey-fest-2026",
    "stage": "Ladies – Pool",
    "group_name": "Ladies Pool",
    "home_team": "USIU",
@@ -493,8 +493,8 @@
    "entered_by": "poster"
   },
   {
-   "match_id": "twinkle-hockey-fest-2026-m38",
-   "tournament_id": "twinkle-hockey-fest-2026",
+   "match_id": "nyota-hockey-fest-2026-m38",
+   "tournament_id": "nyota-hockey-fest-2026",
    "stage": "Men – Pool",
    "group_name": "Men Pool",
    "home_team": "Wazalendo",
@@ -506,8 +506,8 @@
    "entered_by": "poster"
   },
   {
-   "match_id": "twinkle-hockey-fest-2026-m39",
-   "tournament_id": "twinkle-hockey-fest-2026",
+   "match_id": "nyota-hockey-fest-2026-m39",
+   "tournament_id": "nyota-hockey-fest-2026",
    "stage": "Men – Pool",
    "group_name": "Men Pool",
    "home_team": "Silverbacks",
@@ -519,8 +519,8 @@
    "entered_by": "poster"
   },
   {
-   "match_id": "twinkle-hockey-fest-2026-m40",
-   "tournament_id": "twinkle-hockey-fest-2026",
+   "match_id": "nyota-hockey-fest-2026-m40",
+   "tournament_id": "nyota-hockey-fest-2026",
    "stage": "Ladies – Pool",
    "group_name": "Ladies Pool",
    "home_team": "Strathmore A",
@@ -532,8 +532,8 @@
    "entered_by": "poster"
   },
   {
-   "match_id": "twinkle-hockey-fest-2026-m41",
-   "tournament_id": "twinkle-hockey-fest-2026",
+   "match_id": "nyota-hockey-fest-2026-m41",
+   "tournament_id": "nyota-hockey-fest-2026",
    "stage": "Ladies – Pool",
    "group_name": "Ladies Pool",
    "home_team": "Twinkle B",
@@ -545,8 +545,8 @@
    "entered_by": "poster"
   },
   {
-   "match_id": "twinkle-hockey-fest-2026-m42",
-   "tournament_id": "twinkle-hockey-fest-2026",
+   "match_id": "nyota-hockey-fest-2026-m42",
+   "tournament_id": "nyota-hockey-fest-2026",
    "stage": "Men – Pool",
    "group_name": "Men Pool",
    "home_team": "Impala",
@@ -558,8 +558,8 @@
    "entered_by": "poster"
   },
   {
-   "match_id": "twinkle-hockey-fest-2026-m43",
-   "tournament_id": "twinkle-hockey-fest-2026",
+   "match_id": "nyota-hockey-fest-2026-m43",
+   "tournament_id": "nyota-hockey-fest-2026",
    "stage": "Men – Pool",
    "group_name": "Men Pool",
    "home_team": "USIU-A",
@@ -571,8 +571,8 @@
    "entered_by": "poster"
   },
   {
-   "match_id": "twinkle-hockey-fest-2026-m44",
-   "tournament_id": "twinkle-hockey-fest-2026",
+   "match_id": "nyota-hockey-fest-2026-m44",
+   "tournament_id": "nyota-hockey-fest-2026",
    "stage": "Men – Pool",
    "group_name": "Men Pool",
    "home_team": "Wazalendo B",
@@ -584,8 +584,8 @@
    "entered_by": "poster"
   },
   {
-   "match_id": "twinkle-hockey-fest-2026-m45",
-   "tournament_id": "twinkle-hockey-fest-2026",
+   "match_id": "nyota-hockey-fest-2026-m45",
+   "tournament_id": "nyota-hockey-fest-2026",
    "stage": "Men – Pool",
    "group_name": "Men Pool",
    "home_team": "Ulinzi Patriots Blue",
@@ -597,8 +597,8 @@
    "entered_by": "poster"
   },
   {
-   "match_id": "twinkle-hockey-fest-2026-m46",
-   "tournament_id": "twinkle-hockey-fest-2026",
+   "match_id": "nyota-hockey-fest-2026-m46",
+   "tournament_id": "nyota-hockey-fest-2026",
    "stage": "Men – Pool",
    "group_name": "Men Pool",
    "home_team": "Wahio",
@@ -610,8 +610,8 @@
    "entered_by": "poster"
   },
   {
-   "match_id": "twinkle-hockey-fest-2026-m47",
-   "tournament_id": "twinkle-hockey-fest-2026",
+   "match_id": "nyota-hockey-fest-2026-m47",
+   "tournament_id": "nyota-hockey-fest-2026",
    "stage": "Ladies – Pool",
    "group_name": "Ladies Pool",
    "home_team": "Twinkle A",
@@ -623,8 +623,8 @@
    "entered_by": "poster"
   },
   {
-   "match_id": "twinkle-hockey-fest-2026-m48",
-   "tournament_id": "twinkle-hockey-fest-2026",
+   "match_id": "nyota-hockey-fest-2026-m48",
+   "tournament_id": "nyota-hockey-fest-2026",
    "stage": "Ladies – Pool",
    "group_name": "Ladies Pool",
    "home_team": "USIU",
@@ -636,8 +636,8 @@
    "entered_by": "poster"
   },
   {
-   "match_id": "twinkle-hockey-fest-2026-m49",
-   "tournament_id": "twinkle-hockey-fest-2026",
+   "match_id": "nyota-hockey-fest-2026-m49",
+   "tournament_id": "nyota-hockey-fest-2026",
    "stage": "Ladies – Pool",
    "group_name": "Ladies Pool",
    "home_team": "UoN",
@@ -649,8 +649,8 @@
    "entered_by": "poster"
   },
   {
-   "match_id": "twinkle-hockey-fest-2026-m50",
-   "tournament_id": "twinkle-hockey-fest-2026",
+   "match_id": "nyota-hockey-fest-2026-m50",
+   "tournament_id": "nyota-hockey-fest-2026",
    "stage": "Ladies – Pool",
    "group_name": "Ladies Pool",
    "home_team": "Meximed",
@@ -662,8 +662,8 @@
    "entered_by": "poster"
   },
   {
-   "match_id": "twinkle-hockey-fest-2026-m51",
-   "tournament_id": "twinkle-hockey-fest-2026",
+   "match_id": "nyota-hockey-fest-2026-m51",
+   "tournament_id": "nyota-hockey-fest-2026",
    "stage": "Men – Pool",
    "group_name": "Men Pool",
    "home_team": "Sikh Union",
@@ -675,8 +675,8 @@
    "entered_by": "poster"
   },
   {
-   "match_id": "twinkle-hockey-fest-2026-m52",
-   "tournament_id": "twinkle-hockey-fest-2026",
+   "match_id": "nyota-hockey-fest-2026-m52",
+   "tournament_id": "nyota-hockey-fest-2026",
    "stage": "Men – Pool",
    "group_name": "Men Pool",
    "home_team": "JKUAT",
@@ -688,8 +688,8 @@
    "entered_by": "poster"
   },
   {
-   "match_id": "twinkle-hockey-fest-2026-m53",
-   "tournament_id": "twinkle-hockey-fest-2026",
+   "match_id": "nyota-hockey-fest-2026-m53",
+   "tournament_id": "nyota-hockey-fest-2026",
    "stage": "Men – Pool",
    "group_name": "Men Pool",
    "home_team": "Parklands",
@@ -701,8 +701,8 @@
    "entered_by": "poster"
   },
   {
-   "match_id": "twinkle-hockey-fest-2026-m54",
-   "tournament_id": "twinkle-hockey-fest-2026",
+   "match_id": "nyota-hockey-fest-2026-m54",
+   "tournament_id": "nyota-hockey-fest-2026",
    "stage": "Men – Pool",
    "group_name": "Men Pool",
    "home_team": "Meximed",
@@ -714,8 +714,8 @@
    "entered_by": "poster"
   },
   {
-   "match_id": "twinkle-hockey-fest-2026-m55",
-   "tournament_id": "twinkle-hockey-fest-2026",
+   "match_id": "nyota-hockey-fest-2026-m55",
+   "tournament_id": "nyota-hockey-fest-2026",
    "stage": "Ladies – Pool",
    "group_name": "Ladies Pool",
    "home_team": "Amira",
@@ -727,8 +727,8 @@
    "entered_by": "poster"
   },
   {
-   "match_id": "twinkle-hockey-fest-2026-m56",
-   "tournament_id": "twinkle-hockey-fest-2026",
+   "match_id": "nyota-hockey-fest-2026-m56",
+   "tournament_id": "nyota-hockey-fest-2026",
    "stage": "Ladies – Pool",
    "group_name": "Ladies Pool",
    "home_team": "Swans",
@@ -740,8 +740,8 @@
    "entered_by": "poster"
   },
   {
-   "match_id": "twinkle-hockey-fest-2026-m57",
-   "tournament_id": "twinkle-hockey-fest-2026",
+   "match_id": "nyota-hockey-fest-2026-m57",
+   "tournament_id": "nyota-hockey-fest-2026",
    "stage": "Ladies – Pool",
    "group_name": "Ladies Pool",
    "home_team": "BHC Simah A",
@@ -753,8 +753,8 @@
    "entered_by": "poster"
   },
   {
-   "match_id": "twinkle-hockey-fest-2026-m58",
-   "tournament_id": "twinkle-hockey-fest-2026",
+   "match_id": "nyota-hockey-fest-2026-m58",
+   "tournament_id": "nyota-hockey-fest-2026",
    "stage": "Ladies – Pool",
    "group_name": "Ladies Pool",
    "home_team": "UoN",
@@ -766,8 +766,8 @@
    "entered_by": "poster"
   },
   {
-   "match_id": "twinkle-hockey-fest-2026-m59",
-   "tournament_id": "twinkle-hockey-fest-2026",
+   "match_id": "nyota-hockey-fest-2026-m59",
+   "tournament_id": "nyota-hockey-fest-2026",
    "stage": "Ladies – Pool",
    "group_name": "Ladies Pool",
    "home_team": "BHC Simah B",
@@ -779,8 +779,8 @@
    "entered_by": "poster"
   },
   {
-   "match_id": "twinkle-hockey-fest-2026-m60",
-   "tournament_id": "twinkle-hockey-fest-2026",
+   "match_id": "nyota-hockey-fest-2026-m60",
+   "tournament_id": "nyota-hockey-fest-2026",
    "stage": "Ladies – Pool",
    "group_name": "Ladies Pool",
    "home_team": "Kampala Gazelles",
@@ -792,8 +792,8 @@
    "entered_by": "poster"
   },
   {
-   "match_id": "twinkle-hockey-fest-2026-m61",
-   "tournament_id": "twinkle-hockey-fest-2026",
+   "match_id": "nyota-hockey-fest-2026-m61",
+   "tournament_id": "nyota-hockey-fest-2026",
    "stage": "Men – Pool",
    "group_name": "Men Pool",
    "home_team": "Lakers Men",
@@ -805,8 +805,8 @@
    "entered_by": "poster"
   },
   {
-   "match_id": "twinkle-hockey-fest-2026-m62",
-   "tournament_id": "twinkle-hockey-fest-2026",
+   "match_id": "nyota-hockey-fest-2026-m62",
+   "tournament_id": "nyota-hockey-fest-2026",
    "stage": "Men – Pool",
    "group_name": "Men Pool",
    "home_team": "Wazalendo",
@@ -818,8 +818,8 @@
    "entered_by": "poster"
   },
   {
-   "match_id": "twinkle-hockey-fest-2026-m63",
-   "tournament_id": "twinkle-hockey-fest-2026",
+   "match_id": "nyota-hockey-fest-2026-m63",
+   "tournament_id": "nyota-hockey-fest-2026",
    "stage": "Men – Pool",
    "group_name": "Men Pool",
    "home_team": "Strathmore Uni",
@@ -831,8 +831,8 @@
    "entered_by": "poster"
   },
   {
-   "match_id": "twinkle-hockey-fest-2026-m64",
-   "tournament_id": "twinkle-hockey-fest-2026",
+   "match_id": "nyota-hockey-fest-2026-m64",
+   "tournament_id": "nyota-hockey-fest-2026",
    "stage": "Ladies – Pool",
    "group_name": "Ladies Pool",
    "home_team": "Meximed",
@@ -844,8 +844,8 @@
    "entered_by": "poster"
   },
   {
-   "match_id": "twinkle-hockey-fest-2026-m65",
-   "tournament_id": "twinkle-hockey-fest-2026",
+   "match_id": "nyota-hockey-fest-2026-m65",
+   "tournament_id": "nyota-hockey-fest-2026",
    "stage": "Men – Pool",
    "group_name": "Men Pool",
    "home_team": "HEHA",
@@ -857,8 +857,8 @@
    "entered_by": "poster"
   },
   {
-   "match_id": "twinkle-hockey-fest-2026-m66",
-   "tournament_id": "twinkle-hockey-fest-2026",
+   "match_id": "nyota-hockey-fest-2026-m66",
+   "tournament_id": "nyota-hockey-fest-2026",
    "stage": "Men – Pool",
    "group_name": "Men Pool",
    "home_team": "Mars Solar",
@@ -870,8 +870,8 @@
    "entered_by": "poster"
   },
   {
-   "match_id": "twinkle-hockey-fest-2026-m67",
-   "tournament_id": "twinkle-hockey-fest-2026",
+   "match_id": "nyota-hockey-fest-2026-m67",
+   "tournament_id": "nyota-hockey-fest-2026",
    "stage": "Men – Pool",
    "group_name": "Men Pool",
    "home_team": "Kisii University",
@@ -883,8 +883,8 @@
    "entered_by": "poster"
   },
   {
-   "match_id": "twinkle-hockey-fest-2026-m68",
-   "tournament_id": "twinkle-hockey-fest-2026",
+   "match_id": "nyota-hockey-fest-2026-m68",
+   "tournament_id": "nyota-hockey-fest-2026",
    "stage": "Men – Pool",
    "group_name": "Men Pool",
    "home_team": "Strikers",
@@ -896,8 +896,8 @@
    "entered_by": "poster"
   },
   {
-   "match_id": "twinkle-hockey-fest-2026-m69",
-   "tournament_id": "twinkle-hockey-fest-2026",
+   "match_id": "nyota-hockey-fest-2026-m69",
+   "tournament_id": "nyota-hockey-fest-2026",
    "stage": "Men – Pool",
    "group_name": "Men Pool",
    "home_team": "Gorilla",
@@ -909,8 +909,8 @@
    "entered_by": "poster"
   },
   {
-   "match_id": "twinkle-hockey-fest-2026-m70",
-   "tournament_id": "twinkle-hockey-fest-2026",
+   "match_id": "nyota-hockey-fest-2026-m70",
+   "tournament_id": "nyota-hockey-fest-2026",
    "stage": "Men – Pool",
    "group_name": "Men Pool",
    "home_team": "KCA University",
@@ -922,8 +922,8 @@
    "entered_by": "poster"
   },
   {
-   "match_id": "twinkle-hockey-fest-2026-m71",
-   "tournament_id": "twinkle-hockey-fest-2026",
+   "match_id": "nyota-hockey-fest-2026-m71",
+   "tournament_id": "nyota-hockey-fest-2026",
    "stage": "Men – Pool",
    "group_name": "Men Pool",
    "home_team": "Parkroad Vetos",
@@ -935,8 +935,8 @@
    "entered_by": "poster"
   },
   {
-   "match_id": "twinkle-hockey-fest-2026-m72",
-   "tournament_id": "twinkle-hockey-fest-2026",
+   "match_id": "nyota-hockey-fest-2026-m72",
+   "tournament_id": "nyota-hockey-fest-2026",
    "stage": "Men – Pool",
    "group_name": "Men Pool",
    "home_team": "Lakers Men",
@@ -948,8 +948,8 @@
    "entered_by": "poster"
   },
   {
-   "match_id": "twinkle-hockey-fest-2026-m73",
-   "tournament_id": "twinkle-hockey-fest-2026",
+   "match_id": "nyota-hockey-fest-2026-m73",
+   "tournament_id": "nyota-hockey-fest-2026",
    "stage": "Men – Pool",
    "group_name": "Men Pool",
    "home_team": "Meximed",
@@ -961,8 +961,8 @@
    "entered_by": "poster"
   },
   {
-   "match_id": "twinkle-hockey-fest-2026-m74",
-   "tournament_id": "twinkle-hockey-fest-2026",
+   "match_id": "nyota-hockey-fest-2026-m74",
+   "tournament_id": "nyota-hockey-fest-2026",
    "stage": "Men – Pool",
    "group_name": "Men Pool",
    "home_team": "Wazalendo B",
@@ -974,8 +974,8 @@
    "entered_by": "poster"
   },
   {
-   "match_id": "twinkle-hockey-fest-2026-m75",
-   "tournament_id": "twinkle-hockey-fest-2026",
+   "match_id": "nyota-hockey-fest-2026-m75",
+   "tournament_id": "nyota-hockey-fest-2026",
    "stage": "Men – Pool",
    "group_name": "Men Pool",
    "home_team": "Ulinzi Patriots Blue",
@@ -987,8 +987,8 @@
    "entered_by": "poster"
   },
   {
-   "match_id": "twinkle-hockey-fest-2026-m76",
-   "tournament_id": "twinkle-hockey-fest-2026",
+   "match_id": "nyota-hockey-fest-2026-m76",
+   "tournament_id": "nyota-hockey-fest-2026",
    "stage": "Men – Pool",
    "group_name": "Men Pool",
    "home_team": "Kenya Police",
@@ -1000,8 +1000,8 @@
    "entered_by": "poster"
   },
   {
-   "match_id": "twinkle-hockey-fest-2026-m77",
-   "tournament_id": "twinkle-hockey-fest-2026",
+   "match_id": "nyota-hockey-fest-2026-m77",
+   "tournament_id": "nyota-hockey-fest-2026",
    "stage": "Men – Pool",
    "group_name": "Men Pool",
    "home_team": "Daykio Heroes",
@@ -1013,8 +1013,8 @@
    "entered_by": "poster"
   },
   {
-   "match_id": "twinkle-hockey-fest-2026-m78",
-   "tournament_id": "twinkle-hockey-fest-2026",
+   "match_id": "nyota-hockey-fest-2026-m78",
+   "tournament_id": "nyota-hockey-fest-2026",
    "stage": "Men – Pool",
    "group_name": "Men Pool",
    "home_team": "Jaguars",
@@ -1026,8 +1026,8 @@
    "entered_by": "poster"
   },
   {
-   "match_id": "twinkle-hockey-fest-2026-m79",
-   "tournament_id": "twinkle-hockey-fest-2026",
+   "match_id": "nyota-hockey-fest-2026-m79",
+   "tournament_id": "nyota-hockey-fest-2026",
    "stage": "Ladies – Quarter-final",
    "group_name": "",
    "home_team": "1st Position",
@@ -1039,8 +1039,8 @@
    "entered_by": "poster"
   },
   {
-   "match_id": "twinkle-hockey-fest-2026-m80",
-   "tournament_id": "twinkle-hockey-fest-2026",
+   "match_id": "nyota-hockey-fest-2026-m80",
+   "tournament_id": "nyota-hockey-fest-2026",
    "stage": "Ladies – Quarter-final",
    "group_name": "",
    "home_team": "3rd Position",
@@ -1052,8 +1052,8 @@
    "entered_by": "poster"
   },
   {
-   "match_id": "twinkle-hockey-fest-2026-m81",
-   "tournament_id": "twinkle-hockey-fest-2026",
+   "match_id": "nyota-hockey-fest-2026-m81",
+   "tournament_id": "nyota-hockey-fest-2026",
    "stage": "Ladies – Quarter-final",
    "group_name": "",
    "home_team": "2nd Position",
@@ -1065,8 +1065,8 @@
    "entered_by": "poster"
   },
   {
-   "match_id": "twinkle-hockey-fest-2026-m82",
-   "tournament_id": "twinkle-hockey-fest-2026",
+   "match_id": "nyota-hockey-fest-2026-m82",
+   "tournament_id": "nyota-hockey-fest-2026",
    "stage": "Ladies – Quarter-final",
    "group_name": "",
    "home_team": "4th Position",
@@ -1078,8 +1078,8 @@
    "entered_by": "poster"
   },
   {
-   "match_id": "twinkle-hockey-fest-2026-m83",
-   "tournament_id": "twinkle-hockey-fest-2026",
+   "match_id": "nyota-hockey-fest-2026-m83",
+   "tournament_id": "nyota-hockey-fest-2026",
    "stage": "Men – Quarter-final",
    "group_name": "",
    "home_team": "1st Position",
@@ -1091,8 +1091,8 @@
    "entered_by": "poster"
   },
   {
-   "match_id": "twinkle-hockey-fest-2026-m84",
-   "tournament_id": "twinkle-hockey-fest-2026",
+   "match_id": "nyota-hockey-fest-2026-m84",
+   "tournament_id": "nyota-hockey-fest-2026",
    "stage": "Men – Quarter-final",
    "group_name": "",
    "home_team": "3rd Position",
@@ -1104,8 +1104,8 @@
    "entered_by": "poster"
   },
   {
-   "match_id": "twinkle-hockey-fest-2026-m85",
-   "tournament_id": "twinkle-hockey-fest-2026",
+   "match_id": "nyota-hockey-fest-2026-m85",
+   "tournament_id": "nyota-hockey-fest-2026",
    "stage": "Men – Quarter-final",
    "group_name": "",
    "home_team": "2nd Position",
@@ -1117,8 +1117,8 @@
    "entered_by": "poster"
   },
   {
-   "match_id": "twinkle-hockey-fest-2026-m86",
-   "tournament_id": "twinkle-hockey-fest-2026",
+   "match_id": "nyota-hockey-fest-2026-m86",
+   "tournament_id": "nyota-hockey-fest-2026",
    "stage": "Men – Quarter-final",
    "group_name": "",
    "home_team": "4th Position",
@@ -1130,8 +1130,8 @@
    "entered_by": "poster"
   },
   {
-   "match_id": "twinkle-hockey-fest-2026-m87",
-   "tournament_id": "twinkle-hockey-fest-2026",
+   "match_id": "nyota-hockey-fest-2026-m87",
+   "tournament_id": "nyota-hockey-fest-2026",
    "stage": "Ladies – Semi-final",
    "group_name": "",
    "home_team": "Winner QF 1",
@@ -1143,8 +1143,8 @@
    "entered_by": "poster"
   },
   {
-   "match_id": "twinkle-hockey-fest-2026-m88",
-   "tournament_id": "twinkle-hockey-fest-2026",
+   "match_id": "nyota-hockey-fest-2026-m88",
+   "tournament_id": "nyota-hockey-fest-2026",
    "stage": "Ladies – Semi-final",
    "group_name": "",
    "home_team": "Winner QF 3",
@@ -1156,8 +1156,8 @@
    "entered_by": "poster"
   },
   {
-   "match_id": "twinkle-hockey-fest-2026-m89",
-   "tournament_id": "twinkle-hockey-fest-2026",
+   "match_id": "nyota-hockey-fest-2026-m89",
+   "tournament_id": "nyota-hockey-fest-2026",
    "stage": "Men – Semi-final",
    "group_name": "",
    "home_team": "Winner QF 1",
@@ -1169,8 +1169,8 @@
    "entered_by": "poster"
   },
   {
-   "match_id": "twinkle-hockey-fest-2026-m90",
-   "tournament_id": "twinkle-hockey-fest-2026",
+   "match_id": "nyota-hockey-fest-2026-m90",
+   "tournament_id": "nyota-hockey-fest-2026",
    "stage": "Men – Semi-final",
    "group_name": "",
    "home_team": "Winner QF 3",
@@ -1182,8 +1182,8 @@
    "entered_by": "poster"
   },
   {
-   "match_id": "twinkle-hockey-fest-2026-m91",
-   "tournament_id": "twinkle-hockey-fest-2026",
+   "match_id": "nyota-hockey-fest-2026-m91",
+   "tournament_id": "nyota-hockey-fest-2026",
    "stage": "Ladies – 3rd/4th Place",
    "group_name": "",
    "home_team": "Loser SF 1",
@@ -1195,8 +1195,8 @@
    "entered_by": "poster"
   },
   {
-   "match_id": "twinkle-hockey-fest-2026-m92",
-   "tournament_id": "twinkle-hockey-fest-2026",
+   "match_id": "nyota-hockey-fest-2026-m92",
+   "tournament_id": "nyota-hockey-fest-2026",
    "stage": "Men – 3rd/4th Place",
    "group_name": "",
    "home_team": "Loser SF 1",
@@ -1208,8 +1208,8 @@
    "entered_by": "poster"
   },
   {
-   "match_id": "twinkle-hockey-fest-2026-m93",
-   "tournament_id": "twinkle-hockey-fest-2026",
+   "match_id": "nyota-hockey-fest-2026-m93",
+   "tournament_id": "nyota-hockey-fest-2026",
    "stage": "Ladies – Final",
    "group_name": "",
    "home_team": "Winner SF 1",
@@ -1221,8 +1221,8 @@
    "entered_by": "poster"
   },
   {
-   "match_id": "twinkle-hockey-fest-2026-m94",
-   "tournament_id": "twinkle-hockey-fest-2026",
+   "match_id": "nyota-hockey-fest-2026-m94",
+   "tournament_id": "nyota-hockey-fest-2026",
    "stage": "Men – Final",
    "group_name": "",
    "home_team": "Winner SF 1",
@@ -1233,5 +1233,8 @@
    "venue": "",
    "entered_by": "poster"
   }
+ ],
+ "retired_tournament_ids": [
+  "twinkle-hockey-fest-2026"
  ]
 }
