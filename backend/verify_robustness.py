@@ -152,5 +152,12 @@ check("retired tournament (no scores) is removed on re-seed", not any(t["id"]=="
 _om2=dict(_om,match_id="old-m2",tournament_id="old-t2",home_score=1,away_score=0)
 db.import_tournaments_seed([{"id":"old-t2","name":"Old2"}],[_om2]); db.import_tournaments_seed([],[],["old-t2"])
 check("retired tournament with scores is kept", any(t["id"]=="old-t2" for t in db.load_tournaments()))
+_saved=main.cache.get("fixtures_results"); main.cache["fixtures_results"]=None
+try:
+    main.db.save_pdf_fixtures([{"league_short":"PLM","home_team":"A","away_team":"B","date":"2099-01-01 10:00","league":"Premier League Men","source":"pdf"}],"t.pdf")
+    r=c.get("/api/fixtures")
+    check("/api/fixtures falls back to saved PDF fixtures when live cache empty", r.status_code==200 and r.json()["is_stale"] is True and r.json()["total"]>=1, str(r.status_code))
+finally:
+    main.cache["fixtures_results"]=_saved
 print("\nRESULT:", "all checks passed" if not fails else f"{len(fails)} FAILURE(S): {fails}")
 sys.exit(1 if fails else 0)
