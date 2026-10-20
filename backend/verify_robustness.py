@@ -80,7 +80,7 @@ d=c.get(f"/api/tournaments/{tid}").json()
 tbl=d["group_tables"][0]["rows"]
 check("table: Alpha 3 pts, GD +2, first", tbl[0]["team"]=="Alpha" and tbl[0]["points"]==3 and tbl[0]["goal_diff"]==2, str(tbl[0]))
 check("table: Beta 1 pt, Gamma 1 pt, case-insensitive team merge", len(tbl)==3 and tbl[1]["points"]==1 and tbl[2]["points"]==1, str([r["team"] for r in tbl]))
-check("final stage listed first", d["stages"][0]=="Final", str(d["stages"]))
+check("stages chronological: Group A first, Final last", d["stages"][0]=="Group A" and d["stages"][-1]=="Final", str(d["stages"]))
 check("final not in group table", sum(r["played"] for r in tbl)==4)
 check("list endpoint counts", c.get("/api/tournaments").json()["tournaments"][0]["matches_total"]==4)
 check("league standings untouched", "premier_league_men" in main.cache["standings"] and len(main.cache["standings"]["premier_league_men"]["standings"])==1)

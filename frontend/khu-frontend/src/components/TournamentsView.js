@@ -16,7 +16,7 @@ function dateRange(t) {
 /**
  * TournamentsView — hosted tournaments, kept completely separate from
  * the league tables/fixtures/results. List → tap a tournament → its
- * matches (grouped by stage, Final first) and computed group tables.
+ * matches (grouped by stage, first game to last) and computed group tables.
  */
 export default function TournamentsView() {
   const [list, setList] = useState(null);
