@@ -99,7 +99,7 @@ def compute_group_tables(matches: list) -> list:
 
 def build_tournament_detail(tournament: dict, matches: list) -> dict:
     """Public payload for one tournament: matches with state, ordered
-    stages (latest stage first — the Final tops a finished event), and
+    stages in chronological order (opening game first, Final last), and
     computed group tables."""
     ms = []
     for m in matches:
@@ -112,10 +112,13 @@ def build_tournament_detail(tournament: dict, matches: list) -> dict:
         p = parse_date(m.get("date", ""))
         return p.timestamp() if p else 0
 
-    stage_latest = {}
+    # Chronological: stages ordered by their FIRST kickoff, so the list reads
+    # from the opening game to the final. Undated stages go last.
+    stage_first = {}
     for m in ms:
-        stage_latest[m["stage"]] = max(stage_latest.get(m["stage"], 0), ts(m))
-    stages = sorted(stage_latest, key=lambda s: (-stage_latest[s], s))
+        t = ts(m) or float("inf")
+        stage_first[m["stage"]] = min(stage_first.get(m["stage"], float("inf")), t)
+    stages = sorted(stage_first, key=lambda s: (stage_first[s], s))
     ms.sort(key=lambda m: (stages.index(m["stage"]), ts(m)))
     return {
         "tournament": tournament,

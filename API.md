@@ -27,7 +27,7 @@ These require no authentication and are what the frontend uses directly.
 | GET | `/api/match?url=` | Detail for one match. Scraped details plus, when the match is in our cache, `league`, `state`, `scorers`, `cards` and logo URLs (the KHU match page itself doesn't publish scorers) |
 | GET | `/api/players/top-scorers?league_short=` | Goals leaderboard. Merges admin/agent season stat lines (authoritative) with goals tallied from scorers recorded on results — no double counting |
 | GET | `/api/tournaments` | All tournaments with `matches_total` / `matches_played`. Separate from league data |
-| GET | `/api/tournaments/{id}` | One tournament: details, matches grouped by stage (latest stage first, so the Final tops the list) and computed group tables |
+| GET | `/api/tournaments/{id}` | One tournament: details, matches grouped by stage (chronological: first game at the top, Final last) and computed group tables |
 | GET | `/api/playoffs/nlm` | National League playoff bracket |
 | GET | `/api/logo?url=` | Proxies a KHU-hosted team logo image (works around suspected hotlink protection) |
 | POST | `/api/refresh` | Start a background refresh and return immediately (`Refresh started`, or `A refresh is already running`). Rate-limited to once per 60 s; only one scrape runs at a time |
