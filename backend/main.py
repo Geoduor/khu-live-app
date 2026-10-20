@@ -1850,7 +1850,19 @@ def _filter_future_fixtures(fixtures: list) -> list:
 def get_fixtures():
     data = cache.get("fixtures_results")
     if not data:
-        raise HTTPException(status_code=503, detail="No fixtures data available yet — try again shortly.")
+        # Live scrape hasn't succeeded yet (cold start / KHU site down). Serve the
+        # saved official-calendar fixtures instead of an error page.
+        pdf_matches = db.load_pdf_fixtures()
+        if not pdf_matches:
+            raise HTTPException(status_code=503, detail="No fixtures data available yet — try again shortly.")
+        upcoming_only = _filter_future_fixtures(_group_and_sort_matches(pdf_matches))
+        return {
+            "fixtures": upcoming_only,
+            "total": len(upcoming_only),
+            "source": "KHU official season calendar (live site not reachable yet)",
+            "scraped_at": None,
+            "is_stale": True,
+        }
     data = annotate_staleness(dict(data))
     upcoming_only = _filter_future_fixtures(data.get("fixtures", []))
 
