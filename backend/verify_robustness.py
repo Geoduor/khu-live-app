@@ -145,5 +145,5 @@ import json as _json
 _ts=_json.load(open(os.path.join(os.path.dirname(os.path.abspath(main.__file__)),"tournaments_seed.json")))
 _ids=[m["match_id"] for m in _ts["matches"]]
 check("tournaments_seed.json: unique ids, valid matches", len(_ids)==len(set(_ids)) and all(not main.tn.validate_match(m) for m in _ts["matches"]), str(len(_ids)))
-, "all checks passed" if not fails else f"{len(fails)} FAILURE(S): {fails}")
+print("\nRESULT:", "all checks passed" if not fails else f"{len(fails)} FAILURE(S): {fails}")
 sys.exit(1 if fails else 0)
