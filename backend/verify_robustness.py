@@ -141,5 +141,9 @@ import scraper
 st=[{"team":"Kisii Uni Ladies"}]
 check("placeholder suppressed when live has 'Kisii Uni Ladies'", len(scraper.inject_placeholder_teams(list(st),"super_league_women"))==1)
 check("placeholder still added when absent", len(scraper.inject_placeholder_teams([{"team":"Swans Hockey Club"}],"super_league_women"))==2)
-print("\nRESULT:", "all checks passed" if not fails else f"{len(fails)} FAILURE(S): {fails}")
+import json as _json
+_ts=_json.load(open(os.path.join(os.path.dirname(os.path.abspath(main.__file__)),"tournaments_seed.json")))
+_ids=[m["match_id"] for m in _ts["matches"]]
+check("tournaments_seed.json: unique ids, valid matches", len(_ids)==len(set(_ids)) and all(not main.tn.validate_match(m) for m in _ts["matches"]), str(len(_ids)))
+, "all checks passed" if not fails else f"{len(fails)} FAILURE(S): {fails}")
 sys.exit(1 if fails else 0)
