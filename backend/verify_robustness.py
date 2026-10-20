@@ -145,5 +145,12 @@ import json as _json
 _ts=_json.load(open(os.path.join(os.path.dirname(os.path.abspath(main.__file__)),"tournaments_seed.json")))
 _ids=[m["match_id"] for m in _ts["matches"]]
 check("tournaments_seed.json: unique ids, valid matches", len(_ids)==len(set(_ids)) and all(not main.tn.validate_match(m) for m in _ts["matches"]), str(len(_ids)))
+_old={"id":"old-t","name":"Old"}; _om={"match_id":"old-m1","tournament_id":"old-t","home_team":"A","away_team":"B"}
+db.import_tournaments_seed([_old],[_om])
+db.import_tournaments_seed([],[],["old-t"])
+check("retired tournament (no scores) is removed on re-seed", not any(t["id"]=="old-t" for t in db.load_tournaments()))
+_om2=dict(_om,match_id="old-m2",tournament_id="old-t2",home_score=1,away_score=0)
+db.import_tournaments_seed([{"id":"old-t2","name":"Old2"}],[_om2]); db.import_tournaments_seed([],[],["old-t2"])
+check("retired tournament with scores is kept", any(t["id"]=="old-t2" for t in db.load_tournaments()))
 print("\nRESULT:", "all checks passed" if not fails else f"{len(fails)} FAILURE(S): {fails}")
 sys.exit(1 if fails else 0)

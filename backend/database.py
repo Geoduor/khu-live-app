@@ -900,10 +900,17 @@ def delete_tournament_match(match_id: str) -> bool:
     return cur.rowcount > 0
 
 
-def import_tournaments_seed(tournaments: list, matches: list) -> int:
-    """Insert seed rows that don't exist yet (never overwrites live edits)."""
+def import_tournaments_seed(tournaments: list, matches: list, retired_ids: list = None) -> int:
+    """Insert seed rows that don't exist yet (never overwrites live edits).
+    retired_ids: tournaments that were renamed/re-keyed; removed only when no
+    score has been entered in them, so real results are never deleted."""
     init_tournament_tables()
     conn = get_connection()
+    for rid in (retired_ids or []):
+        scored = conn.execute("SELECT 1 FROM tournament_matches WHERE tournament_id = ? AND home_score IS NOT NULL LIMIT 1", (rid,)).fetchone()
+        if not scored:
+            conn.execute("DELETE FROM tournament_matches WHERE tournament_id = ?", (rid,))
+            conn.execute("DELETE FROM tournaments WHERE id = ?", (rid,))
     added = 0
     for t in tournaments:
         cur = conn.execute("""INSERT OR IGNORE INTO tournaments (id, name, start_date, end_date, venue, description, status, created_at)
