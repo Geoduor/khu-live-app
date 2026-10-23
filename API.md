@@ -27,7 +27,7 @@ These require no authentication and are what the frontend uses directly.
 | GET | `/api/match?url=` | Detail for one match. Scraped details plus, when the match is in our cache, `league`, `state`, `scorers`, `cards` and logo URLs (the KHU match page itself doesn't publish scorers) |
 | GET | `/api/players/top-scorers?league_short=` | Goals leaderboard. Merges admin/agent season stat lines (authoritative) with goals tallied from scorers recorded on results — no double counting |
 | GET | `/api/tournaments` | All tournaments with `matches_total` / `matches_played`. Separate from league data |
-| GET | `/api/tournaments/{id}` | One tournament: details, matches grouped by stage (chronological: first game at the top, Final last) and computed group tables |
+| GET | `/api/tournaments/{id}` | One tournament: details, matches grouped by stage (chronological: first game at the top, Final last), computed group tables and `rosters` (real team names per gender/section, used for dropdowns) |
 | GET | `/api/playoffs/nlm` | National League playoff bracket |
 | GET | `/api/logo?url=` | Proxies a KHU-hosted team logo image (works around suspected hotlink protection) |
 | POST | `/api/refresh` | Start a background refresh and return immediately (`Refresh started`, or `A refresh is already running`). Rate-limited to once per 60 s; only one scrape runs at a time |
@@ -78,8 +78,8 @@ neither (0–99); date as `YYYY-MM-DD` or `YYYY-MM-DD HH:MM`.
 |---|---|---|---|
 | POST | `/api/admin/tournaments/save` | admin | Create (no `id`) or edit a tournament. Body: `{id?, name, start_date, end_date, venue, description, status}` |
 | DELETE | `/api/admin/tournaments/{id}` | admin | Delete a tournament and all its matches |
-| POST | `/api/admin/tournaments/{id}/matches/save` | admin or agent | Add (no `match_id`) or edit a match. Body: `{match_id?, stage, group_name, home_team, away_team, home_score?, away_score?, date, venue}` |
-| DELETE | `/api/admin/tournaments/matches/{match_id}` | admin or agent | Delete one match |
+| POST | `/api/admin/tournaments/{id}/matches/save` | admin or agent | Admin: add (no `match_id`) or edit any match. Agent: only enter/correct the score (and fill a knockout slot) on an existing fixture; stage/date/venue are locked and team names must be in the tournament's roster. Body: `{match_id?, stage, group_name, home_team, away_team, home_score?, away_score?, date, venue}` |
+| DELETE | `/api/admin/tournaments/matches/{match_id}` | admin only | Delete one match |
 | GET | `/api/admin/tournaments/export-seed` | admin | Export for permanent persistence — save as `backend/tournaments_seed.json` and commit |
 
 ## Admin & agents — team / player stats
