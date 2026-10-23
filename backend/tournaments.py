@@ -97,6 +97,37 @@ def compute_group_tables(matches: list) -> list:
     return out
 
 
+_PLACEHOLDER_RE = re.compile(r"^(winner|loser)\b|^\d+(st|nd|rd|th)\s+position$|^tbc$|^tbd$", re.I)
+
+
+def is_placeholder_team(name: str) -> bool:
+    """'Winner QF 1', 'Loser SF 2', '1st Position' — slots, not real teams."""
+    return bool(_PLACEHOLDER_RE.search((name or "").strip()))
+
+
+def stage_prefix(stage: str) -> str:
+    """'Men – Pool' -> 'Men'. Stages without ' – ' share one roster ('')."""
+    st = (stage or "").strip()
+    return st.split(" – ")[0].strip() if " – " in st else ""
+
+
+def build_rosters(matches: list) -> dict:
+    """{prefix: sorted real team names}. Teams come from group (pool) matches
+    when any exist, otherwise from every non-placeholder name. Used to turn
+    free-text team boxes into dropdowns so spelling can't drift."""
+    rosters = {}
+    have_groups = any((m.get("group_name") or "").strip() for m in matches)
+    for m in matches:
+        if have_groups and not (m.get("group_name") or "").strip():
+            continue
+        r = rosters.setdefault(stage_prefix(m.get("stage") or m.get("group_name") or ""), {})
+        for nm in (m["home_team"], m["away_team"]):
+            nm = nm.strip()
+            if nm and not is_placeholder_team(nm):
+                r.setdefault(nm.lower(), nm)
+    return {k: sorted(v.values(), key=str.lower) for k, v in rosters.items()}
+
+
 def build_tournament_detail(tournament: dict, matches: list) -> dict:
     """Public payload for one tournament: matches with state, ordered
     stages in chronological order (opening game first, Final last), and
@@ -125,5 +156,6 @@ def build_tournament_detail(tournament: dict, matches: list) -> dict:
         "matches": ms,
         "stages": stages,
         "group_tables": compute_group_tables(matches),
+        "rosters": build_rosters(matches),
         "totals": {"matches": len(ms), "played": sum(1 for m in ms if m["state"] == "FT")},
     }

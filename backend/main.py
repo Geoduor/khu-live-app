@@ -2777,12 +2777,29 @@ def admin_delete_tournament(tournament_id: str, x_admin_token: str = Header(defa
 @app.post("/api/admin/tournaments/{tournament_id}/matches/save")
 def save_tournament_match_endpoint(tournament_id: str, payload: TournamentMatchInput,
                                    x_admin_token: str = Header(default=""), x_agent_token: str = Header(default="")):
-    """Add (no match_id) or edit a tournament match. Admin OR an active agent."""
+    """Add/edit a tournament match. Admin: anything. Agent: only enter or correct
+    an EXISTING fixture's score; the fixture itself (stage, date, venue) is locked
+    and team names must come from the tournament's own roster (no free typing)."""
     entered_by = _authorize_writer(x_admin_token, x_agent_token)
+    is_admin = _is_admin(x_admin_token)
     if not db.get_tournament(tournament_id):
         raise HTTPException(status_code=404, detail="Tournament not found.")
     data = payload.dict()
     data = {k: (v.strip() if isinstance(v, str) else v) for k, v in data.items()}
+
+    if not is_admin:
+        all_ms = db.load_tournament_matches(tournament_id)
+        existing = next((x for x in all_ms if x["match_id"] == payload.match_id), None) if payload.match_id else None
+        if not existing:
+            raise HTTPException(status_code=403, detail="Agents can only enter scores for fixtures that already exist. Ask the admin to add new fixtures.")
+        roster = {n.lower() for n in tn.build_rosters(all_ms).get(tn.stage_prefix(existing.get("stage") or existing.get("group_name") or ""), [])}
+        for side in ("home_team", "away_team"):
+            nm = data[side]
+            if nm.lower() != existing[side].strip().lower() and nm.lower() not in roster:
+                raise HTTPException(status_code=400, detail=f"'{nm}' isn't a team in this tournament — pick one from the list.")
+        for k in ("stage", "group_name", "date", "venue"):
+            data[k] = existing.get(k) or ""
+
     err = tn.validate_match(data)
     if err:
         raise HTTPException(status_code=400, detail=err)
@@ -2794,9 +2811,10 @@ def save_tournament_match_endpoint(tournament_id: str, payload: TournamentMatchI
 
 
 @app.delete("/api/admin/tournaments/matches/{match_id}")
-def delete_tournament_match_endpoint(match_id: str, x_admin_token: str = Header(default=""),
-                                     x_agent_token: str = Header(default="")):
-    _authorize_writer(x_admin_token, x_agent_token)
+def delete_tournament_match_endpoint(match_id: str, x_admin_token: str = Header(default="")):
+    # Admin only: agents correct scores, they never remove fixtures.
+    if not _is_admin(x_admin_token):
+        raise HTTPException(status_code=401, detail="Missing or invalid admin token.")
     if not db.delete_tournament_match(match_id):
         raise HTTPException(status_code=404, detail="Match not found.")
     return {"message": "Match deleted."}

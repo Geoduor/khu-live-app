@@ -66,6 +66,15 @@
     background: transparent; border: 1px dashed var(--border); color: var(--amber);
   }
 
+  .tr-game { padding: 10px 0; border-bottom: 1px solid var(--border); font-size: 13px; }
+  .tr-game:last-child { border-bottom: none; }
+  .tr-teams { display: flex; gap: 6px; align-items: center; margin: 6px 0; }
+  .tr-teams > * { flex: 1; min-width: 0; }
+  .tr-teams .tr-name { font-weight: 700; padding: 8px 0; }
+  .tr-scores { display: flex; gap: 8px; align-items: center; }
+  .tr-scores input { width: 64px; text-align: center; padding: 8px; }
+  .tr-scores .save-btn { width: auto; margin: 0 0 0 auto; padding: 8px 18px; }
+  .tr-done { color: #6fcf6f; font-size: 11px; }
   .section-title { font-size: 14px; font-weight: 700; margin-bottom: 8px; }
   .welcome-bar {
     display: flex; align-items: center; justify-content: space-between;
@@ -103,6 +112,18 @@
   <div class="welcome-bar">
     <span>Logged in as <strong id="welcomeName"></strong></span>
     <button class="logout-btn" onclick="logout()">Log Out</button>
+  </div>
+
+  <div class="card">
+    <div class="section-title">Tournament Results</div>
+    <div class="subtitle" style="margin-bottom:8px;">Pick the tournament and stage, then type the score for each game and press Save. Team names are chosen from a list &mdash; never typed.</div>
+    <label>Tournament</label>
+    <select id="trTournament" onchange="loadTournamentFixtures()"><option value="">Loading…</option></select>
+    <label>Stage</label>
+    <select id="trStage" onchange="renderTournamentFixtures()"></select>
+    <label style="display:flex;align-items:center;gap:8px;margin-top:12px;"><input type="checkbox" id="trOnlyOpen" style="width:auto;" onchange="renderTournamentFixtures()" /> Only games without a score yet</label>
+    <div id="trMsg" class="msg"></div>
+    <div id="trList" style="margin-top:10px;"></div>
   </div>
 
   <div class="card">
@@ -320,6 +341,7 @@
       $('mainScreen').style.display = 'block';
       $('welcomeName').textContent = displayName();
       populateTeamDropdowns();
+      loadTournamentList();
       loadResults();
     } else {
       $('loginScreen').style.display = 'block';
@@ -482,6 +504,109 @@
     } catch (e) {
       alert(e.message);
     }
+  }
+
+
+  // ───────── Tournament results (scores + roster dropdowns, no free-typed names) ─────────
+  let TR_DATA = null;
+
+  async function loadTournamentList() {
+    const sel = $('trTournament');
+    try {
+      const res = await fetch(`${apiBase()}/api/tournaments`);
+      const data = await res.json();
+      const list = (data.tournaments || []).filter((t) => t.status !== 'completed' || t.matches_total);
+      if (!list.length) { setKids(sel, opt('', 'No tournaments yet')); return; }
+      setKids(sel, list.map((t) => opt(t.id, t.name)));
+      loadTournamentFixtures();
+    } catch (e) { setKids(sel, opt('', 'Could not load tournaments')); }
+  }
+
+  async function loadTournamentFixtures() {
+    const id = $('trTournament').value;
+    if (!id) return;
+    try {
+      const res = await fetch(`${apiBase()}/api/tournaments/${encodeURIComponent(id)}`);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || 'Could not load fixtures.');
+      TR_DATA = data;
+      const prev = $('trStage').value;
+      setKids($('trStage'), opt('', 'All stages'), data.stages.map((s) => opt(s, s)));
+      if (prev && data.stages.includes(prev)) $('trStage').value = prev;
+      renderTournamentFixtures();
+    } catch (e) { setKids($('trList'), note(e.message)); }
+  }
+
+  function fmtWhen(d) {
+    const m = /^(\d{4})-(\d{2})-(\d{2})(?: (\d{2}:\d{2}))?/.exec(d || '');
+    if (!m) return d || '';
+    const day = new Date(`${m[1]}-${m[2]}-${m[3]}T00:00:00`).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
+    return m[4] ? `${day} · ${m[4]}` : day;
+  }
+
+  function trTeamPicker(m, side, roster) {
+    const current = m[side];
+    const real = roster.includes(current);
+    // Fixed slot (a real team) → plain name. Placeholder slot → dropdown of the roster.
+    if (real) return h('div', { class: 'tr-name', 'data-team': current }, current);
+    const sel = h('select', { 'data-pick': side }, opt('', 'Choose team…'), roster.map((t) => opt(t, t)));
+    return sel;
+  }
+
+  function renderTournamentFixtures() {
+    const box = $('trList');
+    if (!TR_DATA) return;
+    const stage = $('trStage').value;
+    const onlyOpen = $('trOnlyOpen').checked;
+    const games = TR_DATA.matches.filter((m) => (!stage || m.stage === stage) && (!onlyOpen || m.state !== 'FT'));
+    if (!games.length) { setKids(box, note(onlyOpen ? 'Every game here already has a score.' : 'No games in this stage.')); return; }
+    const rosters = TR_DATA.rosters || {};
+    setKids(box, games.map((m) => {
+      const prefix = m.stage.includes(' – ') ? m.stage.split(' – ')[0].trim() : '';
+      const roster = rosters[prefix] || [];
+      const hs = h('input', { type: 'number', min: '0', max: '99', placeholder: '0', value: m.home_score ?? '' });
+      const as = h('input', { type: 'number', min: '0', max: '99', placeholder: '0', value: m.away_score ?? '' });
+      const homeEl = trTeamPicker(m, 'home_team', roster);
+      const awayEl = trTeamPicker(m, 'away_team', roster);
+      const btn = h('button', { class: 'save-btn', type: 'button' }, 'Save');
+      const teamOf = (el, side) => el.dataset.team || el.value || '';
+      btn.addEventListener('click', () => saveTournamentScore(m, teamOf(homeEl, 'home_team'), teamOf(awayEl, 'away_team'), hs.value, as.value, btn));
+      return h('div', { class: 'tr-game' },
+        h('div', { class: 'result-meta' }, `#${m.match_id.split('-m').pop()} · ${m.stage} · ${fmtWhen(m.date)}`),
+        (!roster.includes(m.home_team) || !roster.includes(m.away_team)) ? h('div', { class: 'result-meta' }, `Slots: ${m.home_team} vs ${m.away_team}`) : null,
+        h('div', { class: 'tr-teams' }, homeEl, h('span', { style: 'flex:0 0 auto;color:var(--muted)' }, 'vs'), awayEl),
+        h('div', { class: 'tr-scores' }, hs, h('span', {}, '–'), as, btn),
+        m.state === 'FT' ? h('div', { class: 'tr-done' }, `Saved: ${m.home_score} – ${m.away_score}${m.entered_by ? ' by ' + m.entered_by : ''}`) : null);
+    }));
+  }
+
+  async function saveTournamentScore(m, home, away, hsv, asv, btn) {
+    const msg = $('trMsg');
+    msg.className = 'msg';
+    if (!home || !away) { msg.textContent = 'Choose both teams from the list first.'; msg.className = 'msg error'; return; }
+    if ((hsv === '') !== (asv === '')) { msg.textContent = 'Enter both scores (or clear both).'; msg.className = 'msg error'; return; }
+    btn.disabled = true; btn.textContent = 'Saving…';
+    try {
+      const res = await fetch(`${apiBase()}/api/admin/tournaments/${encodeURIComponent(m.tournament_id)}/matches/save`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-agent-token': agentToken() },
+        body: JSON.stringify({
+          match_id: m.match_id, stage: m.stage, group_name: m.group_name || '', home_team: home, away_team: away,
+          home_score: hsv === '' ? null : parseInt(hsv, 10), away_score: asv === '' ? null : parseInt(asv, 10),
+          date: m.date || '', venue: m.venue || '',
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        if (res.status === 401) { logout(); throw new Error('Your session ended — please log in again.'); }
+        throw new Error(data.detail || 'Could not save.');
+      }
+      msg.textContent = `Saved: ${home} ${hsv === '' ? 'vs' : hsv + ' - ' + asv} ${away}`;
+      msg.className = 'msg success';
+      await loadTournamentFixtures();
+    } catch (e) {
+      msg.textContent = e.message; msg.className = 'msg error';
+    } finally { btn.disabled = false; btn.textContent = 'Save'; }
   }
 
   $('homeTeam').addEventListener('change', updateTeamLabels);

@@ -68,6 +68,27 @@ check("agent can list results", c.get("/api/admin/results/list", headers=AH).sta
 check("agent CANNOT overwrite team standings", c.post("/api/admin/team-stats/set", headers=AH, json={"league_short": "PLM", "team_name": "X", "points": 99}).status_code == 401)
 check("agent CANNOT edit player stats", c.post("/api/admin/player-stats/set", headers=AH, json={"league_short": "PLM", "team_name": "X", "player_name": "Y"}).status_code == 401)
 check("agent CANNOT list agents / export seeds", c.get("/api/admin/agents/export-seed", headers=AH).status_code == 401)
+# ── tournament scoring by agents: scores yes, free-typed names / fixture edits / deletes no ──
+db.import_tournaments_seed([{"id": "tt", "name": "TT"}], [
+    {"match_id": "p1", "tournament_id": "tt", "stage": "Men – Pool", "group_name": "Men Pool", "home_team": "Alpha", "away_team": "Beta", "date": "2026-10-23 10:00", "venue": "V"},
+    {"match_id": "p2", "tournament_id": "tt", "stage": "Men – Pool", "group_name": "Men Pool", "home_team": "Gamma", "away_team": "Delta", "date": "2026-10-23 11:00"},
+    {"match_id": "q1", "tournament_id": "tt", "stage": "Men – Quarter-final", "group_name": "", "home_team": "1st Position", "away_team": "8th Position", "date": "2026-10-25 09:00"},
+    {"match_id": "l1", "tournament_id": "tt", "stage": "Ladies – Pool", "group_name": "Ladies Pool", "home_team": "Zed", "away_team": "Yan", "date": "2026-10-23 12:00"}])
+TS = "/api/admin/tournaments/tt/matches/save"
+base = {"stage": "x", "group_name": "x", "date": "2030-01-01 00:00", "venue": "hacked"}
+r = c.post(TS, headers=AH, json={**base, "match_id": "p1", "home_team": "Alpha", "away_team": "Beta", "home_score": 2, "away_score": 1})
+check("agent can enter a score on an existing fixture", r.status_code == 200, r.text)
+saved = [m for m in db.load_tournament_matches("tt") if m["match_id"] == "p1"][0]
+check("…and the fixture itself stays locked (stage/date/venue)", saved["stage"] == "Men – Pool" and saved["date"] == "2026-10-23 10:00" and saved["venue"] == "V" and saved["entered_by"] == "Jo", str(saved))
+check("agent can correct a score", c.post(TS, headers=AH, json={**base, "match_id": "p1", "home_team": "Alpha", "away_team": "Beta", "home_score": 2, "away_score": 2}).status_code == 200)
+check("agent CANNOT type a team name not in the roster", c.post(TS, headers=AH, json={**base, "match_id": "p1", "home_team": "Alfa", "away_team": "Beta", "home_score": 1, "away_score": 0}).status_code == 400)
+check("agent can fill a knockout slot from the roster", c.post(TS, headers=AH, json={**base, "match_id": "q1", "home_team": "Gamma", "away_team": "Delta"}).status_code == 200)
+check("agent CANNOT use a Ladies team in a Men match", c.post(TS, headers=AH, json={**base, "match_id": "q1", "home_team": "Zed", "away_team": "Delta"}).status_code == 400)
+check("agent CANNOT add brand-new fixtures", c.post(TS, headers=AH, json={**base, "home_team": "Alpha", "away_team": "Gamma"}).status_code == 403)
+check("agent CANNOT delete a tournament fixture", c.delete("/api/admin/tournaments/matches/p2", headers=AH).status_code == 401)
+check("admin still has full control (new fixture, any name)", c.post(TS, headers=H, json={**base, "home_team": "Brand New", "away_team": "Gamma"}).status_code == 200)
+ros = c.get("/api/tournaments/tt").json()["rosters"]
+check("public detail exposes per-gender rosters without placeholders", ros.get("Men") == ["Alpha", "Beta", "Delta", "Gamma"] and ros.get("Ladies") == ["Yan", "Zed"], str(ros))
 main._login_failures.clear()
 codes = [c.post("/api/agent/login", json={"username": "jo", "password": f"bad{i}"}, headers={"x-forwarded-for": f"1.1.1.{i}, 198.51.100.{i}"}).status_code for i in range(12)]
 check("per-account lockout stops a botnet guessing one agent's password", 429 in codes, str(codes))

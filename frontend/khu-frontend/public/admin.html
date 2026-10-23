@@ -220,8 +220,8 @@
       <div><label>Group (for tables)</label><input id="tmGroup" placeholder="e.g. Group A (blank for knockouts)" /></div>
     </div>
     <div class="row">
-      <div><label>Home team</label><input id="tmHome" placeholder="Team name" /></div>
-      <div><label>Away team</label><input id="tmAway" placeholder="Team name" /></div>
+      <div><label>Home team</label><input id="tmHome" list="tmTeams" placeholder="Pick or type a team" autocomplete="off" /></div>
+      <div><label>Away team</label><input id="tmAway" list="tmTeams" placeholder="Pick or type a team" autocomplete="off" /><datalist id="tmTeams"></datalist></div>
     </div>
     <div class="row">
       <div><label>Home score</label><input id="tmHomeScore" type="number" min="0" placeholder="blank = upcoming" /></div>
@@ -745,6 +745,8 @@
       const data = await res.json();
       if (!res.ok) throw new Error(data.detail || 'Could not load.');
       $('tnMatchTitle').textContent = 'Matches — ' + data.tournament.name;
+      const names = [...new Set(Object.values(data.rosters || {}).flat())].sort((a, b) => a.localeCompare(b));
+      setKids($('tmTeams'), names.map((n) => h('option', { value: n })));
       if (!data.matches.length) { setKids(list, note('No matches yet.')); return; }
       setKids(list, data.matches.map((m) => rowOf(
         h('div', {},
