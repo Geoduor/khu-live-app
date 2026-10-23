@@ -159,5 +159,14 @@ try:
     check("/api/fixtures falls back to saved PDF fixtures when live cache empty", r.status_code==200 and r.json()["is_stale"] is True and r.json()["total"]>=1, str(r.status_code))
 finally:
     main.cache["fixtures_results"]=_saved
+
+_b={"match_id":"u1","tournament_id":"ut","stage":"Men – Pool","group_name":"Men Pool","home_team":"Old A","away_team":"Old B","date":"2026-10-23 10:00","entered_by":"poster"}
+db.import_tournaments_seed([{"id":"ut","name":"UT"}],[_b,dict(_b,match_id="u2"),dict(_b,match_id="u3")])
+conn=db.get_connection(); conn.execute("UPDATE tournament_matches SET home_score=2, away_score=1, entered_by='Jo' WHERE match_id='u2'"); conn.execute("UPDATE tournament_matches SET home_team='Admin Fix', entered_by='Admin' WHERE match_id='u3'"); conn.commit(); conn.close()
+db.import_tournaments_seed([],[dict(_b,home_team="New A",away_team="New B"),dict(_b,match_id="u2",home_team="New A",away_team="New B"),dict(_b,match_id="u3",home_team="New A",away_team="New B")])
+_r={m["match_id"]:m for m in db.load_tournament_matches("ut")}
+check("updated sheet refreshes an untouched fixture", _r["u1"]["home_team"]=="New A", str(_r["u1"]))
+check("…but never overwrites a scored fixture", _r["u2"]["home_team"]=="Old A" and _r["u2"]["home_score"]==2)
+check("…or an admin-edited fixture", _r["u3"]["home_team"]=="Admin Fix")
 print("\nRESULT:", "all checks passed" if not fails else f"{len(fails)} FAILURE(S): {fails}")
 sys.exit(1 if fails else 0)

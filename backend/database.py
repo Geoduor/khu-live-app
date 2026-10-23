@@ -918,6 +918,12 @@ def import_tournaments_seed(tournaments: list, matches: list, retired_ids: list 
             t.get("venue", ""), t.get("description", ""), t.get("status", "upcoming"), datetime.now().isoformat()))
         added += cur.rowcount
     for m in matches:
+        # Updated fixture sheet: refresh a seeded match ONLY if nobody has touched it
+        # (still entered_by 'poster' and no score). Admin edits and agent scores win.
+        conn.execute("""UPDATE tournament_matches SET stage=?, group_name=?, home_team=?, away_team=?, date=?, venue=?
+            WHERE match_id=? AND entered_by='poster' AND home_score IS NULL AND away_score IS NULL""",
+            (m.get("stage", ""), m.get("group_name", ""), m["home_team"], m["away_team"], m.get("date", ""),
+             m.get("venue", ""), m["match_id"]))
         conn.execute("""INSERT OR IGNORE INTO tournament_matches (match_id, tournament_id, stage, group_name, home_team, away_team,
             home_score, away_score, date, venue, entered_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (m["match_id"], m["tournament_id"], m.get("stage", ""), m.get("group_name", ""), m["home_team"], m["away_team"],
