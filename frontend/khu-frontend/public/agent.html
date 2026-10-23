@@ -3,201 +3,265 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="theme-color" content="#0D0709" />
 <title>KHU Live — Agent Portal</title>
 <meta name="robots" content="noindex, nofollow" />
 <style>
   :root {
-    --red: #BB0000; --green: #006600; --bg: #0D0709; --card: #1a1214;
-    --border: rgba(255,255,255,0.12); --text: #F5F0F0; --muted: #9A8688; --amber: #F0A500;
+    --red: #C4161C; --red-dim: rgba(196,22,28,0.16); --green: #1f9d55; --green-dim: rgba(31,157,85,0.16);
+    --bg: #0D0709; --card: #181114; --card-2: #211820; --border: rgba(255,255,255,0.09);
+    --text: #F5F0F0; --muted: #9A8E90; --amber: #F0A500; --radius: 14px;
   }
-  * { box-sizing: border-box; }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html { scroll-behavior: smooth; }
   body {
-    margin: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-    background: var(--bg); color: var(--text); padding: 16px; max-width: 560px; margin: 0 auto;
+    margin: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: var(--bg); color: var(--text); font-size: 14px; line-height: 1.4;
+    padding: 0 0 96px; max-width: 560px; margin: 0 auto;
   }
-  h1 { font-size: 18px; margin-bottom: 4px; }
-  .subtitle { color: var(--muted); font-size: 12px; margin-bottom: 20px; }
-  .card {
-    background: var(--card); border: 1px solid var(--border); border-radius: 12px;
-    padding: 16px; margin-bottom: 16px;
+  .wrap { padding: 0 16px; }
+
+  /* ── top bar ── */
+  .topbar {
+    position: sticky; top: 0; z-index: 20; background: rgba(13,7,9,0.92); backdrop-filter: blur(10px);
+    border-bottom: 1px solid var(--border); padding: 12px 16px; display: flex; align-items: center; gap: 12px;
   }
-  label { display: block; font-size: 12px; color: var(--muted); margin: 10px 0 4px; font-weight: 600; }
-  input, select {
-    width: 100%; padding: 10px; border-radius: 8px; border: 1px solid var(--border);
-    background: rgba(255,255,255,0.05); color: var(--text); font-size: 14px;
+  .brand { flex: 1; min-width: 0; }
+  .brand h1 { font-size: 16px; margin: 0; letter-spacing: 0.2px; }
+  .brand .sub { color: var(--muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .who { display: none; align-items: center; gap: 8px; }
+  .avatar {
+    width: 32px; height: 32px; border-radius: 50%; background: var(--red-dim); color: #ff8a8e;
+    display: grid; place-items: center; font-weight: 800; font-size: 13px;
   }
-  input:focus, select:focus { outline: none; border-color: var(--amber); }
-  .row { display: flex; gap: 10px; }
-  .row > div { flex: 1; }
-  button {
-    width: 100%; padding: 12px; border-radius: 8px; border: none;
-    background: var(--red); color: #fff; font-weight: 700; font-size: 14px;
-    cursor: pointer; margin-top: 16px;
-  }
-  button:hover { opacity: 0.9; }
-  button:disabled { opacity: 0.5; cursor: not-allowed; }
-  .msg { padding: 10px 12px; border-radius: 8px; font-size: 13px; margin-top: 12px; display: none; }
-  .msg.success { background: rgba(0,102,0,0.2); border: 1px solid var(--green); display: block; }
-  .msg.error { background: rgba(187,0,0,0.2); border: 1px solid var(--red); display: block; }
-  .result-row {
-    display: flex; align-items: center; justify-content: space-between;
-    padding: 10px 0; border-bottom: 1px solid var(--border); font-size: 13px;
-  }
-  .result-row:last-child { border-bottom: none; }
-  .result-meta { color: var(--muted); font-size: 11px; }
-  .del-btn {
-    width: auto; padding: 6px 10px; font-size: 12px; margin: 0;
-    background: transparent; border: 1px solid var(--red); color: var(--red);
-  }
-  .empty-note { color: var(--muted); font-size: 13px; text-align: center; padding: 16px 0; }
-  .subsection { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--border); }
-  .subsection-title { font-size: 12px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: 0.3px; margin-bottom: 8px; }
-  .optional-tag { font-weight: 400; text-transform: none; opacity: 0.7; }
-  .dyn-row { display: flex; gap: 6px; align-items: center; margin-bottom: 8px; }
-  .dyn-row select { flex: 1.1; padding: 8px; font-size: 13px; }
-  .dyn-row input[type=text], .dyn-row input:not([type]) { flex: 1.4; padding: 8px; font-size: 13px; }
-  .dyn-row input[type=number] { flex: 0.6; padding: 8px; font-size: 13px; }
-  .dyn-row .remove-row-btn {
-    width: auto; margin: 0; padding: 6px 9px; font-size: 12px; flex-shrink: 0;
-    background: transparent; border: 1px solid var(--border); color: var(--muted);
-  }
-  .add-row-btn {
-    width: auto; margin: 0; padding: 7px 14px; font-size: 12px; font-weight: 600;
-    background: transparent; border: 1px dashed var(--border); color: var(--amber);
+  .ghost-btn {
+    background: transparent; border: 1px solid var(--border); color: var(--muted); border-radius: 10px;
+    padding: 7px 12px; font-size: 12px; font-weight: 600; cursor: pointer; width: auto; margin: 0;
   }
 
-  .tr-game { padding: 10px 0; border-bottom: 1px solid var(--border); font-size: 13px; }
-  .tr-game:last-child { border-bottom: none; }
-  .tr-teams { display: flex; gap: 6px; align-items: center; margin: 6px 0; }
-  .tr-teams > * { flex: 1; min-width: 0; }
-  .tr-teams .tr-name { font-weight: 700; padding: 8px 0; }
-  .tr-scores { display: flex; gap: 8px; align-items: center; }
-  .tr-scores input { width: 64px; text-align: center; padding: 8px; }
-  .tr-scores .save-btn { width: auto; margin: 0 0 0 auto; padding: 8px 18px; }
-  .tr-done { color: #6fcf6f; font-size: 11px; }
-  .section-title { font-size: 14px; font-weight: 700; margin-bottom: 8px; }
-  .welcome-bar {
-    display: flex; align-items: center; justify-content: space-between;
-    background: var(--card); border: 1px solid var(--border); border-radius: 12px;
-    padding: 12px 16px; margin-bottom: 16px; font-size: 13px;
+  /* ── tabs ── */
+  .tabs { display: none; gap: 6px; padding: 12px 16px 4px; }
+  .tab {
+    flex: 1; background: var(--card); border: 1px solid var(--border); color: var(--muted);
+    padding: 11px 6px; border-radius: 12px; font-size: 13px; font-weight: 700; cursor: pointer; margin: 0; width: auto;
   }
-  .logout-btn {
-    width: auto; margin: 0; padding: 6px 12px; font-size: 12px;
-    background: transparent; border: 1px solid var(--border); color: var(--muted);
+  .tab.on { background: var(--red); border-color: var(--red); color: #fff; }
+  .panel { display: none; padding: 12px 16px 0; }
+  .panel.on { display: block; }
+
+  /* ── generic ── */
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; margin-bottom: 14px; }
+  .card h2 { font-size: 15px; margin: 0 0 4px; }
+  .hint { color: var(--muted); font-size: 12px; margin: 0 0 12px; }
+  label { display: block; font-size: 11px; color: var(--muted); margin: 12px 0 5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.4px; }
+  input, select {
+    width: 100%; height: 44px; padding: 0 12px; border-radius: 10px; border: 1px solid var(--border);
+    background: var(--card-2); color: var(--text); font-size: 15px; font-family: inherit;
   }
+  select { appearance: none; -webkit-appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' fill='none' stroke='%239A8E90' stroke-width='2' stroke-linecap='round'/%3E%3C/svg%3E");
+    background-repeat: no-repeat; background-position: right 12px center; padding-right: 32px; }
+  input:focus, select:focus { outline: none; border-color: var(--amber); }
+  .row { display: flex; gap: 10px; }
+  .row > div { flex: 1; min-width: 0; }
+  .btn {
+    width: 100%; height: 46px; border-radius: 12px; border: none; background: var(--red); color: #fff;
+    font-weight: 800; font-size: 15px; cursor: pointer; margin-top: 16px;
+  }
+  .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+  .msg { padding: 10px 12px; border-radius: 10px; font-size: 13px; margin-top: 12px; display: none; }
+  .msg.success { background: var(--green-dim); border: 1px solid var(--green); display: block; }
+  .msg.error { background: var(--red-dim); border: 1px solid var(--red); display: block; }
+  .empty-note { color: var(--muted); font-size: 13px; text-align: center; padding: 24px 0; }
+
+  /* ── tournament: filters ── */
+  .filters { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .filters .full { grid-column: 1 / -1; }
+  .filters label { margin-top: 0; }
+  .pills { display: flex; gap: 6px; }
+  .pill {
+    flex: 1; height: 40px; border-radius: 10px; border: 1px solid var(--border); background: var(--card-2);
+    color: var(--muted); font-weight: 700; font-size: 12px; cursor: pointer; margin: 0; width: auto;
+  }
+  .pill.on { background: var(--red-dim); border-color: var(--red); color: #ffb3b6; }
+  .count { color: var(--muted); font-size: 12px; margin: 14px 2px 6px; }
+
+  /* ── tournament: game cards ── */
+  .group-head {
+    position: sticky; top: 58px; z-index: 5; background: var(--bg); padding: 10px 2px 6px;
+    font-size: 11px; font-weight: 800; color: var(--amber); text-transform: uppercase; letter-spacing: 0.6px;
+  }
+  .game { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px 14px; margin-bottom: 10px; }
+  .game.done { border-color: rgba(31,157,85,0.45); }
+  .game-top { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; font-size: 12px; color: var(--muted); }
+  .game-top .time { color: var(--text); font-weight: 800; font-size: 13px; }
+  .game-top .no { margin-left: auto; opacity: 0.7; }
+  .side { display: flex; align-items: center; gap: 10px; padding: 6px 0; }
+  .side + .side { border-top: 1px dashed var(--border); }
+  .side .team { flex: 1; min-width: 0; font-weight: 700; font-size: 15px; overflow-wrap: anywhere; }
+  .side select { flex: 1; min-width: 0; height: 42px; font-size: 14px; }
+  .side input.score {
+    width: 62px; flex: 0 0 62px; text-align: center; font-size: 20px; font-weight: 800; padding: 0;
+  }
+  .game-foot { display: flex; align-items: center; gap: 10px; margin-top: 8px; }
+  .game-foot .status { flex: 1; font-size: 12px; color: var(--muted); }
+  .game-foot .status.ok { color: #6fd39a; }
+  .game-foot .save {
+    width: auto; margin: 0; height: 38px; padding: 0 22px; border-radius: 10px; border: none;
+    background: var(--red); color: #fff; font-weight: 800; font-size: 13px; cursor: pointer;
+  }
+  .game-foot .save:disabled { opacity: 0.5; }
+
+  /* ── league form extras ── */
+  .subsection { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--border); }
+  .subsection-title { font-size: 12px; font-weight: 800; color: var(--muted); text-transform: uppercase; letter-spacing: 0.4px; margin-bottom: 8px; }
+  .optional-tag { font-weight: 400; text-transform: none; opacity: 0.7; }
+  .dyn-row { display: flex; gap: 6px; align-items: center; margin-bottom: 8px; }
+  .dyn-row select { flex: 1.1; height: 40px; font-size: 13px; }
+  .dyn-row input[type=text], .dyn-row input:not([type]) { flex: 1.4; height: 40px; font-size: 13px; }
+  .dyn-row input[type=number] { flex: 0.6; height: 40px; font-size: 13px; }
+  .remove-row-btn { width: 36px; height: 40px; margin: 0; flex-shrink: 0; background: transparent; border: 1px solid var(--border); color: var(--muted); border-radius: 10px; cursor: pointer; }
+  .add-row-btn { width: auto; margin: 0; padding: 9px 14px; font-size: 12px; font-weight: 700; background: transparent; border: 1px dashed var(--border); color: var(--amber); border-radius: 10px; cursor: pointer; }
+
+  /* ── my entries ── */
+  .result-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 12px 0; border-bottom: 1px solid var(--border); font-size: 13px; }
+  .result-row:last-child { border-bottom: none; }
+  .result-meta { color: var(--muted); font-size: 11px; margin-top: 2px; }
+  .del-btn { width: auto; padding: 7px 12px; font-size: 12px; margin: 0; background: transparent; border: 1px solid var(--red); color: #ff8a8e; border-radius: 10px; cursor: pointer; font-weight: 700; }
+
+  /* ── toast ── */
+  #toast {
+    position: fixed; left: 50%; bottom: 22px; transform: translate(-50%, 20px); opacity: 0; pointer-events: none;
+    background: #2a1f23; border: 1px solid var(--border); color: var(--text); padding: 12px 16px; border-radius: 12px;
+    font-size: 13px; font-weight: 600; max-width: 92vw; z-index: 50; transition: all .22s ease; box-shadow: 0 8px 30px rgba(0,0,0,.5);
+  }
+  #toast.show { opacity: 1; transform: translate(-50%, 0); }
+  #toast.ok { border-color: var(--green); }
+  #toast.err { border-color: var(--red); }
+
   #loginScreen, #mainScreen { display: none; }
+  #loginScreen { padding: 24px 16px; }
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; scroll-behavior: auto !important; } }
 </style>
 </head>
 <body>
 
-<h1>KHU Live — Agent Portal</h1>
-<div class="subtitle">Enter match results you've confirmed. Fills gaps the live scraper hasn't caught yet.</div>
+<div class="topbar">
+  <div class="brand">
+    <h1>KHU Live · Agent Portal</h1>
+    <div class="sub">Unofficial fan app</div>
+  </div>
+  <div class="who" id="who">
+    <div class="avatar" id="avatar"></div>
+    <button class="ghost-btn" onclick="logout()">Log out</button>
+  </div>
+</div>
 
 <!-- LOGIN -->
 <div id="loginScreen">
   <div class="card">
-    <label>Username</label>
-    <input id="username" placeholder="Your username" />
-
-    <label>Password</label>
-    <input id="password" type="password" placeholder="Your password" />
-
-    <button id="loginBtn" onclick="login()">Log In</button>
+    <h2>Welcome back</h2>
+    <p class="hint">Log in with the account the admin created for you.</p>
+    <label for="username">Username</label>
+    <input id="username" placeholder="Your username" autocomplete="username" />
+    <label for="password">Password</label>
+    <input id="password" type="password" placeholder="Your password" autocomplete="current-password" />
+    <button class="btn" id="loginBtn" onclick="login()">Log in</button>
     <div id="loginMsg" class="msg"></div>
   </div>
 </div>
 
 <!-- MAIN -->
 <div id="mainScreen">
-  <div class="welcome-bar">
-    <span>Logged in as <strong id="welcomeName"></strong></span>
-    <button class="logout-btn" onclick="logout()">Log Out</button>
+  <div class="tabs" id="tabs">
+    <button class="tab" data-tab="tour" onclick="showTab('tour')">🏆 Tournament</button>
+    <button class="tab" data-tab="league" onclick="showTab('league')">⚽ League</button>
+    <button class="tab" data-tab="mine" onclick="showTab('mine')">🕘 Entries</button>
   </div>
 
-  <div class="card">
-    <div class="section-title">Tournament Results</div>
-    <div class="subtitle" style="margin-bottom:8px;">Pick the tournament and stage, then type the score for each game and press Save. Team names are chosen from a list &mdash; never typed.</div>
-    <label>Tournament</label>
-    <select id="trTournament" onchange="loadTournamentFixtures()"><option value="">Loading…</option></select>
-    <label>Stage</label>
-    <select id="trStage" onchange="renderTournamentFixtures()"></select>
-    <label style="display:flex;align-items:center;gap:8px;margin-top:12px;"><input type="checkbox" id="trOnlyOpen" style="width:auto;" onchange="renderTournamentFixtures()" /> Only games without a score yet</label>
-    <div id="trMsg" class="msg"></div>
-    <div id="trList" style="margin-top:10px;"></div>
+  <!-- Tournament -->
+  <div class="panel" id="panel-tour">
+    <div class="card">
+      <h2>Tournament results</h2>
+      <p class="hint">Type the score for a game and press Save. Teams are picked from a list, never typed.</p>
+      <div class="filters">
+        <div class="full">
+          <label for="trTournament">Tournament</label>
+          <select id="trTournament" onchange="loadTournamentFixtures()"><option value="">Loading…</option></select>
+        </div>
+        <div class="full">
+          <label for="trStage">Stage</label>
+          <select id="trStage" onchange="renderTournamentFixtures()"></select>
+        </div>
+        <div class="full pills">
+          <button type="button" class="pill on" id="pillAll" onclick="setOpenOnly(false)">All games</button>
+          <button type="button" class="pill" id="pillOpen" onclick="setOpenOnly(true)">Still to score</button>
+        </div>
+      </div>
+    </div>
+    <div class="count" id="trCount"></div>
+    <div id="trList"></div>
   </div>
 
-  <div class="card">
-    <div class="section-title">Add a Result</div>
+  <!-- League -->
+  <div class="panel" id="panel-league">
+    <div class="card">
+      <h2>Add a league result</h2>
+      <p class="hint">Fills gaps the live scraper hasn't caught yet.</p>
 
-    <label>League</label>
-    <select id="league" onchange="populateTeamDropdowns()">
-      <option value="PLM">Premier League Men</option>
-      <option value="PLW">Premier League Women</option>
-      <option value="SLM">Super League Men</option>
-      <option value="SLW">Super League Women</option>
-      <option value="NLM-EZ">National League Men — Eastern Zone</option>
-      <option value="NLM-CZ">National League Men — Central Zone</option>
-      <option value="NLM-WZ">National League Men — Western Zone</option>
-      <option value="NLM-SZ">National League Men — Southern Zone</option>
-    </select>
+      <label for="league">League</label>
+      <select id="league" onchange="populateTeamDropdowns()">
+        <option value="PLM">Premier League Men</option>
+        <option value="PLW">Premier League Women</option>
+        <option value="SLM">Super League Men</option>
+        <option value="SLW">Super League Women</option>
+        <option value="NLM-EZ">National League Men — Eastern Zone</option>
+        <option value="NLM-CZ">National League Men — Central Zone</option>
+        <option value="NLM-WZ">National League Men — Western Zone</option>
+        <option value="NLM-SZ">National League Men — Southern Zone</option>
+      </select>
 
-    <div class="row">
-      <div>
-        <label>Home Team</label>
-        <select id="homeTeam"><option value="">Select a team...</option></select>
+      <div class="row">
+        <div><label for="homeTeam">Home team</label><select id="homeTeam"><option value="">Select a team...</option></select></div>
+        <div><label for="awayTeam">Away team</label><select id="awayTeam"><option value="">Select a team...</option></select></div>
       </div>
-      <div>
-        <label>Away Team</label>
-        <select id="awayTeam"><option value="">Select a team...</option></select>
+      <div class="row">
+        <div><label for="homeScore">Home score</label><input id="homeScore" type="number" inputmode="numeric" min="0" placeholder="0" /></div>
+        <div><label for="awayScore">Away score</label><input id="awayScore" type="number" inputmode="numeric" min="0" placeholder="0" /></div>
       </div>
+      <div class="row">
+        <div><label for="matchDate">Date</label><input id="matchDate" type="date" /></div>
+        <div><label for="matchTime">Time</label><input id="matchTime" type="time" /></div>
+      </div>
+      <label for="venue">Venue (optional)</label>
+      <input id="venue" placeholder="e.g. Dashmesh Stadium" />
+
+      <div class="subsection">
+        <div class="subsection-title">Goal scorers <span class="optional-tag">optional</span></div>
+        <div id="scorersList"></div>
+        <button type="button" class="add-row-btn" onclick="addScorerRow()">+ Add scorer</button>
+      </div>
+      <div class="subsection">
+        <div class="subsection-title">Cards <span class="optional-tag">optional</span></div>
+        <div id="cardsList"></div>
+        <button type="button" class="add-row-btn" onclick="addCardRow()">+ Add card</button>
+      </div>
+
+      <button class="btn" id="submitBtn" onclick="submitResult()">Add result</button>
+      <div id="addMsg" class="msg"></div>
     </div>
-
-    <div class="row">
-      <div>
-        <label>Home Score</label>
-        <input id="homeScore" type="number" min="0" placeholder="0" />
-      </div>
-      <div>
-        <label>Away Score</label>
-        <input id="awayScore" type="number" min="0" placeholder="0" />
-      </div>
-    </div>
-
-    <div class="row">
-      <div>
-        <label>Date</label>
-        <input id="matchDate" type="date" />
-      </div>
-      <div>
-        <label>Time</label>
-        <input id="matchTime" type="time" />
-      </div>
-    </div>
-
-    <label>Venue (optional)</label>
-    <input id="venue" placeholder="e.g. Dashmesh Stadium" />
-
-    <div class="subsection">
-      <div class="subsection-title">Goal Scorers <span class="optional-tag">optional</span></div>
-      <div id="scorersList"></div>
-      <button type="button" class="add-row-btn" onclick="addScorerRow()">+ Add Scorer</button>
-    </div>
-
-    <div class="subsection">
-      <div class="subsection-title">Cards <span class="optional-tag">optional</span></div>
-      <div id="cardsList"></div>
-      <button type="button" class="add-row-btn" onclick="addCardRow()">+ Add Card</button>
-    </div>
-
-    <button id="submitBtn" onclick="submitResult()">Add Result</button>
-    <div id="addMsg" class="msg"></div>
   </div>
 
-  <div class="card">
-    <div class="section-title">Recently Entered Results</div>
-    <div id="resultsList"></div>
+  <!-- My entries -->
+  <div class="panel" id="panel-mine">
+    <div class="card">
+      <h2>Recently entered league results</h2>
+      <div id="resultsList"></div>
+    </div>
   </div>
 </div>
+
+<div id="toast" role="status" aria-live="polite"></div>
 
 <script>
   const $ = (id) => document.getElementById(id);
@@ -223,6 +287,32 @@
   function opt(value, text, url) { const o = h('option', { value }, text); if (url !== undefined) o.dataset.url = url; return o; }
   function sideSelect() { return h('select', { class: 'team-side-select' }, opt('home', teamLabel('home')), opt('away', teamLabel('away'))); }
 
+  let toastTimer = null;
+  function toast(text, kind) {
+    const t = $('toast');
+    t.textContent = text;
+    t.className = 'show ' + (kind || '');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => { t.className = ''; }, 3200);
+  }
+
+  // Use local backend when running on localhost, otherwise production.
+  const API_BASE = (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1")
+    ? "http://localhost:8000"
+    : "https://khu-backend.onrender.com";
+  function apiBase() { return API_BASE; }
+  function agentToken() { return localStorage.getItem('khu_agent_token') || ''; }
+  function displayName() { return localStorage.getItem('khu_agent_display_name') || ''; }
+
+  // ───────── tabs ─────────
+  function showTab(name) {
+    document.querySelectorAll('.tab').forEach((t) => t.classList.toggle('on', t.dataset.tab === name));
+    document.querySelectorAll('.panel').forEach((p) => p.classList.toggle('on', p.id === 'panel-' + name));
+    try { sessionStorage.setItem('khu_agent_tab', name); } catch (e) { /* private mode */ }
+    window.scrollTo({ top: 0 });
+  }
+
+  // ───────── league form ─────────
   let ALL_TEAMS_CACHE = null;
 
   async function fetchAllTeams() {
@@ -247,21 +337,13 @@
 
   async function populateTeamDropdowns() {
     const allTeams = await fetchAllTeams();
-
     if ($('league') && $('homeTeam') && $('awayTeam')) {
       const teams = allTeams.filter((t) => t.league_short === $('league').value);
       populateSelectWithTeams('homeTeam', teams);
       populateSelectWithTeams('awayTeam', teams);
-      if (typeof updateTeamLabels === 'function') updateTeamLabels();
-    }
-    if ($('tsLeague') && $('tsTeamName')) {
-      populateSelectWithTeams('tsTeamName', allTeams.filter((t) => t.league_short === $('tsLeague').value));
-    }
-    if ($('psLeague') && $('psTeamName')) {
-      populateSelectWithTeams('psTeamName', allTeams.filter((t) => t.league_short === $('psLeague').value));
+      updateTeamLabels();
     }
   }
-
 
   function teamLabel(side) {
     const name = $(side === 'home' ? 'homeTeam' : 'awayTeam').value.trim();
@@ -324,28 +406,27 @@
     $('cardsList').replaceChildren();
   }
 
-
-  // Use local backend when running on localhost, otherwise production.
-  // Matches the React app's own API_BASE logic (frontend/.env).
-  const API_BASE = (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1")
-    ? "http://localhost:8000"
-    : "https://khu-backend.onrender.com";
-
-  function apiBase() { return API_BASE; }
-  function agentToken() { return localStorage.getItem('khu_agent_token') || ''; }
-  function displayName() { return localStorage.getItem('khu_agent_display_name') || ''; }
-
+  // ───────── login / session ─────────
   function showScreen() {
     if (agentToken()) {
       $('loginScreen').style.display = 'none';
       $('mainScreen').style.display = 'block';
-      $('welcomeName').textContent = displayName();
+      $('tabs').style.display = 'flex';
+      $('who').style.display = 'flex';
+      const name = displayName();
+      $('avatar').textContent = (name.trim()[0] || '?').toUpperCase();
+      $('avatar').title = name;
+      let tab = 'tour';
+      try { tab = sessionStorage.getItem('khu_agent_tab') || 'tour'; } catch (e) { /* ignore */ }
+      showTab(tab);
       populateTeamDropdowns();
       loadTournamentList();
       loadResults();
     } else {
       $('loginScreen').style.display = 'block';
       $('mainScreen').style.display = 'none';
+      $('tabs').style.display = 'none';
+      $('who').style.display = 'none';
     }
   }
 
@@ -353,19 +434,15 @@
     const btn = $('loginBtn');
     const msg = $('loginMsg');
     msg.className = 'msg';
-
     const username = $('username').value.trim();
     const password = $('password').value;
-
     if (!username || !password) {
       msg.textContent = 'Fill in your username and password.';
       msg.className = 'msg error';
       return;
     }
-
     btn.disabled = true;
     btn.textContent = 'Logging in...';
-
     try {
       const res = await fetch(`${API_BASE}/api/agent/login`, {
         method: 'POST',
@@ -374,7 +451,6 @@
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.detail || 'Login failed.');
-
       localStorage.setItem('khu_agent_token', data.token);
       localStorage.setItem('khu_agent_display_name', data.display_name);
       showScreen();
@@ -383,7 +459,7 @@
       msg.className = 'msg error';
     } finally {
       btn.disabled = false;
-      btn.textContent = 'Log In';
+      btn.textContent = 'Log in';
     }
   }
 
@@ -437,18 +513,12 @@
       const data = await res.json();
       if (!res.ok) {
         if (res.status === 401) {
-          // Session expired or account deactivated — send back to login
-          // rather than leaving a confusing dead form on screen.
           logout();
           throw new Error('Your session ended — please log in again.');
         }
         throw new Error(data.detail || 'Something went wrong.');
       }
-
-      // The backend reports exactly WHY the table did or didn't move
-      // (table_note — e.g. "live standings already publish this match"
-      // vs "team not in the standings cache yet"), so agents get a real
-      // reason instead of a guess.
+      // The backend reports exactly WHY the table did or didn't move.
       const tableNote = data.table_note
         ? ` ${data.table_updated ? "✅" : "⚠️"} ${data.table_note}`
         : (data.table_updated ? " ✅ Table updated." : " ⚠️ Saved — table not updated.");
@@ -462,7 +532,7 @@
       msg.className = 'msg error';
     } finally {
       btn.disabled = false;
-      btn.textContent = 'Add Result';
+      btn.textContent = 'Add result';
     }
   }
 
@@ -474,12 +544,10 @@
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.detail || 'Could not load results.');
-
       if (!data.results.length) {
         setKids(container, note('No manual results entered yet.'));
         return;
       }
-
       setKids(container, data.results.map((r) => rowOf(
         h('div', {},
           h('div', {}, h('strong', {}, r.home_team), ` ${r.home_score} - ${r.away_score} `, h('strong', {}, r.away_team)),
@@ -502,13 +570,20 @@
       if (!res.ok) throw new Error(data.detail || 'Could not delete.');
       loadResults();
     } catch (e) {
-      alert(e.message);
+      toast(e.message, 'err');
     }
   }
 
-
-  // ───────── Tournament results (scores + roster dropdowns, no free-typed names) ─────────
+  // ───────── tournament results (scores + roster dropdowns, no free-typed names) ─────────
   let TR_DATA = null;
+  let TR_OPEN_ONLY = false;
+
+  function setOpenOnly(v) {
+    TR_OPEN_ONLY = v;
+    $('pillAll').classList.toggle('on', !v);
+    $('pillOpen').classList.toggle('on', v);
+    renderTournamentFixtures();
+  }
 
   async function loadTournamentList() {
     const sel = $('trTournament');
@@ -537,54 +612,70 @@
     } catch (e) { setKids($('trList'), note(e.message)); }
   }
 
-  function fmtWhen(d) {
-    const m = /^(\d{4})-(\d{2})-(\d{2})(?: (\d{2}:\d{2}))?/.exec(d || '');
-    if (!m) return d || '';
-    const day = new Date(`${m[1]}-${m[2]}-${m[3]}T00:00:00`).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
-    return m[4] ? `${day} · ${m[4]}` : day;
+  function dayLabel(d) {
+    const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(d || '');
+    if (!m) return 'No date';
+    return new Date(`${m[1]}-${m[2]}-${m[3]}T00:00:00`).toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'short' });
+  }
+  function timeLabel(d) {
+    const m = /(\d{2}:\d{2})/.exec((d || '').split(' ')[1] || '');
+    return m ? m[1] : '';
   }
 
-  function trTeamPicker(m, side, roster) {
+  function teamSide(m, side, roster, scoreInput) {
     const current = m[side];
-    const real = roster.includes(current);
-    // Fixed slot (a real team) → plain name. Placeholder slot → dropdown of the roster.
-    if (real) return h('div', { class: 'tr-name', 'data-team': current }, current);
-    const sel = h('select', { 'data-pick': side }, opt('', 'Choose team…'), roster.map((t) => opt(t, t)));
-    return sel;
+    let who;
+    if (roster.includes(current)) {
+      who = h('div', { class: 'team', 'data-team': current }, current);   // fixed team: plain name
+    } else {
+      who = h('select', { 'data-pick': side, 'aria-label': `Choose team for ${current}` },
+        opt('', `Choose team (${current})`), roster.map((t) => opt(t, t)));   // slot: roster dropdown
+    }
+    return { el: h('div', { class: 'side' }, who, scoreInput), who };
   }
 
   function renderTournamentFixtures() {
     const box = $('trList');
     if (!TR_DATA) return;
     const stage = $('trStage').value;
-    const onlyOpen = $('trOnlyOpen').checked;
-    const games = TR_DATA.matches.filter((m) => (!stage || m.stage === stage) && (!onlyOpen || m.state !== 'FT'));
-    if (!games.length) { setKids(box, note(onlyOpen ? 'Every game here already has a score.' : 'No games in this stage.')); return; }
+    const games = TR_DATA.matches.filter((m) => (!stage || m.stage === stage) && (!TR_OPEN_ONLY || m.state !== 'FT'));
+    const scored = TR_DATA.matches.filter((m) => (!stage || m.stage === stage) && m.state === 'FT').length;
+    const total = TR_DATA.matches.filter((m) => !stage || m.stage === stage).length;
+    $('trCount').textContent = `${games.length} game${games.length === 1 ? '' : 's'} shown · ${scored} of ${total} scored`;
+    if (!games.length) { setKids(box, note(TR_OPEN_ONLY ? 'Every game here already has a score. 🎉' : 'No games in this stage.')); return; }
     const rosters = TR_DATA.rosters || {};
-    setKids(box, games.map((m) => {
+    const out = [];
+    let lastKey = null;
+    games.forEach((m) => {
+      const key = stage ? dayLabel(m.date) : m.stage;
+      if (key !== lastKey) { out.push(h('div', { class: 'group-head' }, key)); lastKey = key; }
       const prefix = m.stage.includes(' – ') ? m.stage.split(' – ')[0].trim() : '';
       const roster = rosters[prefix] || [];
-      const hs = h('input', { type: 'number', min: '0', max: '99', placeholder: '0', value: m.home_score ?? '' });
-      const as = h('input', { type: 'number', min: '0', max: '99', placeholder: '0', value: m.away_score ?? '' });
-      const homeEl = trTeamPicker(m, 'home_team', roster);
-      const awayEl = trTeamPicker(m, 'away_team', roster);
-      const btn = h('button', { class: 'save-btn', type: 'button' }, 'Save');
-      const teamOf = (el, side) => el.dataset.team || el.value || '';
-      btn.addEventListener('click', () => saveTournamentScore(m, teamOf(homeEl, 'home_team'), teamOf(awayEl, 'away_team'), hs.value, as.value, btn));
-      return h('div', { class: 'tr-game' },
-        h('div', { class: 'result-meta' }, `#${m.match_id.split('-m').pop()} · ${m.stage} · ${fmtWhen(m.date)}`),
-        (!roster.includes(m.home_team) || !roster.includes(m.away_team)) ? h('div', { class: 'result-meta' }, `Slots: ${m.home_team} vs ${m.away_team}`) : null,
-        h('div', { class: 'tr-teams' }, homeEl, h('span', { style: 'flex:0 0 auto;color:var(--muted)' }, 'vs'), awayEl),
-        h('div', { class: 'tr-scores' }, hs, h('span', {}, '–'), as, btn),
-        m.state === 'FT' ? h('div', { class: 'tr-done' }, `Saved: ${m.home_score} – ${m.away_score}${m.entered_by ? ' by ' + m.entered_by : ''}`) : null);
-    }));
+      const hs = h('input', { class: 'score', type: 'number', inputmode: 'numeric', min: '0', max: '99', placeholder: '–', value: m.home_score ?? '', 'aria-label': 'Home score' });
+      const as = h('input', { class: 'score', type: 'number', inputmode: 'numeric', min: '0', max: '99', placeholder: '–', value: m.away_score ?? '', 'aria-label': 'Away score' });
+      const home = teamSide(m, 'home_team', roster, hs);
+      const away = teamSide(m, 'away_team', roster, as);
+      const pick = (w) => w.dataset.team || w.value || '';
+      const btn = h('button', { class: 'save', type: 'button' }, m.state === 'FT' ? 'Update' : 'Save');
+      btn.addEventListener('click', () => saveTournamentScore(m, pick(home.who), pick(away.who), hs.value, as.value, btn));
+      const num = m.match_id.split('-m').pop();
+      out.push(h('div', { class: 'game' + (m.state === 'FT' ? ' done' : '') },
+        h('div', { class: 'game-top' },
+          h('span', { class: 'time' }, timeLabel(m.date) || '—'),
+          stage ? null : h('span', {}, dayLabel(m.date)),
+          h('span', { class: 'no' }, `#${num}`)),
+        home.el, away.el,
+        h('div', { class: 'game-foot' },
+          h('div', { class: 'status' + (m.state === 'FT' ? ' ok' : '') }, m.state === 'FT' ? `✓ Saved${m.entered_by ? ' by ' + m.entered_by : ''}` : 'Not scored yet'),
+          btn)));
+    });
+    setKids(box, out);
   }
 
   async function saveTournamentScore(m, home, away, hsv, asv, btn) {
-    const msg = $('trMsg');
-    msg.className = 'msg';
-    if (!home || !away) { msg.textContent = 'Choose both teams from the list first.'; msg.className = 'msg error'; return; }
-    if ((hsv === '') !== (asv === '')) { msg.textContent = 'Enter both scores (or clear both).'; msg.className = 'msg error'; return; }
+    if (!home || !away) { toast('Choose both teams from the list first.', 'err'); return; }
+    if ((hsv === '') !== (asv === '')) { toast('Enter both scores (or clear both).', 'err'); return; }
+    const label = btn.textContent;
     btn.disabled = true; btn.textContent = 'Saving…';
     try {
       const res = await fetch(`${apiBase()}/api/admin/tournaments/${encodeURIComponent(m.tournament_id)}/matches/save`, {
@@ -601,16 +692,19 @@
         if (res.status === 401) { logout(); throw new Error('Your session ended — please log in again.'); }
         throw new Error(data.detail || 'Could not save.');
       }
-      msg.textContent = `Saved: ${home} ${hsv === '' ? 'vs' : hsv + ' - ' + asv} ${away}`;
-      msg.className = 'msg success';
+      toast(`Saved: ${home} ${hsv === '' ? 'vs' : hsv + ' – ' + asv} ${away}`, 'ok');
+      const y = window.scrollY;
       await loadTournamentFixtures();
+      window.scrollTo({ top: y });
     } catch (e) {
-      msg.textContent = e.message; msg.className = 'msg error';
-    } finally { btn.disabled = false; btn.textContent = 'Save'; }
+      toast(e.message, 'err');
+      btn.disabled = false; btn.textContent = label;
+    }
   }
 
   $('homeTeam').addEventListener('change', updateTeamLabels);
   $('awayTeam').addEventListener('change', updateTeamLabels);
+  $('password').addEventListener('keydown', (e) => { if (e.key === 'Enter') login(); });
 
   showScreen();
 </script>
