@@ -1136,11 +1136,11 @@
    "group_name": "",
    "home_team": "BHC Simah A",
    "away_team": "Strathmore B",
-   "home_score": null,
-   "away_score": null,
+   "home_score": 1,
+   "away_score": 0,
    "date": "2026-10-25 13:00",
    "venue": "",
-   "entered_by": "poster"
+   "entered_by": "Results sheet"
   },
   {
    "match_id": "nyota-hockey-fest-2026-m88",
@@ -1149,11 +1149,11 @@
    "group_name": "",
    "home_team": "Strathmore A",
    "away_team": "K.U",
-   "home_score": null,
-   "away_score": null,
+   "home_score": 2,
+   "away_score": 0,
    "date": "2026-10-25 13:30",
    "venue": "",
-   "entered_by": "poster"
+   "entered_by": "Results sheet"
   },
   {
    "match_id": "nyota-hockey-fest-2026-m89",
@@ -1162,11 +1162,11 @@
    "group_name": "",
    "home_team": "Parklands",
    "away_team": "Meximed",
-   "home_score": null,
-   "away_score": null,
+   "home_score": 1,
+   "away_score": 2,
    "date": "2026-10-25 14:00",
    "venue": "",
-   "entered_by": "poster"
+   "entered_by": "Results sheet"
   },
   {
    "match_id": "nyota-hockey-fest-2026-m90",
@@ -1175,63 +1175,63 @@
    "group_name": "",
    "home_team": "Strikers",
    "away_team": "Sikh Union",
-   "home_score": null,
-   "away_score": null,
+   "home_score": 1,
+   "away_score": 0,
    "date": "2026-10-25 14:30",
    "venue": "",
-   "entered_by": "poster"
+   "entered_by": "Results sheet"
   },
   {
    "match_id": "nyota-hockey-fest-2026-m91",
    "tournament_id": "nyota-hockey-fest-2026",
    "stage": "Ladies – 3rd/4th Place",
    "group_name": "",
-   "home_team": "Loser SF 1",
-   "away_team": "Loser SF 2",
-   "home_score": null,
-   "away_score": null,
+   "home_team": "Strathmore B",
+   "away_team": "K.U",
+   "home_score": 1,
+   "away_score": 0,
    "date": "2026-10-25 15:00",
    "venue": "",
-   "entered_by": "poster"
+   "entered_by": "Results sheet"
   },
   {
    "match_id": "nyota-hockey-fest-2026-m92",
    "tournament_id": "nyota-hockey-fest-2026",
    "stage": "Men – 3rd/4th Place",
    "group_name": "",
-   "home_team": "Loser SF 1",
-   "away_team": "Loser SF 2",
-   "home_score": null,
-   "away_score": null,
+   "home_team": "Parklands",
+   "away_team": "Sikh Union",
+   "home_score": 3,
+   "away_score": 2,
    "date": "2026-10-25 15:30",
    "venue": "",
-   "entered_by": "poster"
+   "entered_by": "Results sheet"
   },
   {
    "match_id": "nyota-hockey-fest-2026-m93",
    "tournament_id": "nyota-hockey-fest-2026",
    "stage": "Ladies – Final",
    "group_name": "",
-   "home_team": "Winner SF 1",
-   "away_team": "Winner SF 2",
-   "home_score": null,
-   "away_score": null,
+   "home_team": "BHC Simah A",
+   "away_team": "Strathmore A",
+   "home_score": 0,
+   "away_score": 2,
    "date": "2026-10-25 16:00",
    "venue": "",
-   "entered_by": "poster"
+   "entered_by": "Results sheet"
   },
   {
    "match_id": "nyota-hockey-fest-2026-m94",
    "tournament_id": "nyota-hockey-fest-2026",
    "stage": "Men – Final",
    "group_name": "",
-   "home_team": "Winner SF 1",
-   "away_team": "Winner SF 2",
-   "home_score": null,
-   "away_score": null,
+   "home_team": "Meximed",
+   "away_team": "Strikers",
+   "home_score": 2,
+   "away_score": 0,
    "date": "2026-10-25 16:30",
    "venue": "",
-   "entered_by": "poster"
+   "entered_by": "Results sheet"
   }
  ],
  "retired_tournament_ids": [
