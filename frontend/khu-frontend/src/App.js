@@ -14,6 +14,7 @@ import PlayoffBracket from "./components/PlayoffBracket";
 import OnboardingPicker from "./components/OnboardingPicker";
 import TeamLogo from "./components/TeamLogo";
 import InstallBanner from "./components/InstallBanner";
+import { useInstallPrompt } from "./hooks/useInstallPrompt";
 import TournamentsView from "./components/TournamentsView";
 import TopScorers from "./components/TopScorers";
 import ShareButton from "./components/ShareButton";
@@ -64,6 +65,7 @@ function App() {
   const { favorites, favoriteList, isFavorite, toggleFavorite } = useFavorites();
   const { supported: pushSupported, isSubscribed, loading: pushLoading, subscribe, unsubscribe } = usePushNotifications(Object.keys(favorites));
   const { toggleTheme, isDark } = useTheme();
+  const installState = useInstallPrompt();
   const { hasSeenOnboarding, markOnboardingSeen } = useOnboarding();
 
   const handleBellClick = async () => {
@@ -296,7 +298,7 @@ function App() {
         </div>
         <div className="header-inner">
           <div className="logo">
-            <img src="/khu-logo.png" alt="KHU Logo" className="logo-shield-img" />
+            <img src="/khu-crest.png" alt="KHU Logo" className="logo-shield-img" />
             <div className="logo-text">
               <div className="logo-khu">KHU</div>
               <div className="logo-full">Kenya Hockey Union</div>
@@ -304,6 +306,11 @@ function App() {
             </div>
           </div>
           <div className="header-right">
+            {!installState.alreadyInstalled && (
+              <a className="theme-toggle-btn get-app-btn" href="/install.html" title="Install the app on your phone">
+                <span aria-hidden="true">📲</span> Get app
+              </a>
+            )}
             <button
               className="theme-toggle-btn"
               onClick={toggleTheme}
@@ -360,10 +367,11 @@ function App() {
         </div>
       </div>
 
-      <InstallBanner />
-
       {/* Content */}
       <div className="main">
+        {/* Inside .main (not above it): the header is position:fixed, so a banner placed before
+            .main sat BEHIND the header and was invisible and untappable. */}
+        {!overlay && <InstallBanner />}
         {overlay?.type === "team" && (
           <TeamProfile teamUrl={overlay.url} teamName={overlay.name} onBack={closeOverlay} onOpenTeam={openTeam} isFavorite={isFavorite} toggleFavorite={toggleFavorite} />
         )}

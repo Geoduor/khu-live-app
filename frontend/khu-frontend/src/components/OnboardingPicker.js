@@ -42,7 +42,7 @@ export default function OnboardingPicker({ onComplete }) {
     <div className="onboarding-overlay">
       <div className="onboarding-card">
         <div className="onboarding-header">
-          <img src="/khu-logo.png" alt="KHU" className="onboarding-logo-img" />
+          <img src="/khu-crest.png" alt="KHU" className="onboarding-logo-img" />
           <div className="onboarding-title">Which teams do you follow?</div>
           <div className="onboarding-sub">
             Pick your favorites — we'll show their matches first and can alert you only about them.

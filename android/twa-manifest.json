@@ -1,0 +1,23 @@
+{
+  "packageId": "app.vercel.khu_live_app.twa",
+  "host": "khu-live-app.vercel.app",
+  "name": "KHU Live",
+  "launcherName": "KHU Live",
+  "display": "standalone",
+  "themeColor": "#FBF8F7",
+  "themeColorDark": "#0D0709",
+  "navigationColor": "#FBF8F7",
+  "navigationColorDark": "#0D0709",
+  "backgroundColor": "#FBF8F7",
+  "enableNotifications": true,
+  "startUrl": "/",
+  "iconUrl": "https://khu-live-app.vercel.app/icon-512.png",
+  "maskableIconUrl": "https://khu-live-app.vercel.app/icon-maskable-512.png",
+  "webManifestUrl": "https://khu-live-app.vercel.app/manifest.json",
+  "appVersionName": "1.0.0",
+  "appVersion": "1",
+  "orientation": "portrait",
+  "fallbackType": "customtabs",
+  "signingKey": { "path": "./khu-live-release.keystore", "alias": "khu-live" },
+  "generatorApp": "bubblewrap-cli"
+}

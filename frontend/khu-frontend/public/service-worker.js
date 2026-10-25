@@ -28,7 +28,7 @@
  * cleaned up even when the strategy itself was supposed to do so.
  */
 
-const CACHE_VERSION = "v3"; // bump this string whenever service-worker.js changes meaningfully
+const CACHE_VERSION = "v4"; // bump this string whenever service-worker.js changes meaningfully
 const CACHE_NAME = `khu-app-shell-${CACHE_VERSION}`;
 const DATA_CACHE_NAME = `khu-app-data-${CACHE_VERSION}`;
 
@@ -38,6 +38,7 @@ const APP_SHELL_URLS = [
   "/manifest.json",
   "/icon-192.png",
   "/icon-512.png",
+  "/icon-maskable-512.png",
 ];
 
 // ── Listen for the "activate now" signal from serviceWorkerRegistration.js ──

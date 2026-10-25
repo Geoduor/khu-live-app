@@ -129,8 +129,11 @@ body{
   background:var(--surface);border-top:1px solid var(--border);border-bottom:1px solid var(--border);
   font-size:12px;color:var(--white);
 }
-.install-banner-text{flex:1;line-height:1.4}
-.install-banner-actions{display:flex;align-items:center;gap:6px;flex-shrink:0}
+.install-banner{flex-wrap:wrap}
+.install-banner-text{flex:1 1 220px;line-height:1.4}
+.install-banner-actions{display:flex;align-items:center;gap:6px;flex-shrink:0;flex-wrap:wrap}
+.install-banner-link{background:transparent;color:var(--muted);border:1px solid var(--border);text-decoration:none;display:inline-block}
+.get-app-btn{color:var(--white);display:inline-flex;align-items:center;gap:4px;text-decoration:none;font-size:12px;font-weight:700;padding:0 10px;width:auto;white-space:nowrap}
 .install-banner-btn{
   background:var(--red);color:#fff;border:none;border-radius:8px;
   padding:6px 14px;font-size:12px;font-weight:700;cursor:pointer;
@@ -942,3 +945,7 @@ body{ -webkit-font-smoothing:antialiased; font-feature-settings:"cv11","ss01"; }
 button:focus-visible,[role="button"]:focus-visible,select:focus-visible{ outline:2px solid var(--red); outline-offset:2px; }
 @media (prefers-reduced-motion:reduce){ *{ animation-duration:.01ms !important; transition-duration:.01ms !important; } }
 @media (min-width:700px){ .main,.section{ max-width:640px; margin-left:auto; margin-right:auto; } .header-inner{ max-width:640px; margin:0 auto; } }
+
+.get-app-btn:hover{transform:none}
+
+.install-banner{border:1px solid var(--border);border-radius:14px;margin:0 0 14px;padding:12px 14px;background:var(--card);box-shadow:var(--shadow-sm)}

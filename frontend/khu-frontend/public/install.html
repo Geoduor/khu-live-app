@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="theme-color" content="#BB0000" />
+<title>Get KHU Live on your phone</title>
+<meta name="description" content="Install KHU Live — live Kenya hockey scores, fixtures and tables — on your phone in 10 seconds. Free, no app store. Unofficial fan app." />
+<meta property="og:type" content="website" />
+<meta property="og:title" content="Get KHU Live on your phone" />
+<meta property="og:description" content="Live Kenya hockey scores, fixtures and tables. Install free in 10 seconds. Unofficial fan app." />
+<meta property="og:url" content="https://khu-live-app.vercel.app/install.html" />
+<meta property="og:image" content="https://khu-live-app.vercel.app/og-image.png" />
+<meta name="twitter:card" content="summary_large_image" />
+<link rel="icon" href="/favicon.ico" />
+<link rel="apple-touch-icon" href="/icon-192.png" />
+<link rel="stylesheet" href="/install.css" />
+</head>
+<body>
+<main>
+  <header class="hero">
+    <img src="/icon-192.png" alt="KHU Live icon" width="72" height="72" class="icon" />
+    <h1>Get KHU Live on your phone</h1>
+    <p class="lead">Live Kenya hockey scores, fixtures and league tables. Free, takes 10 seconds, and no app store needed.</p>
+    <p class="badge">Unofficial fan app · not affiliated with Kenya Hockey Union</p>
+  </header>
+
+  <div id="inapp" class="notice" hidden>
+    <strong>You're inside another app's browser.</strong>
+    <span>Installing doesn't work here. Open this page in <b id="inappBrowser">your browser</b> first:</span>
+    <ol>
+      <li>Tap the <b>⋮</b> (or share) menu at the top.</li>
+      <li>Choose <b>Open in browser</b>.</li>
+    </ol>
+    <button id="copyBtnTop" class="btn ghost" type="button">Or copy the link</button>
+  </div>
+
+  <section id="installed" class="card ok" hidden>
+    <h2>✅ You already have the app</h2>
+    <p>You're running KHU Live as an installed app. Nothing more to do.</p>
+  </section>
+
+  <section id="androidCard" class="card" data-platform="android">
+    <h2><span class="dot">1</span> Android (Chrome)</h2>
+    <button id="installBtn" class="btn" type="button" hidden>📲 Install KHU Live</button>
+    <ol id="androidSteps">
+      <li>Open this page in <b>Chrome</b>.</li>
+      <li>Tap the <b>⋮</b> menu (top right).</li>
+      <li>Tap <b>Install app</b> or <b>Add to Home screen</b>.</li>
+      <li>Tap <b>Install</b>. The KHU Live icon appears with your other apps.</li>
+    </ol>
+  </section>
+
+  <section id="iosCard" class="card" data-platform="ios">
+    <h2><span class="dot">2</span> iPhone &amp; iPad (Safari)</h2>
+    <ol>
+      <li>Open this page in <b>Safari</b> (it won't work from Chrome or inside WhatsApp).</li>
+      <li>Tap the <b>Share</b> button <span class="kbd">⬆️</span> at the bottom of the screen.</li>
+      <li>Scroll down and tap <b>Add to Home Screen</b>.</li>
+      <li>Tap <b>Add</b>. Done.</li>
+    </ol>
+  </section>
+
+  <section id="desktopCard" class="card" data-platform="desktop">
+    <h2><span class="dot">3</span> Computer (Chrome or Edge)</h2>
+    <ol>
+      <li>Open the site in Chrome or Edge.</li>
+      <li>Click the <b>install icon</b> at the right end of the address bar, then <b>Install</b>.</li>
+    </ol>
+  </section>
+
+  <section id="apkCard" class="card" hidden>
+    <h2>Android app file</h2>
+    <p>Prefer a downloadable file? Download and open it. Android will ask you to allow installs from this browser, which is normal for apps outside the Play Store.</p>
+    <a id="apkLink" class="btn" href="/khu-live.apk" download>⬇️ Download for Android</a>
+  </section>
+
+  <section class="card share">
+    <h2>Share with your team</h2>
+    <img src="/install-qr.png" alt="QR code to open the install page" width="220" height="220" class="qr" />
+    <p class="small">Scan with a phone camera, or share the link:</p>
+    <div class="actions">
+      <a id="waBtn" class="btn wa" href="#" target="_blank" rel="noopener">Share on WhatsApp</a>
+      <button id="copyBtn" class="btn ghost" type="button">Copy link</button>
+    </div>
+    <p class="small url">khu-live-app.vercel.app</p>
+  </section>
+
+  <p class="foot"><a href="/">← Open KHU Live in the browser</a></p>
+</main>
+<script src="/install.js"></script>
+</body>
+</html>

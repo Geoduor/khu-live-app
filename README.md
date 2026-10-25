@@ -63,7 +63,7 @@ khu-app/
     └── khu-frontend/           React PWA
         ├── public/
         │   ├── admin.html         Admin portal (results, stats, tournaments)
-        │   ├── khu-logo.png       Official KHU crest
+        │   ├── khu-crest.png       KHU crest (transparent background; icons are generated from it)
         │   ├── generate_icons.py  Regenerates PWA icons from the real logo
         │   ├── manifest.json
         │   └── service-worker.js
@@ -116,7 +116,7 @@ Open `http://localhost:3000`. Make sure the backend is already running, or you'l
 
 ### Logo & PWA icons
 
-1. Save the official KHU crest as `khu-logo.png` in `frontend/khu-frontend/public/`
+1. Use a crest PNG with a **real transparent background** as `khu-crest.png` in `frontend/khu-frontend/public/` (a screenshot of a transparent image bakes the grey checkerboard into the pixels — that's what the old `khu-logo.png` was)
 2. Regenerate the installable app icons from it:
    ```bash
    cd frontend/khu-frontend/public

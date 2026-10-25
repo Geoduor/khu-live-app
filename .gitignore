@@ -27,3 +27,7 @@ khu_cache.db
 .idea/
 .DS_Store
 Thumbs.db
+# Android signing keys — never commit
+*.keystore
+*.jks
+signing-key-info.txt

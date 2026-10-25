@@ -1,0 +1,10 @@
+[
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "app.vercel.khu_live_app.twa",
+      "sha256_cert_fingerprints": ["PASTE_YOUR_SHA256_FINGERPRINT_HERE"]
+    }
+  }
+]

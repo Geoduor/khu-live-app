@@ -26,6 +26,18 @@ import * as serviceWorkerRegistration from "./serviceWorkerRegistration";
   document.documentElement.setAttribute("data-theme", "light");
 })();
 
+// Chrome fires `beforeinstallprompt` once, often BEFORE React has mounted.
+// Capture it here so the install button still works when the banner renders later.
+window.addEventListener("beforeinstallprompt", (e) => {
+  e.preventDefault();
+  window.__khuInstallEvent = e;
+  window.dispatchEvent(new Event("khu-install-ready"));
+});
+window.addEventListener("appinstalled", () => {
+  window.__khuInstallEvent = null;
+  window.dispatchEvent(new Event("khu-install-done"));
+});
+
 const root = ReactDOM.createRoot(document.getElementById("root"));
 root.render(
   <React.StrictMode>
