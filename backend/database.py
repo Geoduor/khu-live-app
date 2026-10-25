@@ -920,10 +920,14 @@ def import_tournaments_seed(tournaments: list, matches: list, retired_ids: list 
     for m in matches:
         # Updated fixture sheet: refresh a seeded match ONLY if nobody has touched it
         # (still entered_by 'poster' and no score). Admin edits and agent scores win.
-        conn.execute("""UPDATE tournament_matches SET stage=?, group_name=?, home_team=?, away_team=?, date=?, venue=?
+        # A seed that carries a score (e.g. from the results sheet) fills ONLY a game that is
+        # still unscored and untouched; agent/admin entries are never overwritten.
+        conn.execute("""UPDATE tournament_matches SET stage=?, group_name=?, home_team=?, away_team=?, date=?, venue=?,
+            home_score=?, away_score=?, entered_by=?
             WHERE match_id=? AND entered_by='poster' AND home_score IS NULL AND away_score IS NULL""",
             (m.get("stage", ""), m.get("group_name", ""), m["home_team"], m["away_team"], m.get("date", ""),
-             m.get("venue", ""), m["match_id"]))
+             m.get("venue", ""), m.get("home_score"), m.get("away_score"),
+             (m.get("entered_by") or "poster") if m.get("home_score") is not None else "poster", m["match_id"]))
         conn.execute("""INSERT OR IGNORE INTO tournament_matches (match_id, tournament_id, stage, group_name, home_team, away_team,
             home_score, away_score, date, venue, entered_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (m["match_id"], m["tournament_id"], m.get("stage", ""), m.get("group_name", ""), m["home_team"], m["away_team"],
