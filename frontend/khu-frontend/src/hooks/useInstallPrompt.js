@@ -12,6 +12,19 @@ function isStandaloneAlready() {
   );
 }
 
+// WhatsApp / Facebook / Instagram / TikTok / Telegram open links in their own
+// mini-browser, which can NOT install web apps. Most of our shared links land
+// there, so we detect it and tell people to open the link in their real browser.
+function isInAppBrowser() {
+  const ua = window.navigator.userAgent;
+  return /FBAN|FBAV|FB_IAB|Instagram|WhatsApp|musical_ly|TikTok|Line\/|Telegram|Twitter|; wv\)/i.test(ua);
+}
+
+function isIOSDevice() {
+  const ua = window.navigator.userAgent;
+  return (/iPad|iPhone|iPod/.test(ua) || (ua.includes("Mac") && "ontouchend" in document)) && !window.MSStream;
+}
+
 function isIOSSafari() {
   const ua = window.navigator.userAgent;
   const isIOS = /iPad|iPhone|iPod/.test(ua) && !window.MSStream;
@@ -39,8 +52,9 @@ function isIOSSafari() {
  * Already-installed (standalone) sessions never show anything here.
  */
 export function useInstallPrompt() {
-  const [deferredPrompt, setDeferredPrompt] = useState(null);
+  const [deferredPrompt, setDeferredPrompt] = useState(() => window.__khuInstallEvent || null);
   const [dismissed, setDismissed] = useState(false);
+  const [installed, setInstalled] = useState(false);
 
   useEffect(() => {
     try {
@@ -52,18 +66,24 @@ export function useInstallPrompt() {
       // localStorage unavailable — just don't persist dismissal, no crash
     }
 
-    const handler = (e) => {
-      e.preventDefault(); // stop Chrome's automatic mini-infobar so our own banner controls the UX
-      setDeferredPrompt(e);
+    // index.js captures the browser event early (it can fire before React mounts)
+    // and re-announces it here; also pick up one that arrived while we were mounting.
+    const ready = () => setDeferredPrompt(window.__khuInstallEvent || null);
+    const done = () => { setDeferredPrompt(null); setInstalled(true); };
+    ready();
+    window.addEventListener("khu-install-ready", ready);
+    window.addEventListener("khu-install-done", done);
+    return () => {
+      window.removeEventListener("khu-install-ready", ready);
+      window.removeEventListener("khu-install-done", done);
     };
-    window.addEventListener("beforeinstallprompt", handler);
-    return () => window.removeEventListener("beforeinstallprompt", handler);
   }, []);
 
   const promptInstall = useCallback(async () => {
     if (!deferredPrompt) return;
     deferredPrompt.prompt();
     await deferredPrompt.userChoice; // resolves once the user accepts/dismisses the native dialog
+    window.__khuInstallEvent = null;
     setDeferredPrompt(null); // a captured prompt can only be used once
   }, [deferredPrompt]);
 
@@ -76,8 +96,10 @@ export function useInstallPrompt() {
     }
   }, []);
 
-  const alreadyInstalled = isStandaloneAlready();
+  const alreadyInstalled = isStandaloneAlready() || installed;
   const iosSafari = isIOSSafari();
+  const inApp = isInAppBrowser();
+  const iosOther = isIOSDevice() && !iosSafari && !inApp;
 
   return {
     // Show the native "Install" button — only true on platforms that
@@ -87,6 +109,12 @@ export function useInstallPrompt() {
     // above, so this is the only way those users find out installing
     // is even possible.
     showIOSInstructions: iosSafari && !alreadyInstalled && !dismissed,
+    // WhatsApp/Facebook/Instagram mini-browsers: tell them to open in Chrome/Safari.
+    showOpenInBrowser: inApp && !alreadyInstalled && !dismissed,
+    // iPhone but not Safari (Chrome/Firefox on iOS): Add to Home Screen only works from Safari.
+    showIOSOpenInSafari: iosOther && !alreadyInstalled && !dismissed,
+    isIOS: isIOSDevice(),
+    alreadyInstalled,
     promptInstall,
     dismiss,
   };
