@@ -168,5 +168,15 @@ _r={m["match_id"]:m for m in db.load_tournament_matches("ut")}
 check("updated sheet refreshes an untouched fixture", _r["u1"]["home_team"]=="New A", str(_r["u1"]))
 check("…but never overwrites a scored fixture", _r["u2"]["home_team"]=="Old A" and _r["u2"]["home_score"]==2)
 check("…or an admin-edited fixture", _r["u3"]["home_team"]=="Admin Fix")
+# Seed scores fill only untouched, unscored games
+db.import_tournaments_seed([],[dict(_b,match_id="u1",home_team="New A",away_team="New B",home_score=3,away_score=1,entered_by="Results sheet"),
+    dict(_b,match_id="u2",home_score=9,away_score=9,entered_by="Results sheet"),dict(_b,match_id="u3",home_score=9,away_score=9,entered_by="Results sheet")])
+_r={m["match_id"]:m for m in db.load_tournament_matches("ut")}
+check("seed score fills an unscored untouched fixture", _r["u1"]["home_score"]==3 and _r["u1"]["away_score"]==1 and _r["u1"]["entered_by"]=="Results sheet", str(_r["u1"]))
+check("seed score never overwrites an agent score", _r["u2"]["home_score"]==2 and _r["u2"]["entered_by"]=="Jo", str(_r["u2"]))
+check("seed score never overwrites an admin edit", _r["u3"]["home_score"] is None and _r["u3"]["entered_by"]=="Admin", str(_r["u3"]))
+_k={"match_id":"u1","tournament_id":"ut","stage":"Men – Pool","group_name":"Men Pool","home_team":"New A","away_team":"New B","date":"2026-10-23 10:00","home_score":0,"away_score":0,"entered_by":"Results sheet"}
+db.import_tournaments_seed([],[dict(_k,home_score=5)])
+check("a re-import never changes an already-scored fixture", {m["match_id"]:m for m in db.load_tournament_matches("ut")}["u1"]["home_score"]==3)
 print("\nRESULT:", "all checks passed" if not fails else f"{len(fails)} FAILURE(S): {fails}")
 sys.exit(1 if fails else 0)
