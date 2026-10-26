@@ -20,11 +20,18 @@ function dateRange(t) {
   }
   return fmt(t.start_date || t.end_date, true);
 }
-// The stored status is set by hand; show what the scores say.
-function liveStatus(status, played, total) {
+// The stored status is set by hand, so work it out from the dates first
+// (a tournament whose last day has passed is over, whatever its scores say),
+// then from the scores.
+function liveStatus(t, played, total) {
+  const now = new Date();
+  const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+  const end = t.end_date || t.start_date;
+  if (end && end < today) return "completed";
+  if (t.start_date && t.start_date > today) return "upcoming";
   if (total > 0 && played >= total) return "completed";
-  if (played > 0) return "ongoing";
-  return status;
+  if (played > 0 || (t.start_date && t.start_date <= today)) return "ongoing";
+  return t.status;
 }
 
 /**
@@ -71,7 +78,7 @@ export default function TournamentsView() {
           {list.map((t) => (
             <div key={t.id} className="tour-card" onClick={() => setSelectedId(t.id)}>
               <div className="tour-card-top">
-                <span className={`tour-status tour-status-${liveStatus(t.status, t.matches_played, t.matches_total)}`}>{STATUS_LABEL[liveStatus(t.status, t.matches_played, t.matches_total)] || t.status}</span>
+                <span className={`tour-status tour-status-${liveStatus(t, t.matches_played, t.matches_total)}`}>{STATUS_LABEL[liveStatus(t, t.matches_played, t.matches_total)] || t.status}</span>
                 <span className="tour-dates">{dateRange(t)}</span>
               </div>
               <div className="tour-name">{t.name}</div>
@@ -193,7 +200,7 @@ function TournamentDetail({ id, onBack }) {
       ) : (
         <>
           <div className="tv-hero">
-            <span className={`tour-status tour-status-${liveStatus(t.status, played, total)}`}>{STATUS_LABEL[liveStatus(t.status, played, total)] || t.status}</span>
+            <span className={`tour-status tour-status-${liveStatus(t, played, total)}`}>{STATUS_LABEL[liveStatus(t, played, total)] || t.status}</span>
             <div className="tv-name">{t.name}</div>
             <div className="tv-meta">{dateRange(t)}</div>
             {t.venue && <div className="tv-meta">📍 {t.venue}</div>}
