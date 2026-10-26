@@ -11,6 +11,23 @@ Data is scraped directly and respectfully from [kenyahockeyunion.org](https://ww
 
 > ⚠️ **This is an unofficial, fan-built project — not affiliated with or endorsed by the Kenya Hockey Union.** It reads publicly available data from KHU's own website. Requests are rate-limited and cached to minimize load on their server (see the circuit breaker section below), and this project will be taken down immediately if KHU raises any concern about it.
 
+## Promo video
+
+<p align="center">
+  <a href="docs/promo/KHU-Live-Promo.mp4">
+    <img src="docs/promo/KHU-Live-Promo.gif" alt="KHU Live promo video: live scores, fixtures, tables and tournaments" width="300">
+  </a>
+</p>
+
+<p align="center"><b><a href="docs/promo/KHU-Live-Promo.mp4">▶ Play the full video with sound (27 s, MP4)</a></b></p>
+
+<details>
+<summary>Embedded player</summary>
+
+<video src="https://github.com/Geoduor/khu-live-app/raw/main/docs/promo/KHU-Live-Promo.mp4" poster="docs/promo/poster.jpg" controls muted playsinline width="300"></video>
+
+</details>
+
 ## Features
 
 ### Live data
