@@ -47,6 +47,7 @@ from scraper import (
 )
 from pdf_fixtures import parse_pdf_fixtures, merge_pdf_fixtures_into_scraped
 import database as db
+import dbconn
 import tournaments as tn
 import push
 
@@ -1676,6 +1677,7 @@ def health():
         # protected but our requests are still getting through sometimes.
         "scraper": get_last_challenge_info(),
         "refresh_interval_minutes": REFRESH_INTERVAL_MINUTES,
+        "database": dbconn.backend_name(),
     }
 
 

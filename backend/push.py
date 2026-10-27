@@ -20,6 +20,7 @@ import json
 import logging
 import os
 import sqlite3
+import dbconn
 from pathlib import Path
 from pywebpush import webpush, WebPushException
 from dotenv import load_dotenv
@@ -81,9 +82,7 @@ if not VAPID_PRIVATE_KEY_RAW_B64URL or not VAPID_PUBLIC_KEY_B64URL:
 
 
 def get_connection():
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    return conn
+    return dbconn.connect(DB_PATH)
 
 
 def init_push_table():

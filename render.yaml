@@ -32,6 +32,10 @@ services:
       # accounts across cold starts). Secret — never commit it.
       - key: AGENTS_SEED
         sync: false
+      # Optional. Supabase *Session pooler* connection string. Secret — never
+      # commit it. When set, data lives in Postgres instead of local SQLite.
+      - key: DATABASE_URL
+        sync: false
       - key: KHU_REQUEST_DELAY_SECONDS
         value: "1.0"
       - key: KHU_CHALLENGE_BACKOFF_MULTIPLIER

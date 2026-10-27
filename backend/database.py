@@ -1,11 +1,10 @@
 """
 database.py — Persistent cache for KHU scraped data
-Uses SQLite so data survives backend restarts.
+Uses SQLite (or PostgreSQL when DATABASE_URL is set) so data survives backend restarts.
 If a live scrape fails, we serve the last-known-good data
 and tell the frontend how old it is (exactly how ESPN/SofaScore behave).
 """
 
-import sqlite3
 import json
 import logging
 import hashlib
@@ -13,15 +12,16 @@ import secrets
 from datetime import datetime, timedelta
 from pathlib import Path
 
+import dbconn
+
 logger = logging.getLogger(__name__)
 
 DB_PATH = Path(__file__).parent / "khu_cache.db"
 
 
 def get_connection():
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    return conn
+    # PostgreSQL when DATABASE_URL is set (Supabase), otherwise the SQLite file.
+    return dbconn.connect(DB_PATH)
 
 
 def init_db():

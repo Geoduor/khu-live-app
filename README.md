@@ -28,6 +28,16 @@ Data is scraped directly and respectfully from [kenyahockeyunion.org](https://ww
 
 </details>
 
+## Database: SQLite or Supabase (PostgreSQL)
+
+By default the backend stores data in a local SQLite file, which Render wipes on restart unless a disk is attached (the seed files restore the essentials). To keep data durably, set one environment variable on Render:
+
+```
+DATABASE_URL=postgresql://postgres.<project-ref>:<password>@<pooler-host>:5432/postgres
+```
+
+Use the Supabase **Session pooler** string (Project → Connect), with the Supabase Data API switched off since the backend connects directly. `GET /api/health` shows `"database": "postgres"` or `"sqlite"`. Remove the variable to go straight back to SQLite. On the free Supabase plan there are no automatic backups, so keep exporting the seed files from the admin page.
+
 ## Features
 
 ### Live data

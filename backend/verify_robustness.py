@@ -19,6 +19,7 @@ def check(label, ok, detail=""):
     if not ok: fails.append(label)
 
 db.init_db()
+import push as _push; _push.DB_PATH = db.DB_PATH; _push.init_push_table()
 
 print("1. Blocked scrape keeps last-known-good matches")
 good = {"league_short": "PLM", "home_team": "A", "away_team": "B", "date": "01-06-2026 15:00",
@@ -178,5 +179,14 @@ check("seed score never overwrites an admin edit", _r["u3"]["home_score"] is Non
 _k={"match_id":"u1","tournament_id":"ut","stage":"Men – Pool","group_name":"Men Pool","home_team":"New A","away_team":"New B","date":"2026-10-23 10:00","home_score":0,"away_score":0,"entered_by":"Results sheet"}
 db.import_tournaments_seed([],[dict(_k,home_score=5)])
 check("a re-import never changes an already-scored fixture", {m["match_id"]:m for m in db.load_tournament_matches("ut")}["u1"]["home_score"]==3)
+# dbconn: SQLite→Postgres translation + sqlite3.Row-compatible rows
+import dbconn as _dbc
+_tr = _dbc.translate
+check("translate: ? placeholders", _tr("SELECT 1 FROM t WHERE a = ? AND b = ?") == "SELECT 1 FROM t WHERE a = %s AND b = %s")
+check("translate: INSERT OR IGNORE", _tr("INSERT OR IGNORE INTO t (a) VALUES (?)\n").endswith("ON CONFLICT DO NOTHING") and "OR IGNORE" not in _tr("INSERT OR IGNORE INTO t (a) VALUES (?)"))
+check("translate: AUTOINCREMENT + CURRENT_TIMESTAMP", "SERIAL PRIMARY KEY" in _tr("id INTEGER PRIMARY KEY AUTOINCREMENT") and "now()::text" in _tr("c TEXT DEFAULT CURRENT_TIMESTAMP"))
+check("translate: ADD COLUMN made idempotent", "ADD COLUMN IF NOT EXISTS" in _tr("ALTER TABLE t ADD COLUMN x TEXT"))
+_r = _dbc.Row(["a", "b"], (1, "x"))
+check("Row works like sqlite3.Row", _r["a"] == 1 and _r[1] == "x" and dict(_r) == {"a": 1, "b": "x"} and list(_r) == [1, "x"])
 print("\nRESULT:", "all checks passed" if not fails else f"{len(fails)} FAILURE(S): {fails}")
 sys.exit(1 if fails else 0)
