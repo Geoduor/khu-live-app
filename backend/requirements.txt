@@ -19,3 +19,5 @@ python-multipart==0.0.32
 # installs.
 cloudscraper==1.2.71
 pdfminer.six==20260107
+psycopg[binary]==3.3.6
+psycopg-pool==3.3.3
