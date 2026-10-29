@@ -3163,6 +3163,26 @@
   {
    "matchday": "",
    "date": "2026-10-31 15:00",
+   "home_team": "Wazalendo",
+   "home_team_url": "",
+   "home_logo_url": "",
+   "away_team": "USIU-A",
+   "away_team_url": "",
+   "away_logo_url": "",
+   "home_score": null,
+   "away_score": null,
+   "state": "NS",
+   "match_url": "",
+   "league": "Premier League Men",
+   "league_short": "PLM",
+   "venue": "USIU Grounds",
+   "match_no": "",
+   "is_first_leg": false,
+   "source": "pdf"
+  },
+  {
+   "matchday": "",
+   "date": "2026-10-31 15:00",
    "home_team": "Kisumu Queens",
    "home_team_url": "",
    "home_logo_url": "",
@@ -4502,5 +4522,5 @@
   }
  ],
  "exported_at": "2026-10-17T19:43:32.281826",
- "count": 225
+ "count": 226
 }
