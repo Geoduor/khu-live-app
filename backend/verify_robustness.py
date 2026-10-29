@@ -188,5 +188,16 @@ check("translate: AUTOINCREMENT + CURRENT_TIMESTAMP", "SERIAL PRIMARY KEY" in _t
 check("translate: ADD COLUMN made idempotent", "ADD COLUMN IF NOT EXISTS" in _tr("ALTER TABLE t ADD COLUMN x TEXT"))
 _r = _dbc.Row(["a", "b"], (1, "x"))
 check("Row works like sqlite3.Row", _r["a"] == 1 and _r[1] == "x" and dict(_r) == {"a": 1, "b": "x"} and list(_r) == [1, "x"])
+# Backup restore endpoint
+_bk = {"agents": [], "results": [], "stats": [], "players": [],
+       "tournaments": [{"id": "bk", "name": "Backup Cup", "status": "completed"}],
+       "matches": [{"match_id": "bk1", "tournament_id": "bk", "stage": "Men – Final", "home_team": "A", "away_team": "B", "home_score": 2, "away_score": 1, "date": "2026-10-25 16:30", "entered_by": "Jo"}]}
+r = c.post("/api/admin/restore", json=_bk)
+check("restore needs the admin token", r.status_code == 401)
+r = c.post("/api/admin/restore", headers=H, json=_bk)
+_m = {m["match_id"]: m for m in db.load_tournament_matches("bk")}
+check("restore brings back tournaments and scored matches", r.status_code == 200 and _m.get("bk1", {}).get("home_score") == 2 and _m["bk1"]["entered_by"] == "Jo", r.text[:200])
+check("restore rejects non-JSON", c.post("/api/admin/restore", headers=H, content=b"not json").status_code == 400)
+check("restore rejects a non-object file", c.post("/api/admin/restore", headers=H, json=[1, 2]).status_code == 400)
 print("\nRESULT:", "all checks passed" if not fails else f"{len(fails)} FAILURE(S): {fails}")
 sys.exit(1 if fails else 0)

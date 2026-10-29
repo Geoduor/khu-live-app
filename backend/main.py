@@ -2831,6 +2831,57 @@ def admin_export_tournaments_seed(x_admin_token: str = Header(default="")):
     return {"tournaments": db.load_tournaments(), "matches": db.load_tournament_matches()}
 
 
+@app.post("/api/admin/restore")
+async def admin_restore_backup(request: Request, x_admin_token: str = Header(default="")):
+    """
+    Restore a backup file made by the admin page's "Download backup" button
+    (agents, manual results, team/player stats, tournaments + their matches).
+    The backup is treated as the latest truth, so tournament matches in it
+    replace what is currently stored. Agents that already exist are kept as is.
+    Admin-only. Use after moving to a new database, or to recover data.
+    """
+    if not _is_admin(x_admin_token):
+        raise HTTPException(status_code=401, detail="Missing or invalid admin token.")
+    raw = await request.body()
+    if len(raw) > 5_000_000:
+        raise HTTPException(status_code=413, detail="Backup file is too large.")
+    try:
+        data = json.loads(raw)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="That file is not valid JSON.")
+    if not isinstance(data, dict):
+        raise HTTPException(status_code=400, detail="That does not look like a KHU backup file.")
+
+    report = {}
+    errors = []
+
+    def run(name, items, fn):
+        n = 0
+        for it in (items if isinstance(items, list) else []):
+            try:
+                fn(it)
+                n += 1
+            except Exception as e:  # keep going; report what could not be restored
+                errors.append(f"{name}: {type(e).__name__}")
+        report[name] = n
+
+    try:
+        report["agents"] = db.import_agents_raw(data.get("agents") or []) if isinstance(data.get("agents"), list) else 0
+    except Exception as e:
+        errors.append(f"agents: {type(e).__name__}")
+    run("results", data.get("results"), db.save_manual_result)
+    run("team_stats", data.get("stats"), lambda s: db.save_team_stats(
+        s["league_short"], s["team_name"], {k: v for k, v in s.items() if k not in ("league_short", "team_name", "stat_key")}))
+    run("player_stats", data.get("players"), lambda p: db.save_player_stats(
+        p["league_short"], p["team_name"], p["player_name"],
+        {k: v for k, v in p.items() if k not in ("league_short", "team_name", "player_name", "stat_key")}))
+    db.init_tournament_tables()
+    run("tournaments", data.get("tournaments"), db.save_tournament)
+    run("tournament_matches", data.get("matches"), db.save_tournament_match)
+    logger.info(f"Backup restored: {report}; {len(errors)} item(s) skipped")
+    return {"message": "Backup restored.", "restored": report, "skipped": errors[:20]}
+
+
 # ══════════════════════════════════════════════════════
 # PUSH NOTIFICATIONS
 # ══════════════════════════════════════════════════════

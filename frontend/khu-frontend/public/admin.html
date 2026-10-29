@@ -243,6 +243,16 @@
 </div>
 
 <div class="card">
+  <div class="section-title">Backup &amp; restore</div>
+  <div class="subtitle">One file with your agents, manual results, stats and tournaments (including every score entered here or by agents). It contains agent password hashes, so keep it private and never upload it to GitHub.</div>
+  <button style="margin-top: 12px;" onclick="downloadBackup()">Download backup</button>
+  <label style="margin-top: 14px;">Restore from a backup file</label>
+  <input id="restoreFile" type="file" accept="application/json,.json" />
+  <button style="margin-top: 8px; background: transparent; color: inherit; border: 1px solid currentColor;" onclick="restoreBackup()">Restore backup</button>
+  <div id="backupMsg" class="msg"></div>
+</div>
+
+<div class="card">
   <div class="section-title">Correct a Team's Stats</div>
   <div class="subtitle" style="margin-bottom: 12px;">Only fill in the fields you're correcting — anything left blank keeps the live-scraped value.</div>
 
@@ -792,6 +802,45 @@
     await fetch(`${apiBase()}/api/admin/tournaments/${encodeURIComponent(id)}`, { method: 'DELETE', headers: adminHeaders() });
     if (currentTournamentId === id) { currentTournamentId = null; $('tnMatchBox').style.display = 'none'; }
     loadTournaments();
+  }
+
+  async function downloadBackup() {
+    const msg = $('backupMsg');
+    msg.textContent = 'Preparing backup...';
+    try {
+      const get = async (path) => {
+        const res = await fetch(`${apiBase()}/api/admin/${path}`, { headers: adminHeaders() });
+        const d = await res.json();
+        if (!res.ok) throw new Error(d.detail || ('Could not read ' + path));
+        return d;
+      };
+      const [ag, rs, ts, ps, tn] = await Promise.all([
+        get('agents/export-seed'), get('results/export-seed'), get('team-stats/export-seed'),
+        get('player-stats/export-seed'), get('tournaments/export-seed'),
+      ]);
+      const out = { agents: ag.agents, results: rs.results, stats: ts.stats, players: ps.players,
+                    tournaments: tn.tournaments, matches: tn.matches, exported_at: new Date().toISOString() };
+      const blob = new Blob([JSON.stringify(out, null, 2)], { type: 'application/json' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'khu-backup-' + new Date().toISOString().slice(0, 10) + '.json';
+      document.body.appendChild(a); a.click(); a.remove();
+      msg.textContent = `Downloaded: ${out.agents.length} agent(s), ${out.results.length} result(s), ${out.tournaments.length} tournament(s) with ${out.matches.length} match(es).`;
+    } catch (e) { msg.textContent = e.message; }
+  }
+
+  async function restoreBackup() {
+    const msg = $('backupMsg');
+    const f = $('restoreFile').files[0];
+    if (!f) { msg.textContent = 'Choose a backup file first.'; return; }
+    if (!confirm('Restore this backup? Tournament scores in the file will replace the ones currently stored.')) return;
+    try {
+      const res = await fetch(`${apiBase()}/api/admin/restore`, { method: 'POST', headers: adminHeaders(), body: await f.text() });
+      const d = await res.json();
+      if (!res.ok) throw new Error(d.detail || 'Restore failed.');
+      const r = d.restored || {};
+      msg.textContent = `Restored: ${r.agents || 0} agent(s), ${r.results || 0} result(s), ${r.tournaments || 0} tournament(s), ${r.tournament_matches || 0} match(es).` + (d.skipped && d.skipped.length ? ` ${d.skipped.length} item(s) skipped.` : '');
+    } catch (e) { msg.textContent = e.message; }
   }
 
   async function exportTournamentSeed() {
