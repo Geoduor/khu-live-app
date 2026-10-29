@@ -162,7 +162,7 @@ def init_db():
 
     conn.commit()
     conn.close()
-    logger.info(f"Database ready at {DB_PATH}")
+    logger.info("Database ready (PostgreSQL)" if dbconn.backend_name() == "postgres" else f"Database ready at {DB_PATH}")
     init_tournament_tables()
 
 

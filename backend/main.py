@@ -1570,7 +1570,7 @@ def load_from_cache_on_boot():
     Load whatever we have in SQLite immediately on startup,
     so the API can respond instantly even before the first live scrape finishes.
     """
-    logger.info("Loading cached data from SQLite (instant boot)...")
+    logger.info(f"Loading cached data from {dbconn.backend_name()} (instant boot)...")
     cached_standings = db.load_all_standings()
     for key, data in cached_standings.items():
         cache["standings"][key] = data

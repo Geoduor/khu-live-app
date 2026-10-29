@@ -26,6 +26,11 @@ except Exception:
 
 logger = logging.getLogger(__name__)
 
+try:
+    from psycopg.pq import TransactionStatus
+except Exception:  # psycopg only needed when DATABASE_URL is used
+    TransactionStatus = None
+
 _pool = None
 _pool_url = None
 _pool_lock = threading.Lock()
@@ -125,7 +130,12 @@ class PgConnection:
         conn, self._conn = self._conn, None
         if conn is not None:
             try:
-                self._pool.putconn(conn)   # the pool rolls back anything uncommitted
+                # Reads leave a transaction open; end it quietly here so the pool
+                # doesn't log a warning for every query. Uncommitted writes are
+                # discarded exactly as before.
+                if conn.info.transaction_status != TransactionStatus.IDLE:
+                    conn.rollback()
+                self._pool.putconn(conn)
             except Exception:
                 logger.exception("Could not return a database connection to the pool")
 
