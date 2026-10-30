@@ -157,5 +157,15 @@ check("login responses are not cacheable", r.headers.get("cache-control") == "no
 r = c.options("/api/leagues", headers={"Origin": "https://evil.example", "Access-Control-Request-Method": "GET"})
 check("CORS never allows credentials", r.headers.get("access-control-allow-credentials") is None)
 
+print("8. Agent session storage")
+import database as _db, sqlite3 as _sq
+_db.create_agent("sec_agent", "a-long-password-1", "Sec Agent")
+_tok = _db.create_agent_session("sec_agent")
+_conn = _db.get_connection(); _stored = [r[0] for r in _conn.execute("SELECT token FROM agent_sessions").fetchall()]; _conn.close()
+check("raw session token is not stored in the database", _tok not in _stored and len(_stored) >= 1)
+check("hashed session still verifies", (_db.verify_agent_session(_tok) or {}).get("username") == "sec_agent")
+check("wrong token rejected", _db.verify_agent_session("0" * 64) is None)
+check("unknown user login returns None", _db.verify_agent_login("nobody_here", "whatever-pass") is None)
+
 print("\nRESULT:", "all checks passed" if not fails else f"{len(fails)} FAILURE(S): {fails}")
 sys.exit(1 if fails else 0)

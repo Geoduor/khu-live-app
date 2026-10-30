@@ -341,7 +341,12 @@ _allowed_origins_env = os.environ.get("ALLOWED_ORIGINS", "")
 allowed_origins = (
     [o.strip() for o in _allowed_origins_env.split(",") if o.strip()]
     if _allowed_origins_env
-    else ["*"]  # local dev fallback — fine for testing, tighten in production
+    else (
+        # On Render (it sets RENDER=true) never fall back to "any website":
+        # a forgotten variable must fail closed, not open.
+        ["https://khu-live-app.vercel.app"] if os.environ.get("RENDER")
+        else ["*"]  # local dev fallback only
+    )
 )
 
 if "*" in allowed_origins:
