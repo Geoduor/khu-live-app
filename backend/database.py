@@ -556,6 +556,15 @@ def create_agent(username: str, password: str, display_name: str) -> bool:
     return True
 
 
+_DUMMY_SALT = "v2$" + "0" * 32
+
+
+def _session_key(token: str) -> str:
+    """Sessions are stored as a SHA-256 fingerprint, never the raw token,
+    so a leaked database/backup can't be used to log in as an agent."""
+    return hashlib.sha256((token or "").encode("utf-8")).hexdigest()
+
+
 def verify_agent_login(username: str, password: str):
     """Check a username/password pair. Returns the agent's display_name
     on success, or None if the username doesn't exist, is deactivated,
@@ -568,6 +577,9 @@ def verify_agent_login(username: str, password: str):
     row = cur.fetchone()
     conn.close()
     if not row:
+        # Spend the same time as a real check so response speed can't be
+        # used to discover which usernames exist.
+        _hash_password(password, _DUMMY_SALT)
         return None
     computed_hash, _ = _hash_password(password, row["password_salt"])
     if not secrets.compare_digest(computed_hash, row["password_hash"]):
@@ -651,7 +663,7 @@ def create_agent_session(username: str) -> str:
     cur.execute("""
         INSERT INTO agent_sessions (token, username, created_at, expires_at)
         VALUES (?, ?, ?, ?)
-    """, (token, username, now.isoformat(), (now + timedelta(days=30)).isoformat()))
+    """, (_session_key(token), username, now.isoformat(), (now + timedelta(days=30)).isoformat()))
     conn.commit()
     conn.close()
     return token
@@ -669,13 +681,13 @@ def verify_agent_session(token: str):
         SELECT s.token, s.username, s.expires_at, a.display_name, a.active
         FROM agent_sessions s JOIN agents a ON a.username = s.username
         WHERE s.token = ?
-    """, (token,))
+    """, (_session_key(token),))
     row = cur.fetchone()
     if not row:
         conn.close()
         return None
     if datetime.fromisoformat(row["expires_at"]) < datetime.now() or not row["active"]:
-        cur.execute("DELETE FROM agent_sessions WHERE token = ?", (token,))
+        cur.execute("DELETE FROM agent_sessions WHERE token = ?", (_session_key(token),))
         conn.commit()
         conn.close()
         return None
