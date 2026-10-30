@@ -29,7 +29,7 @@ export default function LeagueTable({ data, onOpenTeam, isFavorite, toggleFavori
               <td>
                 <div
                   className={`team-cell ${clickable ? "team-cell-clickable" : ""}`}
-                  onClick={() => clickable && onOpenTeam(t.team_url, t.team)}
+                  onClick={() => clickable && onOpenTeam(t.team_url, t.team, data.short)}
                 >
                   <span className="pos-num">
                     {t.position}

@@ -57,7 +57,7 @@ function App() {
   // Kept as a simple stack so "Back" always returns to exactly where you were,
   // same pattern FotMob uses for drill-down navigation without full page reloads.
   const [overlay, setOverlay] = useState(null); // { type: 'team'|'match', url: string } | null
-  const openTeam = (url, name = "") => setOverlay({ type: "team", url, name });
+  const openTeam = (url, name = "", league = "") => setOverlay({ type: "team", url, name, league });
   const openMatch = (url) => setOverlay({ type: "match", url });
   const openBracket = () => setOverlay({ type: "bracket" });
   const closeOverlay = () => setOverlay(null);
@@ -373,7 +373,7 @@ function App() {
             .main sat BEHIND the header and was invisible and untappable. */}
         {!overlay && <InstallBanner />}
         {overlay?.type === "team" && (
-          <TeamProfile teamUrl={overlay.url} teamName={overlay.name} onBack={closeOverlay} onOpenTeam={openTeam} isFavorite={isFavorite} toggleFavorite={toggleFavorite} />
+          <TeamProfile teamUrl={overlay.url} teamName={overlay.name} league={overlay.league} onBack={closeOverlay} onOpenTeam={openTeam} isFavorite={isFavorite} toggleFavorite={toggleFavorite} />
         )}
         {overlay?.type === "match" && (
           <MatchDetail matchUrl={overlay.url} onBack={closeOverlay} onOpenTeam={openTeam} />

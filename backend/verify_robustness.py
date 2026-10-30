@@ -199,5 +199,22 @@ _m = {m["match_id"]: m for m in db.load_tournament_matches("bk")}
 check("restore brings back tournaments and scored matches", r.status_code == 200 and _m.get("bk1", {}).get("home_score") == 2 and _m["bk1"]["entered_by"] == "Jo", r.text[:200])
 check("restore rejects non-JSON", c.post("/api/admin/restore", headers=H, content=b"not json").status_code == 400)
 check("restore rejects a non-object file", c.post("/api/admin/restore", headers=H, json=[1, 2]).status_code == 400)
+print("9. Same-named teams in different leagues stay separate")
+_saved = (main.cache["standings"].copy(), main.cache["fixtures_results"])
+main.cache["standings"].clear()
+main.cache["standings"]["slw"] = {"short": "SLW", "standings": [{"team": "Gorillas", "team_url": "https://kenyahockeyunion.org/t/gor-w", "position": 2, "played": "3"}]}
+main.cache["standings"]["nlm_ez"] = {"short": "NLM-EZ", "standings": [{"team": "Gorillas", "team_url": "https://kenyahockeyunion.org/t/gor-m", "position": 5, "played": "4"}]}
+main.cache["fixtures_results"] = {"fixtures": [], "live": [], "results": [
+    {"league_short": "SLW", "home_team": "Gorillas", "away_team": "Lady X", "home_team_url": "https://kenyahockeyunion.org/t/gor-w", "home_score": 2, "away_score": 0, "date": "2026-10-10"},
+    {"league_short": "NLM-EZ", "home_team": "Gorillas", "away_team": "Men Y", "home_team_url": "", "home_score": 0, "away_score": 1, "date": "2026-10-11"},
+]}
+w = main.build_team_profile_from_cache("Gorillas", "", "SLW")
+m = main.build_team_profile_from_cache("Gorillas", "", "NLM-EZ")
+check("SLW Gorillas gets only SLW data", w["position"] == 2 and [r["opponent"] for r in w["recent_results"]] == ["Lady X"], str(w["recent_results"]))
+check("NLM-EZ Gorillas gets only NLM-EZ data", m["position"] == 5 and [r["opponent"] for r in m["recent_results"]] == ["Men Y"], str(m["recent_results"]))
+u = main.build_team_profile_from_cache("Gorillas", "https://kenyahockeyunion.org/t/gor-m")
+check("URL alone pins the right league", u["league_short"] == "NLM-EZ" and [r["opponent"] for r in u["recent_results"]] == ["Men Y"])
+main.cache["standings"].clear(); main.cache["standings"].update(_saved[0]); main.cache["fixtures_results"] = _saved[1]
+
 print("\nRESULT:", "all checks passed" if not fails else f"{len(fails)} FAILURE(S): {fails}")
 sys.exit(1 if fails else 0)

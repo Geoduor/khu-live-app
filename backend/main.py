@@ -796,6 +796,11 @@ def _team_matches_fixture_side(team_name: str, team_url: str, side_name: str, si
     if _normalize_team_name(side_name) in target_aliases:
         return True
 
+    # Both sides carry their own team-page link and the links differ:
+    # they are different teams. Never fall through to fuzzy name matching.
+    if team_url and side_url and team_url != side_url:
+        return False
+
     raw_a = _team_token_set(team_name)
     tokens_a = raw_a - _NOISE_TOKENS
     raw_b = _team_token_set(side_name)
@@ -809,7 +814,18 @@ def _team_matches_fixture_side(team_name: str, team_url: str, side_name: str, si
     return tokens_b.issubset(tokens_a) or tokens_a.issubset(tokens_b)
 
 
-def _find_standings_entry_for_team(team_name: str, team_url: str = ""):
+def _leagues_in_scope(league_short: str = ""):
+    """Standings blocks to search. With a league given, ONLY that league —
+    so a men's team and a ladies' team with the same/similar name in
+    different leagues can never be mistaken for each other."""
+    ls = (league_short or "").strip().upper()
+    blocks = list(cache["standings"].values())
+    if not ls:
+        return blocks
+    return [b for b in blocks if (b.get("short") or "").strip().upper() == ls]
+
+
+def _find_standings_entry_for_team(team_name: str, team_url: str = "", league_short: str = ""):
     """Find this team's own row in whatever standings are currently
     cached, across every league (a team could plausibly be looked up
     before we know which league it's in). URL match first, then
@@ -817,7 +833,7 @@ def _find_standings_entry_for_team(team_name: str, team_url: str = ""):
     — only when exactly one candidate qualifies. Returns None if the
     team genuinely isn't in any cached standings yet."""
     if team_url:
-        for league_data in cache["standings"].values():
+        for league_data in _leagues_in_scope(league_short):
             for team in league_data.get("standings", []):
                 if team.get("team_url") and team["team_url"] == team_url:
                     return team
@@ -826,7 +842,7 @@ def _find_standings_entry_for_team(team_name: str, team_url: str = ""):
         return None
 
     target_aliases = _alias_group_for(_normalize_team_name(team_name))
-    for league_data in cache["standings"].values():
+    for league_data in _leagues_in_scope(league_short):
         for team in league_data.get("standings", []):
             if _normalize_team_name(team.get("team", "")) in target_aliases:
                 return team
@@ -839,7 +855,7 @@ def _find_standings_entry_for_team(team_name: str, team_url: str = ""):
     squad_a = _squad_qualifier(raw_a)
 
     fuzzy_matches = []
-    for league_data in cache["standings"].values():
+    for league_data in _leagues_in_scope(league_short):
         for team in league_data.get("standings", []):
             raw_b = _team_token_set(team.get("team", ""))
             tokens_b = raw_b - _NOISE_TOKENS
@@ -851,15 +867,26 @@ def _find_standings_entry_for_team(team_name: str, team_url: str = ""):
     return fuzzy_matches[0] if len(fuzzy_matches) == 1 else None
 
 
-def build_team_profile_from_cache(team_name: str, team_url: str = "") -> dict:
+def build_team_profile_from_cache(team_name: str, team_url: str = "", league_short: str = "") -> dict:
     """Build a team profile entirely from already-cached, already-
     current-season data — see module docstring above for why this
     replaced a fresh page scrape."""
-    standings_entry = _find_standings_entry_for_team(team_name, team_url)
+    league_short = (league_short or "").strip().upper()
+    standings_entry = _find_standings_entry_for_team(team_name, team_url, league_short)
+    if standings_entry and not league_short:
+        # Pin the profile to the league this team really plays in.
+        for blk in cache["standings"].values():
+            if standings_entry in blk.get("standings", []):
+                league_short = (blk.get("short") or "").strip().upper()
+                break
     canonical_name = (standings_entry or {}).get("team") or team_name
+
+    def in_league(m):
+        return not league_short or (m.get("league_short") or "").strip().upper() in ("", league_short)
 
     result = {
         "team_name": canonical_name or "",
+        "league_short": league_short,
         "logo_url": (standings_entry or {}).get("team_logo_url", ""),
         "position": (standings_entry or {}).get("position"),
         "form": (standings_entry or {}).get("form", []),
@@ -880,6 +907,8 @@ def build_team_profile_from_cache(team_name: str, team_url: str = "") -> dict:
     upcoming, results = [], []
 
     for m in _filter_future_fixtures(fr.get("fixtures", [])):
+        if not in_league(m):
+            continue
         side = side_for(m)
         if not side:
             continue
@@ -891,6 +920,8 @@ def build_team_profile_from_cache(team_name: str, team_url: str = "") -> dict:
         })
 
     for m in fr.get("results", []):
+        if not in_league(m):
+            continue
         side = side_for(m)
         if not side:
             continue
@@ -3022,7 +3053,7 @@ _match_cache = {}  # match_url -> (data, fetched_at)
 
 
 @app.get("/api/team")
-def get_team_profile(request: Request, url: str = "", name: str = ""):
+def get_team_profile(request: Request, url: str = "", name: str = "", league: str = ""):
     """
     Build a team's profile (position, form, recent results, upcoming
     fixtures) entirely from data we've already scraped and trust for
@@ -3045,12 +3076,13 @@ def get_team_profile(request: Request, url: str = "", name: str = ""):
     if not url and not name:
         raise HTTPException(status_code=400, detail="Need at least a team name or URL to look up a profile")
 
-    cache_key = f"{url}::{name[:120]}"
+    league = re.sub(r"[^A-Za-z-]", "", league or "")[:10].upper()
+    cache_key = f"{url}::{name[:120]}::{league}"
     cached = _team_cache.get(cache_key)
     if cached and (time.time() - cached[1]) < TEAM_CACHE_TTL:
         return cached[0]
 
-    data = build_team_profile_from_cache(name, url)
+    data = build_team_profile_from_cache(name, url, league)
     if not data.get("error"):
         _cache_put(_team_cache, cache_key, (data, time.time()))
     return data

@@ -4,7 +4,7 @@ import LoadingState from "./LoadingState";
 import ErrorState from "./ErrorState";
 import TeamLogo from "./TeamLogo";
 
-export default function TeamProfile({ teamUrl, teamName, onBack, onOpenTeam, isFavorite, toggleFavorite }) {
+export default function TeamProfile({ teamUrl, teamName, league, onBack, onOpenTeam, isFavorite, toggleFavorite }) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
 
@@ -12,12 +12,12 @@ export default function TeamProfile({ teamUrl, teamName, onBack, onOpenTeam, isF
     setLoading(true);
     setData(null);
     let alive = true;
-    getTeamProfile(teamUrl, teamName)
+    getTeamProfile(teamUrl, teamName, league)
       .then((d) => alive && setData(d))
       .catch(() => alive && setData({ error: "Could not load team profile" }))
       .finally(() => alive && setLoading(false));
     return () => { alive = false; };
-  }, [teamUrl, teamName]);
+  }, [teamUrl, teamName, league]);
 
   return (
     <div className="section">
