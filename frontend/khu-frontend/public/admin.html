@@ -300,7 +300,7 @@
     </div>
     <label>Extra note (optional)</label>
     <input id="msNote" placeholder="e.g. Replay on 14 Nov" maxlength="300" />
-    <button style="margin-top: 10px;" onclick="msSave()">Save notice</button>
+    <button id="msSaveBtn" style="margin-top: 10px;" onclick="msSave()">Save notice</button>
     <button style="margin-top: 8px; background: transparent; color: inherit; border: 1px solid currentColor;" onclick="msClear()">Remove notice</button>
   </div>
   <div id="msMsg" class="msg"></div>
@@ -936,9 +936,19 @@
     msToggle();
   }
   const msNum = (id) => { const v = $(id).value.trim(); return v === '' ? null : parseInt(v, 10); };
+  function msShow(text) {
+    say($('msMsg'), text);
+  }
+  async function msReadReply(res) {
+    let d = {};
+    try { d = await res.json(); } catch (e) { /* server sent plain text */ }
+    return d;
+  }
   async function msSave() {
-    const msg = $('msMsg');
-    if (!msKey) { msg.textContent = 'Pick a match first.'; return; }
+    if (!msKey) { msShow('Pick a match first.'); return; }
+    const btn = $('msSaveBtn');
+    btn.disabled = true; btn.textContent = 'Saving...';
+    msShow('Saving...');
     try {
       const res = await fetch(`${apiBase()}/api/admin/matches/status`, {
         method: 'POST', headers: MS_HEADERS(),
@@ -948,24 +958,33 @@
           home_score: msNum('msHome'), away_score: msNum('msAway'), note: $('msNote').value,
         }),
       });
-      const d = await res.json();
-      msg.textContent = res.ok ? d.message + ' Fans will see it within a minute.' : (typeof d.detail === 'string' ? d.detail : 'Please check the fields and try again.');
-    } catch (e) { msg.textContent = e.message; }
+      const d = await msReadReply(res);
+      msShow(res.ok ? d.message + ' Fans will see it within a minute.'
+                    : (typeof d.detail === 'string' ? d.detail : `The server could not save this (error ${res.status}). Please try again in a moment.`));
+    } catch (e) { msShow('Could not reach the server: ' + e.message); }
+    finally { btn.disabled = false; btn.textContent = 'Save notice'; }
   }
   async function msClear() {
-    const msg = $('msMsg');
-    if (!msKey) { msg.textContent = 'Pick a match first.'; return; }
+    if (!msKey) { msShow('Pick a match first.'); return; }
     if (!confirm('Remove the notice from this match?')) return;
     try {
       const res = await fetch(`${apiBase()}/api/admin/matches/status?match_key=${encodeURIComponent(msKey)}`, { method: 'DELETE', headers: MS_HEADERS() });
-      const d = await res.json();
-      msg.textContent = res.ok ? d.message : (d.detail || 'Could not remove.');
-    } catch (e) { msg.textContent = e.message; }
+      const d = await msReadReply(res);
+      msShow(res.ok ? d.message : (typeof d.detail === 'string' ? d.detail : `Could not remove (error ${res.status}).`));
+    } catch (e) { msShow('Could not reach the server: ' + e.message); }
+  }
+
+  // Show a status line in a .msg box (those boxes are hidden until given a class).
+  function say(el, text) {
+    el.textContent = text;
+    const bad = /(not set up|first|failed|could not|couldn.t|invalid|error|cannot|already|unauthor|not valid|too large|does not)/i.test(text);
+    el.className = 'msg ' + (bad ? 'error' : 'success');
+    if (el.scrollIntoView) el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   }
 
   async function downloadBackup() {
     const msg = $('backupMsg');
-    msg.textContent = 'Preparing backup...';
+    say(msg, 'Preparing backup...');
     try {
       const get = async (path) => {
         const res = await fetch(`${apiBase()}/api/admin/${path}`, { headers: adminHeaders() });
@@ -986,48 +1005,48 @@
       a.href = URL.createObjectURL(blob);
       a.download = 'khu-backup-' + new Date().toISOString().slice(0, 10) + '.json';
       document.body.appendChild(a); a.click(); a.remove();
-      msg.textContent = `Downloaded: ${out.agents.length} agent(s), ${out.results.length} result(s), ${out.tournaments.length} tournament(s) with ${out.matches.length} match(es).`;
-    } catch (e) { msg.textContent = e.message; }
+      say(msg, `Downloaded: ${out.agents.length} agent(s), ${out.results.length} result(s), ${out.tournaments.length} tournament(s) with ${out.matches.length} match(es).`);
+    } catch (e) { say(msg, e.message); }
   }
 
   async function runOffsiteBackup() {
     const msg = $('offsiteMsg');
-    msg.textContent = 'Working...';
+    say(msg, 'Working...');
     try {
       const sres = await fetch(`${apiBase()}/api/admin/backup/status`, { headers: adminHeaders() });
       const st = await sres.json();
-      if (!st.configured) { msg.textContent = 'Not set up yet: add the BACKUP_S3_* settings on Render first.'; return; }
+      if (!st.configured) { say(msg, 'Not set up yet: add the BACKUP_S3_* settings on Render first.'); return; }
       const res = await fetch(`${apiBase()}/api/admin/backup/run`, { method: 'POST', headers: adminHeaders() });
       const d = await res.json();
-      msg.textContent = res.ok ? d.detail : (d.detail || 'Backup failed.');
-    } catch (e) { msg.textContent = e.message; }
+      say(msg, res.ok ? d.detail : (d.detail || 'Backup failed.'));
+    } catch (e) { say(msg, e.message); }
   }
 
   async function saveSeasonSnapshot() {
     const msg = $('seasonMsg');
     const label = $('seasonLabel').value.trim();
-    if (!label) { msg.textContent = 'Type a season label first, e.g. 2025-26.'; return; }
+    if (!label) { say(msg, 'Type a season label first, e.g. 2025-26.'); return; }
     if (!confirm('Save the current tables, results and tournaments as season "' + label + '"? A saved season cannot be changed afterwards.')) return;
     try {
       const q = `label=${encodeURIComponent(label)}&title=${encodeURIComponent($('seasonTitle').value.trim())}`;
       const res = await fetch(`${apiBase()}/api/admin/seasons/snapshot?${q}`, { method: 'POST', headers: adminHeaders() });
       const d = await res.json();
-      msg.textContent = res.ok ? `${d.message} (${d.leagues} league table(s), ${d.results} result(s))` : (d.detail || 'Could not save.');
-    } catch (e) { msg.textContent = e.message; }
+      say(msg, res.ok ? `${d.message} (${d.leagues} league table(s), ${d.results} result(s))` : (d.detail || 'Could not save.'));
+    } catch (e) { say(msg, e.message); }
   }
 
   async function restoreBackup() {
     const msg = $('backupMsg');
     const f = $('restoreFile').files[0];
-    if (!f) { msg.textContent = 'Choose a backup file first.'; return; }
+    if (!f) { say(msg, 'Choose a backup file first.'); return; }
     if (!confirm('Restore this backup? Tournament scores in the file will replace the ones currently stored.')) return;
     try {
       const res = await fetch(`${apiBase()}/api/admin/restore`, { method: 'POST', headers: adminHeaders(), body: await f.text() });
       const d = await res.json();
       if (!res.ok) throw new Error(d.detail || 'Restore failed.');
       const r = d.restored || {};
-      msg.textContent = `Restored: ${r.agents || 0} agent(s), ${r.results || 0} result(s), ${r.tournaments || 0} tournament(s), ${r.tournament_matches || 0} match(es).` + (d.skipped && d.skipped.length ? ` ${d.skipped.length} item(s) skipped.` : '');
-    } catch (e) { msg.textContent = e.message; }
+      say(msg, `Restored: ${r.agents || 0} agent(s), ${r.results || 0} result(s), ${r.tournaments || 0} tournament(s), ${r.tournament_matches || 0} match(es).` + (d.skipped && d.skipped.length ? ` ${d.skipped.length} item(s) skipped.` : ''));
+    } catch (e) { say(msg, e.message); }
   }
 
   async function exportTournamentSeed() {

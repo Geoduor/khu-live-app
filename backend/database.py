@@ -1034,7 +1034,23 @@ def load_season_snapshots() -> list:
 # once played). The archive is the permanent record behind "past fixtures":
 # every refresh upserts what it sees; nothing is ever removed by the app.
 
+_archive_ready = False
+_archive_lock = __import__("threading").Lock()
+
+
 def _ensure_archive_tables(conn):
+    """Create/upgrade the archive tables. Done once per server run: repeating
+    schema changes on every request would lock the table needlessly."""
+    global _archive_ready
+    if _archive_ready:
+        return
+    with _archive_lock:
+        if not _archive_ready:
+            _ensure_archive_tables_once(conn)
+            _archive_ready = True
+
+
+def _ensure_archive_tables_once(conn):
     conn.execute("""
         CREATE TABLE IF NOT EXISTS match_archive (
             match_key    TEXT PRIMARY KEY,
