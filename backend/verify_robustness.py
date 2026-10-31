@@ -216,5 +216,42 @@ u = main.build_team_profile_from_cache("Gorillas", "https://kenyahockeyunion.org
 check("URL alone pins the right league", u["league_short"] == "NLM-EZ" and [r["opponent"] for r in u["recent_results"]] == ["Men Y"])
 main.cache["standings"].clear(); main.cache["standings"].update(_saved[0]); main.cache["fixtures_results"] = _saved[1]
 
+print("10. Season snapshots are append-only; off-site backup")
+main._rate_hits.clear()
+main.cache["standings"]["t_plm"] = {"league": "Premier League Men", "short": "PLM", "standings": [{"team": "Z", "points": "9"}]}
+r = c.post("/api/admin/seasons/snapshot?label=2099-test&title=Test", headers=H)
+check("snapshot saved", r.status_code == 200, r.text[:120])
+r = c.post("/api/admin/seasons/snapshot?label=2099-test", headers=H)
+check("saving the same season again is refused", r.status_code == 409)
+check("snapshot needs admin", c.post("/api/admin/seasons/snapshot?label=x1", headers={"x-admin-token": "bad"}).status_code == 401)
+check("bad label rejected", c.post("/api/admin/seasons/snapshot?label=../x", headers=H).status_code in (400, 404, 422))
+r = c.post("/api/admin/seasons/import", headers=H, json={"label": "2019-20", "title": "2019/20", "source": "KHU", "data": {"leagues": [], "results": []}})
+check("past season imported", r.status_code == 200)
+check("import cannot overwrite", c.post("/api/admin/seasons/import", headers=H, json={"label": "2019-20", "data": {}}).status_code == 409)
+labels = [x["label"] for x in c.get("/api/seasons").json()["seasons"]]
+check("seasons listed publicly", "2019-20" in labels and "2099-test" in labels)
+check("season readable", c.get("/api/seasons/2019-20").json()["data"] == {"leagues": [], "results": []})
+check("unknown season 404", c.get("/api/seasons/1900-01").status_code == 404)
+import backup as _bk
+b = _bk.build_backup()
+check("backup includes seasons + restorable parts", {"agents", "results", "tournaments", "matches", "seasons"} <= set(b) and len(b["seasons"]) >= 2)
+check("backup not configured by default", not _bk.is_configured() and c.post("/api/admin/backup/run", headers=H).status_code == 400)
+sent = {}
+class _FakeS3:
+    def put_object(self, **kw): sent.update(kw)
+import types, sys as _sys
+_fake = types.SimpleNamespace(client=lambda *a, **k: _FakeS3())
+_sys.modules["boto3"] = _fake
+for k, v in dict(BACKUP_S3_ENDPOINT="https://x.example", BACKUP_S3_BUCKET="bkt", BACKUP_S3_KEY_ID="k", BACKUP_S3_SECRET="s").items():
+    os.environ[k] = v
+main._rate_hits.clear()
+r = c.post("/api/admin/backup/run", headers=H)
+check("backup uploads to a dated key", r.status_code == 200 and sent.get("Bucket") == "bkt" and sent["Key"].startswith("khu-backups/") and b"2019-20" in sent["Body"], r.text[:150])
+check("status reports success", c.get("/api/admin/backup/status", headers=H).json()["ok"] is True)
+for k in ("BACKUP_S3_ENDPOINT", "BACKUP_S3_BUCKET", "BACKUP_S3_KEY_ID", "BACKUP_S3_SECRET"):
+    os.environ.pop(k, None)
+_sys.modules.pop("boto3", None)
+main.cache["standings"].pop("t_plm", None)
+
 print("\nRESULT:", "all checks passed" if not fails else f"{len(fails)} FAILURE(S): {fails}")
 sys.exit(1 if fails else 0)

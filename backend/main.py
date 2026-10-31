@@ -2914,8 +2914,116 @@ async def admin_restore_backup(request: Request, x_admin_token: str = Header(def
     db.init_tournament_tables()
     run("tournaments", data.get("tournaments"), db.save_tournament)
     run("tournament_matches", data.get("matches"), db.save_tournament_match)
+    # Frozen seasons are append-only: existing labels are never overwritten.
+    run("seasons", data.get("seasons"), lambda sn: db.save_season_snapshot(
+        str(sn["label"])[:40], str(sn.get("title") or sn["label"])[:120], sn["data"], str(sn.get("source", ""))[:200]))
     logger.info(f"Backup restored: {report}; {len(errors)} item(s) skipped")
     return {"message": "Backup restored.", "restored": report, "skipped": errors[:20]}
+
+
+# ══════════════════════════════════════════════════════
+# OFF-SITE BACKUPS + SEASON HISTORY
+# ══════════════════════════════════════════════════════
+import backup as _backup
+
+# 02:00 East Africa Time = 23:00 UTC. Does nothing unless BACKUP_S3_* is set.
+scheduler.add_job(_backup.run_scheduled_backup, "cron", hour=23, minute=0, id="nightly_backup", replace_existing=True)
+
+
+@app.get("/api/admin/backup/status")
+def admin_backup_status(x_admin_token: str = Header(default="")):
+    if not _is_admin(x_admin_token):
+        raise HTTPException(status_code=401, detail="Missing or invalid admin token.")
+    return _backup.status()
+
+
+@app.post("/api/admin/backup/run")
+def admin_backup_run(request: Request, x_admin_token: str = Header(default="")):
+    """Make an off-site backup right now (also what the nightly job does)."""
+    if not _is_admin(x_admin_token):
+        raise HTTPException(status_code=401, detail="Missing or invalid admin token.")
+    _rate_limit(request, "backup-run", 5, 600)
+    if not _backup.is_configured():
+        raise HTTPException(status_code=400, detail="Off-site backup is not set up yet (BACKUP_S3_* variables).")
+    _backup.run_scheduled_backup()
+    st = _backup.status()
+    if not st["ok"]:
+        raise HTTPException(status_code=502, detail=st["detail"])
+    return st
+
+
+_SEASON_LABEL_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{1,38}$")
+
+
+class SeasonImportPayload(BaseModel):
+    label: str = Field(max_length=40)
+    title: str = Field(default="", max_length=120)
+    source: str = Field(default="", max_length=200)
+    data: dict
+
+
+def _season_label_or_400(label: str) -> str:
+    if not _SEASON_LABEL_RE.match(label or ""):
+        raise HTTPException(status_code=400, detail="Season label must be like 2025-26 (letters, numbers, - . _).")
+    return label
+
+
+@app.post("/api/admin/seasons/snapshot")
+def admin_snapshot_season(label: str, title: str = "", x_admin_token: str = Header(default="")):
+    """Freeze the CURRENT tables, results and tournaments as a finished season.
+    Append-only: refuses a label that already exists."""
+    if not _is_admin(x_admin_token):
+        raise HTTPException(status_code=401, detail="Missing or invalid admin token.")
+    label = _season_label_or_400(label)
+    fr = cache.get("fixtures_results") or {}
+    data = {
+        "leagues": [
+            {"league": blk.get("league", k), "short": blk.get("short", ""), "standings": blk.get("standings", [])}
+            for k, blk in cache["standings"].items()
+        ],
+        "results": fr.get("results", []),
+        "tournaments": db.load_tournaments(),
+        "tournament_matches": db.load_tournament_matches(),
+    }
+    if not data["leagues"] and not data["results"]:
+        raise HTTPException(status_code=409, detail="No league data is loaded yet — try again after the first refresh.")
+    if not db.save_season_snapshot(label, (title or f"Season {label}")[:120], data, "snapshot of live data"):
+        raise HTTPException(status_code=409, detail=f"Season {label} is already saved and cannot be overwritten.")
+    return {"message": f"Season {label} saved.", "leagues": len(data["leagues"]), "results": len(data["results"])}
+
+
+@app.post("/api/admin/seasons/import")
+def admin_import_season(payload: SeasonImportPayload, x_admin_token: str = Header(default="")):
+    """Add a PAST season from a file (e.g. data supplied by the KHU).
+    Shape of data: {"leagues": [{"league","short","standings":[...]}], "results": [...]}"""
+    if not _is_admin(x_admin_token):
+        raise HTTPException(status_code=401, detail="Missing or invalid admin token.")
+    label = _season_label_or_400(payload.label)
+    if len(json.dumps(payload.data)) > 4_000_000:
+        raise HTTPException(status_code=413, detail="Season file is too large.")
+    if not db.save_season_snapshot(label, payload.title or f"Season {label}", payload.data, payload.source or "imported"):
+        raise HTTPException(status_code=409, detail=f"Season {label} is already saved and cannot be overwritten.")
+    return {"message": f"Season {label} imported."}
+
+
+@app.get("/api/admin/seasons/export")
+def admin_export_seasons(x_admin_token: str = Header(default="")):
+    if not _is_admin(x_admin_token):
+        raise HTTPException(status_code=401, detail="Missing or invalid admin token.")
+    return {"seasons": db.load_season_snapshots()}
+
+
+@app.get("/api/seasons")
+def list_seasons():
+    return {"seasons": db.list_season_snapshots()}
+
+
+@app.get("/api/seasons/{label}")
+def get_season(label: str):
+    snap = db.get_season_snapshot(_season_label_or_400(label))
+    if not snap:
+        raise HTTPException(status_code=404, detail="Season not found.")
+    return snap
 
 
 # ══════════════════════════════════════════════════════

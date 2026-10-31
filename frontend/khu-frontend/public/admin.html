@@ -253,6 +253,18 @@
 </div>
 
 <div class="card">
+  <div class="section-title">Off-site backup &amp; season history</div>
+  <div class="subtitle">A copy goes to your separate storage bucket every night at 02:00 (once the BACKUP_S3_* settings are added on Render). Saved seasons are permanent: once saved, a season cannot be changed or replaced from this page.</div>
+  <button style="margin-top: 12px;" onclick="runOffsiteBackup()">Back up to off-site storage now</button>
+  <div id="offsiteMsg" class="msg"></div>
+  <label style="margin-top: 14px;">Save the current season as history</label>
+  <input id="seasonLabel" placeholder="Season label, e.g. 2025-26" maxlength="40" />
+  <input id="seasonTitle" placeholder="Title, e.g. 2025/26 Season" maxlength="120" style="margin-top: 8px;" />
+  <button style="margin-top: 8px;" onclick="saveSeasonSnapshot()">Save season to history</button>
+  <div id="seasonMsg" class="msg"></div>
+</div>
+
+<div class="card">
   <div class="section-title">Correct a Team's Stats</div>
   <div class="subtitle" style="margin-bottom: 12px;">Only fill in the fields you're correcting — anything left blank keeps the live-scraped value.</div>
 
@@ -814,18 +826,44 @@
         if (!res.ok) throw new Error(d.detail || ('Could not read ' + path));
         return d;
       };
-      const [ag, rs, ts, ps, tn] = await Promise.all([
+      const [ag, rs, ts, ps, tn, sn] = await Promise.all([
         get('agents/export-seed'), get('results/export-seed'), get('team-stats/export-seed'),
-        get('player-stats/export-seed'), get('tournaments/export-seed'),
+        get('player-stats/export-seed'), get('tournaments/export-seed'), get('seasons/export'),
       ]);
       const out = { agents: ag.agents, results: rs.results, stats: ts.stats, players: ps.players,
-                    tournaments: tn.tournaments, matches: tn.matches, exported_at: new Date().toISOString() };
+                    tournaments: tn.tournaments, matches: tn.matches, seasons: sn.seasons, exported_at: new Date().toISOString() };
       const blob = new Blob([JSON.stringify(out, null, 2)], { type: 'application/json' });
       const a = document.createElement('a');
       a.href = URL.createObjectURL(blob);
       a.download = 'khu-backup-' + new Date().toISOString().slice(0, 10) + '.json';
       document.body.appendChild(a); a.click(); a.remove();
       msg.textContent = `Downloaded: ${out.agents.length} agent(s), ${out.results.length} result(s), ${out.tournaments.length} tournament(s) with ${out.matches.length} match(es).`;
+    } catch (e) { msg.textContent = e.message; }
+  }
+
+  async function runOffsiteBackup() {
+    const msg = $('offsiteMsg');
+    msg.textContent = 'Working...';
+    try {
+      const sres = await fetch(`${apiBase()}/api/admin/backup/status`, { headers: adminHeaders() });
+      const st = await sres.json();
+      if (!st.configured) { msg.textContent = 'Not set up yet: add the BACKUP_S3_* settings on Render first.'; return; }
+      const res = await fetch(`${apiBase()}/api/admin/backup/run`, { method: 'POST', headers: adminHeaders() });
+      const d = await res.json();
+      msg.textContent = res.ok ? d.detail : (d.detail || 'Backup failed.');
+    } catch (e) { msg.textContent = e.message; }
+  }
+
+  async function saveSeasonSnapshot() {
+    const msg = $('seasonMsg');
+    const label = $('seasonLabel').value.trim();
+    if (!label) { msg.textContent = 'Type a season label first, e.g. 2025-26.'; return; }
+    if (!confirm('Save the current tables, results and tournaments as season "' + label + '"? A saved season cannot be changed afterwards.')) return;
+    try {
+      const q = `label=${encodeURIComponent(label)}&title=${encodeURIComponent($('seasonTitle').value.trim())}`;
+      const res = await fetch(`${apiBase()}/api/admin/seasons/snapshot?${q}`, { method: 'POST', headers: adminHeaders() });
+      const d = await res.json();
+      msg.textContent = res.ok ? `${d.message} (${d.leagues} league table(s), ${d.results} result(s))` : (d.detail || 'Could not save.');
     } catch (e) { msg.textContent = e.message; }
   }
 

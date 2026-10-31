@@ -184,3 +184,9 @@ See [CONTRIBUTING.md](./CONTRIBUTING.md).
 ## License
 
 MIT — see [LICENSE](./LICENSE).
+
+
+## Off-site backups and season history
+
+- **Nightly off-site backup:** set `BACKUP_S3_ENDPOINT`, `BACKUP_S3_BUCKET`, `BACKUP_S3_KEY_ID`, `BACKUP_S3_SECRET` on Render (Cloudflare R2 or Backblaze B2 both work). A dated JSON copy is uploaded every night at 02:00 EAT and the app never deletes old ones. Turn on bucket versioning/object-lock and give the key write-only access if possible. The file restores through the admin page.
+- **Season history:** the admin page has "Save season to history" (freezes the current tables, results and tournaments). Saved seasons are append-only, are included in backups, and are readable at `GET /api/seasons` and `GET /api/seasons/<label>`. Past seasons supplied as files go in through `POST /api/admin/seasons/import`.

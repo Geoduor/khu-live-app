@@ -948,3 +948,80 @@ def import_tournaments_seed(tournaments: list, matches: list, retired_ids: list 
     conn.commit()
     conn.close()
     return added
+
+
+# ══════════════════════════════════════════════════════
+# SEASON SNAPSHOTS — frozen history, append-only
+# ══════════════════════════════════════════════════════
+# A finished season is copied here once and never edited or overwritten by
+# the app: saving a label that already exists is refused. Deleting needs a
+# deliberate direct database action, not an API call.
+
+def _ensure_season_table(conn):
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS season_snapshots (
+            label      TEXT PRIMARY KEY,
+            title      TEXT NOT NULL,
+            source     TEXT DEFAULT '',
+            data_json  TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        )
+    """)
+
+
+def save_season_snapshot(label: str, title: str, data: dict, source: str = "") -> bool:
+    """Store a season once. Returns False (and changes nothing) if the label already exists."""
+    conn = get_connection()
+    try:
+        _ensure_season_table(conn)
+        if conn.execute("SELECT 1 FROM season_snapshots WHERE label = ?", (label,)).fetchone():
+            return False
+        conn.execute(
+            "INSERT INTO season_snapshots (label, title, source, data_json, created_at) VALUES (?, ?, ?, ?, ?)",
+            (label, title, source, json.dumps(data, ensure_ascii=False), datetime.now().isoformat()),
+        )
+        conn.commit()
+        return True
+    finally:
+        conn.close()
+
+
+def list_season_snapshots() -> list:
+    conn = get_connection()
+    try:
+        _ensure_season_table(conn)
+        rows = conn.execute("SELECT label, title, source, created_at FROM season_snapshots ORDER BY label DESC").fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def get_season_snapshot(label: str):
+    conn = get_connection()
+    try:
+        _ensure_season_table(conn)
+        row = conn.execute("SELECT label, title, source, data_json, created_at FROM season_snapshots WHERE label = ?",
+                           (label,)).fetchone()
+        if not row:
+            return None
+        d = dict(row)
+        d["data"] = json.loads(d.pop("data_json"))
+        return d
+    finally:
+        conn.close()
+
+
+def load_season_snapshots() -> list:
+    """Everything, for backups."""
+    conn = get_connection()
+    try:
+        _ensure_season_table(conn)
+        rows = conn.execute("SELECT label, title, source, data_json, created_at FROM season_snapshots ORDER BY label").fetchall()
+        out = []
+        for r in rows:
+            d = dict(r)
+            d["data"] = json.loads(d.pop("data_json"))
+            out.append(d)
+        return out
+    finally:
+        conn.close()
