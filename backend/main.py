@@ -3121,13 +3121,18 @@ def match_notices():
 
 @app.get("/api/matches/history")
 def match_history(request: Request, league: str = "", team: str = "", season: str = "", date_from: str = "",
-                  date_to: str = "", limit: int = 50, offset: int = 0):
-    """Permanent record of every fixture and result ever seen, newest first."""
+                  date_to: str = "", limit: int = 50, offset: int = 0, kind: str = ""):
+    """Permanent record, newest first. kind=results -> only played matches (with a score);
+    kind=fixtures -> only matches that were never played and whose date has passed;
+    empty -> everything."""
+    if kind not in ("", "results", "fixtures"):
+        raise HTTPException(status_code=422, detail="kind must be results or fixtures.")
     _rate_limit(request, "history", 60, 60)
     if season and not re.fullmatch(r"\d{4}", season):
         raise HTTPException(status_code=422, detail="Season must be a year, e.g. 2026.")
+    today = datetime.now(timezone(timedelta(hours=3))).strftime("%Y-%m-%d")
     r = db.query_match_archive(league[:10], team[:60], date_from[:10], date_to[:10], season,
-                               max(1, min(limit, 100)), max(0, min(offset, 100000)))
+                               max(1, min(limit, 100)), max(0, min(offset, 100000)), kind, today)
     sts = _statuses()
     for m in r["matches"]:
         if m["match_key"] in sts:

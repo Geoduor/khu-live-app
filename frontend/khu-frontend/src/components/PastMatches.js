@@ -7,7 +7,7 @@ import { getMatchHistory } from "../api";
 const PAGE = 30;
 
 /** Permanent archive: every fixture and result we have ever recorded. */
-export default function PastMatches({ leagues, onOpenMatch, onOpenTeam, isFavorite, toggleFavorite }) {
+export default function PastMatches({ kind = "results", leagues, onOpenMatch, onOpenTeam, isFavorite, toggleFavorite }) {
   const [league, setLeague] = useState("");
   const [season, setSeason] = useState("");
   const [team, setTeam] = useState("");
@@ -25,7 +25,7 @@ export default function PastMatches({ leagues, onOpenMatch, onOpenTeam, isFavori
     setError("");
     try {
       const d = await getMatchHistory({
-        league, season, team, date_from: from, date_to: to, limit: PAGE, offset,
+        league, season, team, date_from: from, date_to: to, kind, limit: PAGE, offset,
       });
       setRows((prev) => (offset ? [...prev, ...d.matches] : d.matches));
       setTotal(d.total);
@@ -35,7 +35,7 @@ export default function PastMatches({ leagues, onOpenMatch, onOpenTeam, isFavori
     } finally {
       setLoading(false);
     }
-  }, [league, season, team, from, to]);
+  }, [kind, league, season, team, from, to]);
 
   useEffect(() => { load(0); }, [load]);
 
@@ -58,8 +58,12 @@ export default function PastMatches({ leagues, onOpenMatch, onOpenTeam, isFavori
         </select>
         <input className="wide" aria-label="Team" placeholder="Search a team, e.g. Strathmore" value={teamInput}
                maxLength={60} onChange={(e) => setTeamInput(e.target.value)} />
-        <input aria-label="From date" type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
-        <input aria-label="To date" type="date" value={to} onChange={(e) => setTo(e.target.value)} />
+        <label className="archive-date">From
+          <input aria-label="From date" type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
+        </label>
+        <label className="archive-date">To
+          <input aria-label="To date" type="date" value={to} onChange={(e) => setTo(e.target.value)} />
+        </label>
       </div>
 
       {error ? (
@@ -67,10 +71,10 @@ export default function PastMatches({ leagues, onOpenMatch, onOpenTeam, isFavori
       ) : loading && rows.length === 0 ? (
         <LoadingState message="Loading past matches..." />
       ) : rows.length === 0 ? (
-        <ErrorState title="No matches found" message="Nothing in the records matches these filters yet." compact />
+        <ErrorState title="No matches found" message={kind === "fixtures" ? "No past fixtures without a result match these filters." : "No past results match these filters yet."} compact />
       ) : (
         <>
-          <div className="archive-count">{total} match{total === 1 ? "" : "es"} on record</div>
+          <div className="archive-count">{total} {kind === "fixtures" ? "past fixture" : "result"}{total === 1 ? "" : "s"} on record</div>
           {rows.map((m) => (
             <MatchCard key={m.match_key} match={m} onOpenMatch={onOpenMatch} onOpenTeam={onOpenTeam}
                        isFavorite={isFavorite} toggleFavorite={toggleFavorite} />
