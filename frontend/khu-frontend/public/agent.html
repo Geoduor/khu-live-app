@@ -303,7 +303,7 @@
     </div>
     <label>Extra note (optional)</label>
     <input id="msNote" placeholder="e.g. Replay on 14 Nov" maxlength="300" />
-    <button style="margin-top: 10px;" onclick="msSave()">Save notice</button>
+    <button id="msSaveBtn" style="margin-top: 10px;" onclick="msSave()">Save notice</button>
     <button style="margin-top: 8px; background: transparent; color: inherit; border: 1px solid currentColor;" onclick="msClear()">Remove notice</button>
   </div>
   <div id="msMsg" class="msg"></div>
@@ -827,9 +827,22 @@
     msToggle();
   }
   const msNum = (id) => { const v = $(id).value.trim(); return v === '' ? null : parseInt(v, 10); };
-  async function msSave() {
+  function msShow(text) {
     const msg = $('msMsg');
-    if (!msKey) { msg.textContent = 'Pick a match first.'; return; }
+    msg.textContent = text;
+    msg.className = 'msg ' + (/(failed|could not|couldn.t|invalid|error|cannot|already|pick a match|unknown|needs)/i.test(text) ? 'error' : 'success');
+    if (msg.scrollIntoView) msg.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
+  async function msReadReply(res) {
+    let d = {};
+    try { d = await res.json(); } catch (e) { /* server sent plain text */ }
+    return d;
+  }
+  async function msSave() {
+    if (!msKey) { msShow('Pick a match first.'); return; }
+    const btn = $('msSaveBtn');
+    btn.disabled = true; btn.textContent = 'Saving...';
+    msShow('Saving...');
     try {
       const res = await fetch(`${apiBase()}/api/admin/matches/status`, {
         method: 'POST', headers: MS_HEADERS(),
@@ -839,19 +852,20 @@
           home_score: msNum('msHome'), away_score: msNum('msAway'), note: $('msNote').value,
         }),
       });
-      const d = await res.json();
-      msg.textContent = res.ok ? d.message + ' Fans will see it within a minute.' : (typeof d.detail === 'string' ? d.detail : 'Please check the fields and try again.');
-    } catch (e) { msg.textContent = e.message; }
+      const d = await msReadReply(res);
+      msShow(res.ok ? d.message + ' Fans will see it within a minute.'
+                    : (typeof d.detail === 'string' ? d.detail : `The server could not save this (error ${res.status}). Please try again in a moment.`));
+    } catch (e) { msShow('Could not reach the server: ' + e.message); }
+    finally { btn.disabled = false; btn.textContent = 'Save notice'; }
   }
   async function msClear() {
-    const msg = $('msMsg');
-    if (!msKey) { msg.textContent = 'Pick a match first.'; return; }
+    if (!msKey) { msShow('Pick a match first.'); return; }
     if (!confirm('Remove the notice from this match?')) return;
     try {
       const res = await fetch(`${apiBase()}/api/admin/matches/status?match_key=${encodeURIComponent(msKey)}`, { method: 'DELETE', headers: MS_HEADERS() });
-      const d = await res.json();
-      msg.textContent = res.ok ? d.message : (d.detail || 'Could not remove.');
-    } catch (e) { msg.textContent = e.message; }
+      const d = await msReadReply(res);
+      msShow(res.ok ? d.message : (typeof d.detail === 'string' ? d.detail : `Could not remove (error ${res.status}).`));
+    } catch (e) { msShow('Could not reach the server: ' + e.message); }
   }
 </script>
 
