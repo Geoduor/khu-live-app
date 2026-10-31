@@ -1486,6 +1486,7 @@ def refresh_fixtures_results():
         data["_cache_scraped_at"] = datetime.now().isoformat()
         data["_cache_success"] = success
         cache["fixtures_results"] = data
+        archive_current_matches()
 
         # ── Re-derive standings overlays with the NEW results snapshot ──
         # The standings scrape ran earlier in this same cycle; this pass
@@ -1623,6 +1624,8 @@ def load_from_cache_on_boot():
     # boot half of "manual entry is the backup when scraping is down".
     for key in list(cache["standings"].keys()):
         recompute_league_standings(key)
+
+    archive_current_matches()
 
     if cached_standings or cached_fr:
         cache["status"] = "cached"
@@ -1840,13 +1843,89 @@ def get_live_matches():
     if not data:
         raise HTTPException(status_code=503, detail="No match data available yet.")
     data = annotate_staleness(dict(data))
+    # A match an admin/agent has marked postponed/abandoned/cancelled is not
+    # "live" any more — it moves to the Fixtures tab with its explanation.
+    live = [m for m in _with_status(data.get("live", []))
+            if (m.get("status_info") or {}).get("status") not in _OFF_LIVE_STATUSES]
     return {
-        "live": data.get("live", []),
-        "total": data.get("total_live", 0),
+        "live": live,
+        "total": len(live),
         "source": "kenyahockeyunion.org",
         "scraped_at": data.get("_cache_scraped_at"),
         "is_stale": data.get("_is_stale", False),
     }
+
+
+# ══════════════════════════════════════════════════════
+# MATCH ARCHIVE + MATCH STATUS (postponed / abandoned / ...)
+# ══════════════════════════════════════════════════════
+
+def _match_key(m: dict) -> str:
+    """Stable identity: LEAGUE|home|away|YYYY-MM-DD (same rule as results/PDF)."""
+    return "|".join([
+        (m.get("league_short") or "").strip().upper(),
+        (m.get("home_team") or "").strip().lower(),
+        (m.get("away_team") or "").strip().lower(),
+        match_calendar_date_key(m.get("date", "")),
+    ])
+
+
+def archive_current_matches():
+    """Copy everything the cache currently shows into the permanent archive.
+    Never raises (a failed archive write must not break a refresh)."""
+    try:
+        fr = cache.get("fixtures_results") or {}
+        items = []
+        for bucket in ("fixtures", "results", "live"):
+            for m in fr.get(bucket, []) or []:
+                if m.get("home_team") and m.get("away_team") and m.get("date"):
+                    items.append((_match_key(m), m))
+        for m in db.load_pdf_fixtures():
+            if m.get("home_team") and m.get("away_team") and m.get("date"):
+                items.append((_match_key(m), m))
+        n = db.archive_matches(items)
+        if n:
+            logger.info(f"Match archive: {n} new/updated record(s)")
+    except Exception as e:  # noqa: BLE001
+        logger.error(f"Match archive failed: {type(e).__name__}: {e}")
+
+
+_status_cache = {"at": 0.0, "data": {}}
+
+
+def _statuses() -> dict:
+    """Match statuses, re-read from the database at most every 20 seconds."""
+    if time.time() - _status_cache["at"] > 20:
+        try:
+            _status_cache["data"] = db.load_match_statuses()
+        except Exception as e:  # noqa: BLE001
+            logger.error(f"Could not load match statuses: {type(e).__name__}")
+        _status_cache["at"] = time.time()
+    return _status_cache["data"]
+
+
+def _status_changed():
+    _status_cache["at"] = 0.0
+
+
+def _with_status(matches: list) -> list:
+    """Copies of matches with `status_info` attached where an admin/agent set one.
+    A rescheduled match shows at its NEW date, remembering `original_date`."""
+    sts = _statuses()
+    if not sts:
+        return matches
+    out = []
+    for m in matches:
+        info = sts.get(_match_key(m))
+        if not info:
+            out.append(m)
+            continue
+        m2 = {**m, "status_info": info}
+        if info["status"] == "rescheduled" and info.get("new_date"):
+            m2["original_date"] = m.get("date", "")
+            m2["date"] = info["new_date"]
+        out.append(m2)
+    return out
 
 
 def _filter_future_fixtures(fixtures: list) -> list:
@@ -1884,6 +1963,40 @@ def _filter_future_fixtures(fixtures: list) -> list:
     return [m for m in fixtures if still_upcoming(m)]
 
 
+_OFF_LIVE_STATUSES = ("postponed", "abandoned", "cancelled")
+_PINNED_STATUSES = ("postponed", "suspended", "abandoned", "cancelled")
+_NOTICE_DAYS = 21  # how long an unresolved notice stays on the main Fixtures tab
+
+
+def _recent(iso: str, days: int) -> bool:
+    try:
+        return datetime.fromisoformat(iso) >= datetime.now() - timedelta(days=days)
+    except (TypeError, ValueError):
+        return True
+
+
+def _upcoming_with_notices(data: dict) -> list:
+    """Upcoming fixtures PLUS matches whose date has passed but that fans
+    need an explanation for (postponed, suspended, abandoned, cancelled).
+    A rescheduled match appears at its new date."""
+    raw = _with_status(list(data.get("fixtures", [])) + list(data.get("live", [])))
+    upcoming = _filter_future_fixtures([m for m in raw if m.get("state") != "LIVE"
+                                         or (m.get("status_info") or {}).get("status") in _OFF_LIVE_STATUSES])
+    have = {_match_key(m) for m in upcoming}
+    played = {_match_key(m) for m in (data.get("results") or []) if m.get("home_score") is not None}
+    extra = []
+    for m in raw:
+        info = m.get("status_info")
+        if not info or info["status"] not in _PINNED_STATUSES:
+            continue
+        k = _match_key(m)
+        if k in have or k in played or not _recent(info.get("updated_at"), _NOTICE_DAYS):
+            continue
+        have.add(k)
+        extra.append(m)
+    return _group_and_sort_matches(upcoming + extra, soonest_first=True) if extra else upcoming
+
+
 @app.get("/api/fixtures")
 def get_fixtures():
     data = cache.get("fixtures_results")
@@ -1902,7 +2015,7 @@ def get_fixtures():
             "is_stale": True,
         }
     data = annotate_staleness(dict(data))
-    upcoming_only = _filter_future_fixtures(data.get("fixtures", []))
+    upcoming_only = _upcoming_with_notices(data)
 
     return {
         "fixtures": upcoming_only,
@@ -1921,7 +2034,7 @@ def get_results():
         raise HTTPException(status_code=503, detail="No results data available yet — try again shortly.")
     data = annotate_staleness(dict(data))
 
-    results = data.get("results", [])
+    results = _with_status(data.get("results", []))
     # "most_recent" ignores league grouping entirely and sorts purely
     # by date across ALL leagues — used for the Home page preview,
     # where "3 most recent results anywhere" is the intent, not
@@ -1935,7 +2048,7 @@ def get_results():
     return {
         "results": results,
         "most_recent": most_recent,
-        "total": data.get("total_results", 0),
+        "total": len(results),
         "source": "kenyahockeyunion.org",
         "scraped_at": data.get("_cache_scraped_at"),
         "is_stale": data.get("_is_stale", False),
@@ -2879,7 +2992,7 @@ async def admin_restore_backup(request: Request, x_admin_token: str = Header(def
     if not _is_admin(x_admin_token):
         raise HTTPException(status_code=401, detail="Missing or invalid admin token.")
     raw = await request.body()
-    if len(raw) > 5_000_000:
+    if len(raw) > 25_000_000:
         raise HTTPException(status_code=413, detail="Backup file is too large.")
     try:
         data = json.loads(raw)
@@ -2914,11 +3027,113 @@ async def admin_restore_backup(request: Request, x_admin_token: str = Header(def
     db.init_tournament_tables()
     run("tournaments", data.get("tournaments"), db.save_tournament)
     run("tournament_matches", data.get("matches"), db.save_tournament_match)
+    try:
+        report["match_archive"] = db.import_match_archive(data.get("match_archive") or []) if isinstance(data.get("match_archive"), list) else 0
+        report["match_statuses"] = db.import_match_statuses(data.get("match_statuses")) if isinstance(data.get("match_statuses"), dict) else 0
+        _status_changed()
+    except Exception as e:
+        errors.append(f"archive/statuses: {type(e).__name__}")
     # Frozen seasons are append-only: existing labels are never overwritten.
     run("seasons", data.get("seasons"), lambda sn: db.save_season_snapshot(
         str(sn["label"])[:40], str(sn.get("title") or sn["label"])[:120], sn["data"], str(sn.get("source", ""))[:200]))
     logger.info(f"Backup restored: {report}; {len(errors)} item(s) skipped")
     return {"message": "Backup restored.", "restored": report, "skipped": errors[:20]}
+
+
+class MatchStatusPayload(BaseModel):
+    match_key: str = Field(max_length=200)
+    status: str = Field(max_length=20)
+    reason: str = Field(default="", max_length=200)
+    new_date: str = Field(default="", max_length=30)
+    minute: Optional[int] = Field(default=None, ge=0, le=130)
+    home_score: Optional[int] = Field(default=None, ge=0, le=99)
+    away_score: Optional[int] = Field(default=None, ge=0, le=99)
+    note: str = Field(default="", max_length=300)
+
+
+@app.get("/api/admin/matches/search")
+def admin_search_matches(request: Request, league: str = "", team: str = "", date_from: str = "", date_to: str = "",
+                         limit: int = 30, x_admin_token: str = Header(default=""), x_agent_token: str = Header(default="")):
+    """Find a match (and its match_key) to attach a status to. Admin or agent."""
+    _authorize_writer(x_admin_token, x_agent_token)
+    _rate_limit(request, "match-search", 60, 60)
+    r = db.query_match_archive(league[:10], team[:60], date_from[:10], date_to[:10], "", max(1, min(limit, 60)), 0)
+    sts = _statuses()
+    for m in r["matches"]:
+        if m["match_key"] in sts:
+            m["status_info"] = sts[m["match_key"]]
+    return r
+
+
+@app.post("/api/admin/matches/status")
+def admin_set_match_status(payload: MatchStatusPayload, x_admin_token: str = Header(default=""), x_agent_token: str = Header(default="")):
+    """Tell fans what happened to a match: postponed, rescheduled (needs new_date),
+    suspended, abandoned (minute + score at the stop), cancelled, or awarded.
+    This is a notice only — it never changes the table. Enter a real score the
+    usual way if the result stands or is awarded. Admin or agent."""
+    who = _authorize_writer(x_admin_token, x_agent_token)
+    if payload.status not in db.MATCH_STATUSES:
+        raise HTTPException(status_code=422, detail=f"Status must be one of: {', '.join(db.MATCH_STATUSES)}.")
+    if not db.get_archived_match(payload.match_key):
+        raise HTTPException(status_code=404, detail="Unknown match. Find it with the match search first.")
+    new_date = payload.new_date.strip()
+    if payload.status == "rescheduled":
+        if not new_date or _parse_match_date(new_date) == datetime.min:
+            raise HTTPException(status_code=422, detail="A rescheduled match needs a valid new date, e.g. 2026-11-08 15:00.")
+    else:
+        new_date = new_date if _parse_match_date(new_date) != datetime.min else ""
+    db.set_match_status(payload.match_key, payload.status, payload.reason.strip(), new_date, payload.minute,
+                        payload.home_score, payload.away_score, payload.note.strip(), who)
+    _status_changed()
+    logger.info(f"Match status set by {who}: {payload.match_key} -> {payload.status}")
+    return {"message": f"Marked as {payload.status}.", "match_key": payload.match_key}
+
+
+@app.get("/api/admin/matches/export")
+def admin_export_match_history(x_admin_token: str = Header(default="")):
+    if not _is_admin(x_admin_token):
+        raise HTTPException(status_code=401, detail="Missing or invalid admin token.")
+    return {"match_archive": db.load_match_archive(), "match_statuses": db.load_match_statuses()}
+
+
+@app.delete("/api/admin/matches/status")
+def admin_clear_match_status(match_key: str, x_admin_token: str = Header(default=""), x_agent_token: str = Header(default="")):
+    who = _authorize_writer(x_admin_token, x_agent_token)
+    if not db.clear_match_status(match_key[:200], who):
+        raise HTTPException(status_code=404, detail="That match has no status notice.")
+    _status_changed()
+    return {"message": "Status notice removed."}
+
+
+@app.get("/api/match-notices")
+def match_notices():
+    """Public: recent status notices (postponed, abandoned, ...) for a banner."""
+    out = []
+    for key, info in _statuses().items():
+        if not _recent(info.get("updated_at"), 45):
+            continue
+        m = db.get_archived_match(key)
+        if m:
+            out.append({**m, "match_key": key, "status_info": info})
+    out.sort(key=lambda m: m["status_info"].get("updated_at", ""), reverse=True)
+    return {"notices": out[:30]}
+
+
+@app.get("/api/matches/history")
+def match_history(request: Request, league: str = "", team: str = "", season: str = "", date_from: str = "",
+                  date_to: str = "", limit: int = 50, offset: int = 0):
+    """Permanent record of every fixture and result ever seen, newest first."""
+    _rate_limit(request, "history", 60, 60)
+    if season and not re.fullmatch(r"\d{4}", season):
+        raise HTTPException(status_code=422, detail="Season must be a year, e.g. 2026.")
+    r = db.query_match_archive(league[:10], team[:60], date_from[:10], date_to[:10], season,
+                               max(1, min(limit, 100)), max(0, min(offset, 100000)))
+    sts = _statuses()
+    for m in r["matches"]:
+        if m["match_key"] in sts:
+            m["status_info"] = sts[m["match_key"]]
+    r["seasons"] = db.archive_seasons()
+    return r
 
 
 # ══════════════════════════════════════════════════════

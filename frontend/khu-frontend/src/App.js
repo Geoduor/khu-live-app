@@ -9,6 +9,7 @@ import MatchCard from "./components/MatchCard";
 import LoadingState from "./components/LoadingState";
 import ErrorState from "./components/ErrorState";
 import TeamProfile from "./components/TeamProfile";
+import PastMatches from "./components/PastMatches";
 import MatchDetail from "./components/MatchDetail";
 import PlayoffBracket from "./components/PlayoffBracket";
 import OnboardingPicker from "./components/OnboardingPicker";
@@ -874,6 +875,7 @@ function FixturesView({ fixtures, leagues, loading, onOpenMatch, onOpenTeam, isF
 // ══════════════════════════════════════════════════
 function ResultsView({ results, leagues, loading, onOpenMatch, onOpenTeam, isFavorite, toggleFavorite }) {
   const [leagueFilter, setLeagueFilter] = useState("");
+  const [mode, setMode] = useState("recent"); // "recent" | "past"
 
   const allResults = results?.results || [];
   const filtered = leagueFilter
@@ -888,11 +890,17 @@ function ResultsView({ results, leagues, loading, onOpenMatch, onOpenTeam, isFav
     <div className="section">
       <div className="sec-head">
         <span className="sec-title">Results</span>
-        {leagues?.length > 0 && (
+        {mode === "recent" && leagues?.length > 0 && (
           <LeagueFilterSelect leagues={leagues} value={leagueFilter} onChange={setLeagueFilter} />
         )}
       </div>
-      {loading ? (
+      <div className="seg" role="tablist">
+        <button className={mode === "recent" ? "active" : ""} onClick={() => setMode("recent")}>Latest</button>
+        <button className={mode === "past" ? "active" : ""} onClick={() => setMode("past")}>Past matches</button>
+      </div>
+      {mode === "past" ? (
+        <PastMatches leagues={leagues} onOpenMatch={onOpenMatch} onOpenTeam={onOpenTeam} isFavorite={isFavorite} toggleFavorite={toggleFavorite} />
+      ) : loading ? (
         <LoadingState message="Loading results..." />
       ) : results?.error ? (
         <ErrorState title="Could not load results" message={results.error} />

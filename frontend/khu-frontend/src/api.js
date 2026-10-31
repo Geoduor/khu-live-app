@@ -62,6 +62,10 @@ export const getTopScorers = (leagueShort = "") =>
 export const getTournaments = () => api.get("/api/tournaments").then(r => r.data);
 export const getTournament = (id) => api.get(`/api/tournaments/${encodeURIComponent(id)}`).then(r => r.data);
 
+// ── Past matches archive + status notices ──
+export const getMatchHistory = (params = {}) => api.get("/api/matches/history", { params }).then(r => r.data);
+export const getMatchNotices = () => api.get("/api/match-notices").then(r => r.data);
+
 // ── Health check ──
 export const getHealth = () => api.get("/api/health").then(r => r.data);
 

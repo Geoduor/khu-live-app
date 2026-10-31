@@ -253,5 +253,58 @@ for k in ("BACKUP_S3_ENDPOINT", "BACKUP_S3_BUCKET", "BACKUP_S3_KEY_ID", "BACKUP_
 _sys.modules.pop("boto3", None)
 main.cache["standings"].pop("t_plm", None)
 
+print("11. Match archive + match status")
+main._rate_hits.clear()
+_fx = {"league_short": "PLM", "league": "Premier League Men", "home_team": "Alpha", "away_team": "Beta", "date": "2026-10-03 15:00", "state": "NS", "home_score": None, "away_score": None}
+_fx2 = {"league_short": "PLM", "league": "Premier League Men", "home_team": "Gamma", "away_team": "Delta", "date": "2999-01-01 15:00", "state": "NS", "home_score": None, "away_score": None}
+_old_fr = main.cache["fixtures_results"]
+main.cache["fixtures_results"] = {"fixtures": [_fx, _fx2], "results": [], "live": []}
+main.archive_current_matches()
+r = c.get("/api/matches/history?league=PLM&team=alph").json()
+check("archive keeps a fixture and filters by team", r["total"] == 1 and r["matches"][0]["home_team"] == "Alpha", str(r)[:150])
+# the match is played: result arrives, fixture disappears from the cache, archive keeps the score
+_res = dict(_fx, state="FT", home_score=2, away_score=1)
+main.cache["fixtures_results"] = {"fixtures": [_fx2], "results": [_res], "live": []}
+main.archive_current_matches()
+main.cache["fixtures_results"] = {"fixtures": [_fx2], "results": [], "live": []}   # later scrape forgets it
+main.archive_current_matches()
+a = c.get("/api/matches/history?team=alph").json()["matches"][0]
+check("archived score survives a scrape that forgets the match", a["home_score"] == 2 and a["away_score"] == 1)
+check("history filters by date and season", c.get("/api/matches/history?date_from=2026-10-01&date_to=2026-10-31").json()["total"] >= 1 and c.get("/api/matches/history?season=2026").json()["total"] >= 1)
+check("bad season rejected", c.get("/api/matches/history?season=abc").status_code == 422)
+key = main._match_key(_fx2)
+S = lambda **kw: c.post("/api/admin/matches/status", headers=H, json=dict(match_key=key, **kw))
+check("status needs auth", c.post("/api/admin/matches/status", json={"match_key": key, "status": "postponed"}).status_code == 401)
+check("unknown status refused", S(status="exploded").status_code == 422)
+check("unknown match refused", c.post("/api/admin/matches/status", headers=H, json={"match_key": "X|a|b|2026-01-01", "status": "postponed"}).status_code == 404)
+check("rescheduled needs a new date", S(status="rescheduled").status_code == 422)
+# a PAST fixture marked postponed stays visible on Fixtures with its notice
+main.cache["fixtures_results"] = {"fixtures": [_fx, _fx2], "results": [], "live": []}
+k1 = main._match_key(_fx)
+c.post("/api/admin/matches/status", headers=H, json={"match_key": k1, "status": "postponed", "reason": "Pitch waterlogged"})
+fx = c.get("/api/fixtures").json()["fixtures"]
+pin = [m for m in fx if m["home_team"] == "Alpha"]
+check("past postponed match stays visible with its reason", pin and pin[0]["status_info"]["reason"] == "Pitch waterlogged")
+c.delete(f"/api/admin/matches/status?match_key={k1}", headers=H)
+main._status_changed()
+check("clearing the notice removes it", not [m for m in c.get("/api/fixtures").json()["fixtures"] if m["home_team"] == "Alpha"])
+# rescheduled shows at the new date
+check("reschedule saved", S(status="rescheduled", new_date="2999-02-02 15:00", reason="Venue clash").status_code == 200)
+fx = [m for m in c.get("/api/fixtures").json()["fixtures"] if m["home_team"] == "Gamma"][0]
+check("rescheduled match moves to its new date", fx["date"] == "2999-02-02 15:00" and fx["original_date"] == "2999-01-01 15:00")
+# abandoned live match leaves the live list
+_lv = dict(_fx2, state="LIVE", home_score=1, away_score=0)
+main.cache["fixtures_results"] = {"fixtures": [], "results": [], "live": [_lv]}
+check("abandoned match with minute and score saved", S(status="abandoned", reason="Floodlight failure", minute=48, home_score=1, away_score=0).status_code == 200)
+check("abandoned match is no longer 'live'", c.get("/api/live").json()["total"] == 0)
+nt = c.get("/api/match-notices").json()["notices"]
+check("public notices list it with the stop details", nt and nt[0]["status_info"]["minute"] == 48 and nt[0]["status_info"]["status"] == "abandoned")
+import database as _d2
+_cn = _d2.get_connection(); _n = _cn.execute("SELECT COUNT(*) FROM match_status_log").fetchone()[0]; _cn.close()
+check("every change is logged", _n == 4, str(_n))
+bk = __import__("backup").build_backup()
+check("backup carries archive and statuses", len(bk["match_archive"]) >= 2 and key in bk["match_statuses"])
+main.cache["fixtures_results"] = _old_fr
+
 print("\nRESULT:", "all checks passed" if not fails else f"{len(fails)} FAILURE(S): {fails}")
 sys.exit(1 if fails else 0)

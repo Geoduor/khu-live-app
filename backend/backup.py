@@ -43,6 +43,8 @@ def build_backup() -> dict:
         "tournaments": db.load_tournaments(),
         "matches": db.load_tournament_matches(),
         "seasons": db.load_season_snapshots(),
+        "match_archive": db.load_match_archive(),
+        "match_statuses": db.load_match_statuses(),
         "exported_at": datetime.now(timezone.utc).isoformat(),
     }
 
