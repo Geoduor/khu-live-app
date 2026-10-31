@@ -948,3 +948,291 @@ def import_tournaments_seed(tournaments: list, matches: list, retired_ids: list 
     conn.commit()
     conn.close()
     return added
+
+
+# ══════════════════════════════════════════════════════
+# SEASON SNAPSHOTS — frozen history, append-only
+# ══════════════════════════════════════════════════════
+# A finished season is copied here once and never edited or overwritten by
+# the app: saving a label that already exists is refused. Deleting needs a
+# deliberate direct database action, not an API call.
+
+def _ensure_season_table(conn):
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS season_snapshots (
+            label      TEXT PRIMARY KEY,
+            title      TEXT NOT NULL,
+            source     TEXT DEFAULT '',
+            data_json  TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        )
+    """)
+
+
+def save_season_snapshot(label: str, title: str, data: dict, source: str = "") -> bool:
+    """Store a season once. Returns False (and changes nothing) if the label already exists."""
+    conn = get_connection()
+    try:
+        _ensure_season_table(conn)
+        if conn.execute("SELECT 1 FROM season_snapshots WHERE label = ?", (label,)).fetchone():
+            return False
+        conn.execute(
+            "INSERT INTO season_snapshots (label, title, source, data_json, created_at) VALUES (?, ?, ?, ?, ?)",
+            (label, title, source, json.dumps(data, ensure_ascii=False), datetime.now().isoformat()),
+        )
+        conn.commit()
+        return True
+    finally:
+        conn.close()
+
+
+def list_season_snapshots() -> list:
+    conn = get_connection()
+    try:
+        _ensure_season_table(conn)
+        rows = conn.execute("SELECT label, title, source, created_at FROM season_snapshots ORDER BY label DESC").fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def get_season_snapshot(label: str):
+    conn = get_connection()
+    try:
+        _ensure_season_table(conn)
+        row = conn.execute("SELECT label, title, source, data_json, created_at FROM season_snapshots WHERE label = ?",
+                           (label,)).fetchone()
+        if not row:
+            return None
+        d = dict(row)
+        d["data"] = json.loads(d.pop("data_json"))
+        return d
+    finally:
+        conn.close()
+
+
+def load_season_snapshots() -> list:
+    """Everything, for backups."""
+    conn = get_connection()
+    try:
+        _ensure_season_table(conn)
+        rows = conn.execute("SELECT label, title, source, data_json, created_at FROM season_snapshots ORDER BY label").fetchall()
+        out = []
+        for r in rows:
+            d = dict(r)
+            d["data"] = json.loads(d.pop("data_json"))
+            out.append(d)
+        return out
+    finally:
+        conn.close()
+
+
+# ══════════════════════════════════════════════════════
+# MATCH ARCHIVE — every fixture/result ever seen, never deleted
+# ══════════════════════════════════════════════════════
+# The live cache only holds the current picture (and upcoming fixtures vanish
+# once played). The archive is the permanent record behind "past fixtures":
+# every refresh upserts what it sees; nothing is ever removed by the app.
+
+def _ensure_archive_tables(conn):
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS match_archive (
+            match_key    TEXT PRIMARY KEY,
+            league_short TEXT DEFAULT '',
+            season       TEXT DEFAULT '',
+            match_date   TEXT DEFAULT '',
+            home_team    TEXT DEFAULT '',
+            away_team    TEXT DEFAULT '',
+            data_json    TEXT NOT NULL,
+            first_seen   TEXT NOT NULL,
+            last_seen    TEXT NOT NULL
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS match_status (
+            match_key  TEXT PRIMARY KEY,
+            status     TEXT NOT NULL,
+            reason     TEXT DEFAULT '',
+            new_date   TEXT DEFAULT '',
+            minute     INTEGER,
+            home_score INTEGER,
+            away_score INTEGER,
+            note       TEXT DEFAULT '',
+            updated_at TEXT NOT NULL,
+            updated_by TEXT DEFAULT ''
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS match_status_log (
+            id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            match_key  TEXT NOT NULL,
+            status     TEXT NOT NULL,
+            detail_json TEXT DEFAULT '',
+            at         TEXT NOT NULL,
+            by         TEXT DEFAULT ''
+        )
+    """)
+
+
+_HAS_SCORE = lambda m: m.get("home_score") is not None and m.get("away_score") is not None
+
+
+def archive_matches(items: list) -> int:
+    """items = [(match_key, match_dict)]. Upsert; a score once archived is never
+    replaced by a score-less copy of the same match. Returns rows written."""
+    if not items:
+        return 0
+    conn = get_connection()
+    try:
+        _ensure_archive_tables(conn)
+        now = datetime.now().isoformat()
+        n = 0
+        for key, m in items:
+            row = conn.execute("SELECT data_json FROM match_archive WHERE match_key = ?", (key,)).fetchone()
+            data = dict(m)
+            if row:
+                old = json.loads(row["data_json"])
+                if _HAS_SCORE(old) and not _HAS_SCORE(data):
+                    data = {**data, **{k: old.get(k) for k in ("home_score", "away_score", "scorers", "cards", "state") if old.get(k) is not None}}
+                if old == data:
+                    conn.execute("UPDATE match_archive SET last_seen = ? WHERE match_key = ?", (now, key))
+                    continue
+                conn.execute("""UPDATE match_archive SET league_short=?, season=?, match_date=?, home_team=?, away_team=?,
+                                data_json=?, last_seen=? WHERE match_key=?""",
+                             (m.get("league_short", ""), key.rsplit("|", 1)[1][:4], key.rsplit("|", 1)[1],
+                              m.get("home_team", ""), m.get("away_team", ""), json.dumps(data, ensure_ascii=False), now, key))
+            else:
+                conn.execute("""INSERT INTO match_archive (match_key, league_short, season, match_date, home_team, away_team,
+                                data_json, first_seen, last_seen) VALUES (?,?,?,?,?,?,?,?,?)""",
+                             (key, m.get("league_short", ""), key.rsplit("|", 1)[1][:4], key.rsplit("|", 1)[1],
+                              m.get("home_team", ""), m.get("away_team", ""), json.dumps(data, ensure_ascii=False), now, now))
+            n += 1
+        conn.commit()
+        return n
+    finally:
+        conn.close()
+
+
+def query_match_archive(league="", team="", date_from="", date_to="", season="", limit=50, offset=0) -> dict:
+    conn = get_connection()
+    try:
+        _ensure_archive_tables(conn)
+        where, args = [], []
+        if league:
+            where.append("league_short = ?"); args.append(league.upper())
+        if season:
+            where.append("season = ?"); args.append(season)
+        if date_from:
+            where.append("match_date >= ?"); args.append(date_from)
+        if date_to:
+            where.append("match_date <= ?"); args.append(date_to)
+        if team:
+            where.append("(LOWER(home_team) LIKE ? OR LOWER(away_team) LIKE ?)")
+            like = "%" + team.lower().replace("%", "").replace("_", "") + "%"
+            args += [like, like]
+        w = (" WHERE " + " AND ".join(where)) if where else ""
+        total = conn.execute("SELECT COUNT(*) FROM match_archive" + w, tuple(args)).fetchone()[0]
+        rows = conn.execute(
+            "SELECT match_key, data_json FROM match_archive" + w + " ORDER BY match_date DESC, match_key LIMIT ? OFFSET ?",
+            tuple(args) + (int(limit), int(offset))).fetchall()
+        return {"total": total, "matches": [{**json.loads(r["data_json"]), "match_key": r["match_key"]} for r in rows]}
+    finally:
+        conn.close()
+
+
+def archive_seasons() -> list:
+    conn = get_connection()
+    try:
+        _ensure_archive_tables(conn)
+        rows = conn.execute("SELECT season, COUNT(*) AS n FROM match_archive WHERE season <> '' GROUP BY season ORDER BY season DESC").fetchall()
+        return [{"season": r["season"], "matches": r["n"]} for r in rows]
+    finally:
+        conn.close()
+
+
+def load_match_archive() -> list:
+    conn = get_connection()
+    try:
+        _ensure_archive_tables(conn)
+        rows = conn.execute("SELECT match_key, data_json, first_seen FROM match_archive ORDER BY match_key").fetchall()
+        return [{"match_key": r["match_key"], "data": json.loads(r["data_json"]), "first_seen": r["first_seen"]} for r in rows]
+    finally:
+        conn.close()
+
+
+# ── Match status (postponed / abandoned / ...) ──
+
+MATCH_STATUSES = ("postponed", "rescheduled", "suspended", "abandoned", "cancelled", "awarded")
+
+
+def set_match_status(match_key: str, status: str, reason="", new_date="", minute=None,
+                     home_score=None, away_score=None, note="", by="") -> None:
+    conn = get_connection()
+    try:
+        _ensure_archive_tables(conn)
+        now = datetime.now().isoformat()
+        detail = {"reason": reason, "new_date": new_date, "minute": minute,
+                  "home_score": home_score, "away_score": away_score, "note": note}
+        conn.execute("""
+            INSERT INTO match_status (match_key, status, reason, new_date, minute, home_score, away_score, note, updated_at, updated_by)
+            VALUES (?,?,?,?,?,?,?,?,?,?)
+            ON CONFLICT(match_key) DO UPDATE SET status=excluded.status, reason=excluded.reason, new_date=excluded.new_date,
+              minute=excluded.minute, home_score=excluded.home_score, away_score=excluded.away_score, note=excluded.note,
+              updated_at=excluded.updated_at, updated_by=excluded.updated_by
+        """, (match_key, status, reason, new_date, minute, home_score, away_score, note, now, by))
+        conn.execute("INSERT INTO match_status_log (match_key, status, detail_json, at, by) VALUES (?,?,?,?,?)",
+                     (match_key, status, json.dumps(detail), now, by))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def clear_match_status(match_key: str, by="") -> bool:
+    conn = get_connection()
+    try:
+        _ensure_archive_tables(conn)
+        cur = conn.execute("DELETE FROM match_status WHERE match_key = ?", (match_key,))
+        if cur.rowcount:
+            conn.execute("INSERT INTO match_status_log (match_key, status, detail_json, at, by) VALUES (?,?,?,?,?)",
+                         (match_key, "cleared", "", datetime.now().isoformat(), by))
+        conn.commit()
+        return bool(cur.rowcount)
+    finally:
+        conn.close()
+
+
+def load_match_statuses() -> dict:
+    """{match_key: {status, reason, new_date, minute, home_score, away_score, note, updated_at, updated_by}}"""
+    conn = get_connection()
+    try:
+        _ensure_archive_tables(conn)
+        rows = conn.execute("SELECT * FROM match_status").fetchall()
+        return {r["match_key"]: {k: r[k] for k in ("status", "reason", "new_date", "minute", "home_score", "away_score",
+                                                  "note", "updated_at", "updated_by")} for r in rows}
+    finally:
+        conn.close()
+
+
+def get_archived_match(match_key: str):
+    conn = get_connection()
+    try:
+        _ensure_archive_tables(conn)
+        row = conn.execute("SELECT data_json FROM match_archive WHERE match_key = ?", (match_key,)).fetchone()
+        return json.loads(row["data_json"]) if row else None
+    finally:
+        conn.close()
+
+
+def import_match_archive(items: list) -> int:
+    """For restores: items = [{match_key, data}]. Merged like a normal refresh."""
+    return archive_matches([(i["match_key"], i["data"]) for i in items if i.get("match_key") and isinstance(i.get("data"), dict)])
+
+
+def import_match_statuses(items: dict) -> int:
+    n = 0
+    for k, v in (items or {}).items():
+        if isinstance(v, dict) and v.get("status") in MATCH_STATUSES:
+            set_match_status(k, v["status"], v.get("reason", ""), v.get("new_date", ""), v.get("minute"),
+                             v.get("home_score"), v.get("away_score"), v.get("note", ""), v.get("updated_by", "restore"))
+            n += 1
+    return n

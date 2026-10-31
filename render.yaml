@@ -36,6 +36,15 @@ services:
       # commit it. When set, data lives in Postgres instead of local SQLite.
       - key: DATABASE_URL
         sync: false
+      # Optional off-site nightly backup (S3-compatible bucket). Secrets.
+      - key: BACKUP_S3_ENDPOINT
+        sync: false
+      - key: BACKUP_S3_BUCKET
+        sync: false
+      - key: BACKUP_S3_KEY_ID
+        sync: false
+      - key: BACKUP_S3_SECRET
+        sync: false
       - key: KHU_REQUEST_DELAY_SECONDS
         value: "1.0"
       - key: KHU_CHALLENGE_BACKOFF_MULTIPLIER

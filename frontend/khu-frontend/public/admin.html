@@ -252,6 +252,58 @@
   <div id="backupMsg" class="msg"></div>
 </div>
 
+<div class="card" id="statusCard">
+  <div class="section-title">Postponed, stopped or cancelled matches</div>
+  <div class="subtitle">Tell fans what happened to a match. This only adds a notice on the match: it never changes the table. If a result stands or is awarded, enter the score as usual.</div>
+  <label>Find the match</label>
+  <input id="msTeam" placeholder="Team name, e.g. Strathmore" maxlength="60" />
+  <input id="msFrom" type="date" aria-label="From date" style="margin-top: 8px;" />
+  <button style="margin-top: 8px;" onclick="msSearch()">Search matches</button>
+  <div id="msResults" style="margin-top: 8px;"></div>
+  <div id="msForm" style="display:none; margin-top: 12px;">
+    <div id="msChosen" class="subtitle"></div>
+    <label>What happened?</label>
+    <select id="msStatus" onchange="msToggle()">
+      <option value="postponed">Postponed (new date not known yet)</option>
+      <option value="rescheduled">Rescheduled (new date known)</option>
+      <option value="suspended">Suspended mid-game (to be resumed)</option>
+      <option value="abandoned">Abandoned mid-game (not finished)</option>
+      <option value="cancelled">Cancelled</option>
+      <option value="awarded">Result awarded by organisers</option>
+    </select>
+    <label>Reason fans will see</label>
+    <input id="msReason" placeholder="e.g. Pitch waterlogged, floodlight failure" maxlength="200" />
+    <div id="msDateBox" style="display:none;">
+      <label>New date and time</label>
+      <input id="msNewDate" placeholder="2026-11-08 15:00" maxlength="30" />
+    </div>
+    <div id="msStopBox" style="display:none;">
+      <label>Minute it stopped</label>
+      <input id="msMinute" type="number" min="0" max="130" />
+      <label>Score when it stopped (home - away)</label>
+      <input id="msHome" type="number" min="0" max="99" placeholder="Home" />
+      <input id="msAway" type="number" min="0" max="99" placeholder="Away" style="margin-top: 8px;" />
+    </div>
+    <label>Extra note (optional)</label>
+    <input id="msNote" placeholder="e.g. Replay on 14 Nov" maxlength="300" />
+    <button style="margin-top: 10px;" onclick="msSave()">Save notice</button>
+    <button style="margin-top: 8px; background: transparent; color: inherit; border: 1px solid currentColor;" onclick="msClear()">Remove notice</button>
+  </div>
+  <div id="msMsg" class="msg"></div>
+</div>
+
+<div class="card">
+  <div class="section-title">Off-site backup &amp; season history</div>
+  <div class="subtitle">A copy goes to your separate storage bucket every night at 02:00 (once the BACKUP_S3_* settings are added on Render). Saved seasons are permanent: once saved, a season cannot be changed or replaced from this page.</div>
+  <button style="margin-top: 12px;" onclick="runOffsiteBackup()">Back up to off-site storage now</button>
+  <div id="offsiteMsg" class="msg"></div>
+  <label style="margin-top: 14px;">Save the current season as history</label>
+  <input id="seasonLabel" placeholder="Season label, e.g. 2025-26" maxlength="40" />
+  <input id="seasonTitle" placeholder="Title, e.g. 2025/26 Season" maxlength="120" style="margin-top: 8px;" />
+  <button style="margin-top: 8px;" onclick="saveSeasonSnapshot()">Save season to history</button>
+  <div id="seasonMsg" class="msg"></div>
+</div>
+
 <div class="card">
   <div class="section-title">Correct a Team's Stats</div>
   <div class="subtitle" style="margin-bottom: 12px;">Only fill in the fields you're correcting — anything left blank keeps the live-scraped value.</div>
@@ -804,6 +856,76 @@
     loadTournaments();
   }
 
+  const MS_HEADERS = () => adminHeaders();
+  // ── Match status notices (postponed / abandoned / ...). Text only, never innerHTML. ──
+  let msKey = null;
+  function msToggle() {
+    const s = $('msStatus').value;
+    $('msDateBox').style.display = s === 'rescheduled' ? 'block' : 'none';
+    $('msStopBox').style.display = (s === 'abandoned' || s === 'suspended') ? 'block' : 'none';
+  }
+  async function msSearch() {
+    const box = $('msResults');
+    box.textContent = 'Searching...';
+    try {
+      const q = new URLSearchParams({ team: $('msTeam').value.trim(), date_from: $('msFrom').value, limit: '15' });
+      const res = await fetch(`${apiBase()}/api/admin/matches/search?${q}`, { headers: MS_HEADERS() });
+      const d = await res.json();
+      if (!res.ok) { box.textContent = d.detail || 'Search failed.'; return; }
+      box.textContent = '';
+      if (!d.matches.length) { box.textContent = 'No matches found.'; return; }
+      d.matches.forEach((m) => {
+        const b = document.createElement('button');
+        b.style.cssText = 'display:block;width:100%;text-align:left;margin-top:6px;background:transparent;color:inherit;border:1px solid currentColor;';
+        const st = m.status_info ? ` [${m.status_info.status}]` : '';
+        b.textContent = `${m.date} · ${m.league_short} · ${m.home_team} v ${m.away_team}${st}`;
+        b.onclick = () => msPick(m);
+        box.appendChild(b);
+      });
+    } catch (e) { box.textContent = e.message; }
+  }
+  function msPick(m) {
+    msKey = m.match_key;
+    $('msChosen').textContent = `Selected: ${m.home_team} v ${m.away_team} (${m.league_short}, ${m.date})`;
+    const i = m.status_info || {};
+    $('msStatus').value = i.status || 'postponed';
+    $('msReason').value = i.reason || '';
+    $('msNewDate').value = i.new_date || '';
+    $('msMinute').value = i.minute == null ? '' : i.minute;
+    $('msHome').value = i.home_score == null ? '' : i.home_score;
+    $('msAway').value = i.away_score == null ? '' : i.away_score;
+    $('msNote').value = i.note || '';
+    $('msForm').style.display = 'block';
+    msToggle();
+  }
+  const msNum = (id) => { const v = $(id).value.trim(); return v === '' ? null : parseInt(v, 10); };
+  async function msSave() {
+    const msg = $('msMsg');
+    if (!msKey) { msg.textContent = 'Pick a match first.'; return; }
+    try {
+      const res = await fetch(`${apiBase()}/api/admin/matches/status`, {
+        method: 'POST', headers: MS_HEADERS(),
+        body: JSON.stringify({
+          match_key: msKey, status: $('msStatus').value, reason: $('msReason').value,
+          new_date: $('msNewDate').value, minute: msNum('msMinute'),
+          home_score: msNum('msHome'), away_score: msNum('msAway'), note: $('msNote').value,
+        }),
+      });
+      const d = await res.json();
+      msg.textContent = res.ok ? d.message + ' Fans will see it within a minute.' : (typeof d.detail === 'string' ? d.detail : 'Please check the fields and try again.');
+    } catch (e) { msg.textContent = e.message; }
+  }
+  async function msClear() {
+    const msg = $('msMsg');
+    if (!msKey) { msg.textContent = 'Pick a match first.'; return; }
+    if (!confirm('Remove the notice from this match?')) return;
+    try {
+      const res = await fetch(`${apiBase()}/api/admin/matches/status?match_key=${encodeURIComponent(msKey)}`, { method: 'DELETE', headers: MS_HEADERS() });
+      const d = await res.json();
+      msg.textContent = res.ok ? d.message : (d.detail || 'Could not remove.');
+    } catch (e) { msg.textContent = e.message; }
+  }
+
   async function downloadBackup() {
     const msg = $('backupMsg');
     msg.textContent = 'Preparing backup...';
@@ -814,18 +936,46 @@
         if (!res.ok) throw new Error(d.detail || ('Could not read ' + path));
         return d;
       };
-      const [ag, rs, ts, ps, tn] = await Promise.all([
+      const [ag, rs, ts, ps, tn, sn, mh] = await Promise.all([
         get('agents/export-seed'), get('results/export-seed'), get('team-stats/export-seed'),
-        get('player-stats/export-seed'), get('tournaments/export-seed'),
+        get('player-stats/export-seed'), get('tournaments/export-seed'), get('seasons/export'),
+        get('matches/export'),
       ]);
       const out = { agents: ag.agents, results: rs.results, stats: ts.stats, players: ps.players,
-                    tournaments: tn.tournaments, matches: tn.matches, exported_at: new Date().toISOString() };
+                    tournaments: tn.tournaments, matches: tn.matches, seasons: sn.seasons,
+                    match_archive: mh.match_archive, match_statuses: mh.match_statuses, exported_at: new Date().toISOString() };
       const blob = new Blob([JSON.stringify(out, null, 2)], { type: 'application/json' });
       const a = document.createElement('a');
       a.href = URL.createObjectURL(blob);
       a.download = 'khu-backup-' + new Date().toISOString().slice(0, 10) + '.json';
       document.body.appendChild(a); a.click(); a.remove();
       msg.textContent = `Downloaded: ${out.agents.length} agent(s), ${out.results.length} result(s), ${out.tournaments.length} tournament(s) with ${out.matches.length} match(es).`;
+    } catch (e) { msg.textContent = e.message; }
+  }
+
+  async function runOffsiteBackup() {
+    const msg = $('offsiteMsg');
+    msg.textContent = 'Working...';
+    try {
+      const sres = await fetch(`${apiBase()}/api/admin/backup/status`, { headers: adminHeaders() });
+      const st = await sres.json();
+      if (!st.configured) { msg.textContent = 'Not set up yet: add the BACKUP_S3_* settings on Render first.'; return; }
+      const res = await fetch(`${apiBase()}/api/admin/backup/run`, { method: 'POST', headers: adminHeaders() });
+      const d = await res.json();
+      msg.textContent = res.ok ? d.detail : (d.detail || 'Backup failed.');
+    } catch (e) { msg.textContent = e.message; }
+  }
+
+  async function saveSeasonSnapshot() {
+    const msg = $('seasonMsg');
+    const label = $('seasonLabel').value.trim();
+    if (!label) { msg.textContent = 'Type a season label first, e.g. 2025-26.'; return; }
+    if (!confirm('Save the current tables, results and tournaments as season "' + label + '"? A saved season cannot be changed afterwards.')) return;
+    try {
+      const q = `label=${encodeURIComponent(label)}&title=${encodeURIComponent($('seasonTitle').value.trim())}`;
+      const res = await fetch(`${apiBase()}/api/admin/seasons/snapshot?${q}`, { method: 'POST', headers: adminHeaders() });
+      const d = await res.json();
+      msg.textContent = res.ok ? `${d.message} (${d.leagues} league table(s), ${d.results} result(s))` : (d.detail || 'Could not save.');
     } catch (e) { msg.textContent = e.message; }
   }
 

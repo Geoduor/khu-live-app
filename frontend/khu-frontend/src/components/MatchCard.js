@@ -29,6 +29,35 @@ function formatCards(cards) {
     .join("  ");
 }
 
+const STATUS_LABEL = {
+  postponed: "POSTPONED", rescheduled: "RESCHEDULED", suspended: "SUSPENDED",
+  abandoned: "ABANDONED", cancelled: "CANCELLED", awarded: "AWARDED",
+};
+
+/** One plain-English line telling fans what happened to the match. */
+export function statusLine(match) {
+  const i = match.status_info;
+  if (!i) return "";
+  const stop = i.minute != null ? `${i.minute}'` : "";
+  const sc = i.home_score != null && i.away_score != null ? `${i.home_score}–${i.away_score}` : "";
+  switch (i.status) {
+    case "postponed":
+      return "Postponed — new date to be announced.";
+    case "rescheduled":
+      return `Moved${match.original_date ? ` from ${match.original_date}` : ""} to ${i.new_date}.`;
+    case "suspended":
+      return `Play stopped${stop ? ` at ${stop}` : ""}${sc ? ` with the score ${sc}` : ""}. The match is to be resumed.`;
+    case "abandoned":
+      return `Stopped${stop ? ` at ${stop}` : " early"}${sc ? ` with the score ${sc}` : ""} and not completed.`;
+    case "cancelled":
+      return "This match will not be played.";
+    case "awarded":
+      return "The result was awarded by the organisers.";
+    default:
+      return "";
+  }
+}
+
 /**
  * MatchCard — renders a single match using JoomSport's real match state machine:
  *   NS   = not started (upcoming fixture)
@@ -40,7 +69,10 @@ function formatCards(cards) {
  * Star icons let users favorite either team directly from the match card.
  */
 export default function MatchCard({ match, onOpenMatch, onOpenTeam, isFavorite, toggleFavorite }) {
-  const state = match.state || (match.home_score != null ? "FT" : "NS");
+  const info = match.status_info || null;
+  // A match with a status notice is never shown as "live" or with a final score
+  // unless it was awarded: the notice explains what really happened.
+  const state = info && info.status !== "awarded" ? "NS" : (match.state || (match.home_score != null ? "FT" : "NS"));
   const clickable = Boolean(match.match_url && onOpenMatch);
 
   return (
@@ -61,13 +93,16 @@ export default function MatchCard({ match, onOpenMatch, onOpenTeam, isFavorite, 
           {match.date && <div className="match-venue">{match.date}</div>}
         </div>
 
-        {state === "LIVE" && (
+        {info && (
+          <div className={`match-status match-status-${info.status}`}>{STATUS_LABEL[info.status] || info.status.toUpperCase()}</div>
+        )}
+        {!info && state === "LIVE" && (
           <div className="match-state-live">
             <span className="pulse-dot" /> LIVE
           </div>
         )}
-        {state === "FT" && <div className="match-state-ft">FULL TIME</div>}
-        {state === "NS" && <div className="match-state-ns">UPCOMING</div>}
+        {!info && state === "FT" && <div className="match-state-ft">FULL TIME</div>}
+        {!info && state === "NS" && <div className="match-state-ns">UPCOMING</div>}
       </div>
 
       <div className="match-body">
@@ -130,6 +165,14 @@ export default function MatchCard({ match, onOpenMatch, onOpenTeam, isFavorite, 
         </div>
       </div>
 
+      {info && (
+        <div className={`match-notice match-notice-${info.status}`}>
+          <div>{statusLine(match)}</div>
+          {info.reason && <div className="match-notice-reason">Reason: {info.reason}</div>}
+          {info.note && <div className="match-notice-reason">{info.note}</div>}
+        </div>
+      )}
+
       {match.venue && (
         <div className="match-location">📍 {match.venue}</div>
       )}
@@ -142,7 +185,7 @@ export default function MatchCard({ match, onOpenMatch, onOpenTeam, isFavorite, 
         <div className="match-cards">{formatCards(match.cards)}</div>
       )}
 
-      {(state === "FT" || state === "LIVE") && match.home_score != null && (
+      {!info && (state === "FT" || state === "LIVE") && match.home_score != null && (
         <div className="match-share-row">
           <ShareButton
             label="Share result"

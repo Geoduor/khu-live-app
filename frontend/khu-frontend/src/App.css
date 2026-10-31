@@ -1005,3 +1005,22 @@ button:focus-visible,[role="button"]:focus-visible,select:focus-visible{ outline
 .tv-hero .tour-status-completed{ background:rgba(60,200,100,.25); color:#b9f5cd; }
 .tv-hero .tour-status-ongoing{ background:rgba(255,90,82,.28); color:#ffd2cf; }
 .tv-champ-n{ font-size:17px !important; }
+
+/* ── MATCH STATUS NOTICES (postponed, abandoned, ...) ── */
+.match-status { font-size: 11px; font-weight: 800; letter-spacing: .3px; padding: 3px 9px; border-radius: 10px; background: rgba(255,255,255,0.08); color: var(--amber); }
+.match-status-abandoned, .match-status-cancelled { color: #ff6b6b; background: rgba(255,80,80,0.12); }
+.match-status-rescheduled, .match-status-awarded { color: #6ee7a8; background: rgba(60,200,130,0.12); }
+.match-notice { margin: 8px 0 2px; padding: 9px 11px; border-radius: 10px; font-size: 12.5px; line-height: 1.4; background: rgba(255,170,0,0.08); border-left: 3px solid var(--amber); }
+.match-notice-abandoned, .match-notice-cancelled { background: rgba(255,80,80,0.08); border-left-color: #ff6b6b; }
+.match-notice-rescheduled, .match-notice-awarded { background: rgba(60,200,130,0.08); border-left-color: #6ee7a8; }
+.match-notice-reason { margin-top: 3px; color: var(--muted); }
+
+/* ── PAST MATCHES ARCHIVE ── */
+.seg { display: flex; gap: 6px; padding: 0 16px 12px; }
+.seg button { flex: 1; padding: 9px 10px; border-radius: 12px; border: 1px solid var(--border); background: rgba(255,255,255,0.04); color: var(--muted); font-weight: 700; font-size: 13px; cursor: pointer; }
+.seg button.active { color: #fff; border-color: var(--red); background: linear-gradient(135deg, var(--red), #7a0000); }
+.archive-filters { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; padding: 0 16px 12px; }
+.archive-filters input, .archive-filters select { width: 100%; box-sizing: border-box; padding: 9px 10px; border-radius: 10px; border: 1px solid var(--border); background: rgba(255,255,255,0.05); color: inherit; font-size: 13px; }
+.archive-filters .wide { grid-column: 1 / -1; }
+.archive-more { display: block; margin: 12px auto 4px; padding: 9px 22px; border-radius: 20px; border: 1px solid var(--border); background: rgba(255,255,255,0.05); color: inherit; font-weight: 700; cursor: pointer; }
+.archive-count { padding: 0 16px 8px; font-size: 12px; color: var(--muted); }
