@@ -1048,6 +1048,19 @@ def _ensure_archive_tables(conn):
             last_seen    TEXT NOT NULL
         )
     """)
+    try:
+        conn.execute("ALTER TABLE match_archive ADD COLUMN played INTEGER")
+        conn.commit()
+    except Exception:
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+    # one-time backfill for rows archived before this column existed
+    for r in conn.execute("SELECT match_key, data_json FROM match_archive WHERE played IS NULL").fetchall():
+        conn.execute("UPDATE match_archive SET played = ? WHERE match_key = ?",
+                     (1 if _HAS_SCORE(json.loads(r["data_json"])) else 0, r["match_key"]))
+    conn.commit()
     conn.execute("""
         CREATE TABLE IF NOT EXISTS match_status (
             match_key  TEXT PRIMARY KEY,
@@ -1098,14 +1111,16 @@ def archive_matches(items: list) -> int:
                     conn.execute("UPDATE match_archive SET last_seen = ? WHERE match_key = ?", (now, key))
                     continue
                 conn.execute("""UPDATE match_archive SET league_short=?, season=?, match_date=?, home_team=?, away_team=?,
-                                data_json=?, last_seen=? WHERE match_key=?""",
+                                data_json=?, last_seen=?, played=? WHERE match_key=?""",
                              (m.get("league_short", ""), key.rsplit("|", 1)[1][:4], key.rsplit("|", 1)[1],
-                              m.get("home_team", ""), m.get("away_team", ""), json.dumps(data, ensure_ascii=False), now, key))
+                              m.get("home_team", ""), m.get("away_team", ""), json.dumps(data, ensure_ascii=False), now,
+                              1 if _HAS_SCORE(data) else 0, key))
             else:
                 conn.execute("""INSERT INTO match_archive (match_key, league_short, season, match_date, home_team, away_team,
-                                data_json, first_seen, last_seen) VALUES (?,?,?,?,?,?,?,?,?)""",
+                                data_json, first_seen, last_seen, played) VALUES (?,?,?,?,?,?,?,?,?,?)""",
                              (key, m.get("league_short", ""), key.rsplit("|", 1)[1][:4], key.rsplit("|", 1)[1],
-                              m.get("home_team", ""), m.get("away_team", ""), json.dumps(data, ensure_ascii=False), now, now))
+                              m.get("home_team", ""), m.get("away_team", ""), json.dumps(data, ensure_ascii=False), now, now,
+                              1 if _HAS_SCORE(data) else 0))
             n += 1
         conn.commit()
         return n
@@ -1113,7 +1128,7 @@ def archive_matches(items: list) -> int:
         conn.close()
 
 
-def query_match_archive(league="", team="", date_from="", date_to="", season="", limit=50, offset=0) -> dict:
+def query_match_archive(league="", team="", date_from="", date_to="", season="", limit=50, offset=0, kind="", today="") -> dict:
     conn = get_connection()
     try:
         _ensure_archive_tables(conn)
@@ -1126,6 +1141,13 @@ def query_match_archive(league="", team="", date_from="", date_to="", season="",
             where.append("match_date >= ?"); args.append(date_from)
         if date_to:
             where.append("match_date <= ?"); args.append(date_to)
+        if kind == "results":
+            where.append("played = 1")
+        elif kind == "fixtures":
+            # never-played matches whose date has passed (postponed, cancelled, unrecorded)
+            where.append("played = 0")
+            if today:
+                where.append("match_date < ?"); args.append(today)
         if team:
             where.append("(LOWER(home_team) LIKE ? OR LOWER(away_team) LIKE ?)")
             like = "%" + team.lower().replace("%", "").replace("_", "") + "%"

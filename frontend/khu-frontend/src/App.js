@@ -824,6 +824,7 @@ function DateGroupedMatchList({ matches, onOpenMatch, onOpenTeam, isFavorite, to
 
 function FixturesView({ fixtures, leagues, loading, onOpenMatch, onOpenTeam, isFavorite, toggleFavorite }) {
   const [leagueFilter, setLeagueFilter] = useState("");
+  const [mode, setMode] = useState("upcoming"); // "upcoming" | "past"
 
   const allFixtures = fixtures?.fixtures || [];
   const filtered = leagueFilter
@@ -837,12 +838,18 @@ function FixturesView({ fixtures, leagues, loading, onOpenMatch, onOpenTeam, isF
   return (
     <div className="section">
       <div className="sec-head">
-        <span className="sec-title">Upcoming Fixtures</span>
-        {leagues?.length > 0 && (
+        <span className="sec-title">{mode === "past" ? "Past Fixtures" : "Upcoming Fixtures"}</span>
+        {mode === "upcoming" && leagues?.length > 0 && (
           <LeagueFilterSelect leagues={leagues} value={leagueFilter} onChange={setLeagueFilter} />
         )}
       </div>
-      {loading ? (
+      <div className="seg" role="tablist">
+        <button className={mode === "upcoming" ? "active" : ""} onClick={() => setMode("upcoming")}>Upcoming</button>
+        <button className={mode === "past" ? "active" : ""} onClick={() => setMode("past")}>Past fixtures</button>
+      </div>
+      {mode === "past" ? (
+        <PastMatches kind="fixtures" leagues={leagues} onOpenMatch={onOpenMatch} onOpenTeam={onOpenTeam} isFavorite={isFavorite} toggleFavorite={toggleFavorite} />
+      ) : loading ? (
         <LoadingState message="Loading fixtures..." />
       ) : fixtures?.error ? (
         <ErrorState title="Could not load fixtures" message={fixtures.error} />
@@ -899,7 +906,7 @@ function ResultsView({ results, leagues, loading, onOpenMatch, onOpenTeam, isFav
         <button className={mode === "past" ? "active" : ""} onClick={() => setMode("past")}>Past matches</button>
       </div>
       {mode === "past" ? (
-        <PastMatches leagues={leagues} onOpenMatch={onOpenMatch} onOpenTeam={onOpenTeam} isFavorite={isFavorite} toggleFavorite={toggleFavorite} />
+        <PastMatches kind="results" leagues={leagues} onOpenMatch={onOpenMatch} onOpenTeam={onOpenTeam} isFavorite={isFavorite} toggleFavorite={toggleFavorite} />
       ) : loading ? (
         <LoadingState message="Loading results..." />
       ) : results?.error ? (

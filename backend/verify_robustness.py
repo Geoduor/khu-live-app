@@ -271,6 +271,11 @@ main.archive_current_matches()
 a = c.get("/api/matches/history?team=alph").json()["matches"][0]
 check("archived score survives a scrape that forgets the match", a["home_score"] == 2 and a["away_score"] == 1)
 check("history filters by date and season", c.get("/api/matches/history?date_from=2026-10-01&date_to=2026-10-31").json()["total"] >= 1 and c.get("/api/matches/history?season=2026").json()["total"] >= 1)
+_rs = c.get("/api/matches/history?kind=results").json()["matches"]
+_fs = c.get("/api/matches/history?kind=fixtures").json()["matches"]
+check("Results archive holds only played matches", _rs and all(m.get("home_score") is not None for m in _rs))
+check("Fixtures archive holds only unplayed past dates", all(m.get("home_score") is None and m["date"][:10] < "2026-11-01" for m in _fs) and not any(m["home_team"] == "Gamma" for m in _fs))
+check("bad kind rejected", c.get("/api/matches/history?kind=x").status_code == 422)
 check("bad season rejected", c.get("/api/matches/history?season=abc").status_code == 422)
 key = main._match_key(_fx2)
 S = lambda **kw: c.post("/api/admin/matches/status", headers=H, json=dict(match_key=key, **kw))
