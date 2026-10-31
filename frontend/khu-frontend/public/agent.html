@@ -258,11 +258,25 @@
     <div class="card" id="statusCard">
   <div class="section-title">Postponed, stopped or cancelled matches</div>
   <div class="subtitle">Tell fans what happened to a match. This only adds a notice on the match: it never changes the table. If a result stands or is awarded, enter the score as usual.</div>
-  <label>Find the match</label>
-  <input id="msTeam" placeholder="Team name, e.g. Strathmore" maxlength="60" />
-  <input id="msFrom" type="date" aria-label="From date" style="margin-top: 8px;" />
-  <button style="margin-top: 8px;" onclick="msSearch()">Search matches</button>
-  <div id="msResults" style="margin-top: 8px;"></div>
+  <label>League</label>
+  <select id="msLeague" onchange="msLoaded = true; msSearch()">
+    <option value="">All leagues</option>
+    <option value="PLM">Premier League Men</option>
+    <option value="PLW">Premier League Women</option>
+    <option value="SLM">Super League Men</option>
+    <option value="SLW">Super League Women</option>
+    <option value="NLM-EZ">National League Men - Eastern Zone</option>
+    <option value="NLM-CZ">National League Men - Central Zone</option>
+    <option value="NLM-WZ">National League Men - Western Zone</option>
+    <option value="NLM-SZ">National League Men - Southern Zone</option>
+  </select>
+  <label>Team (optional, to narrow the list)</label>
+  <input id="msTeam" placeholder="e.g. Strathmore" maxlength="60" oninput="msLoaded = true; msDebounce()" />
+  <label>Match</label>
+  <select id="msPick" onfocus="msEnsure()" onmousedown="msEnsure()" onchange="msPickChange()">
+    <option value="">Tap here to load matches</option>
+  </select>
+  <div class="subtitle" style="margin-top: 6px;">Shows matches from the last 3 weeks to the next 3 months.</div>
   <div id="msForm" style="display:none; margin-top: 12px;">
     <div id="msChosen" class="subtitle"></div>
     <label>What happened?</label>
@@ -750,30 +764,53 @@
   const MS_HEADERS = () => ({ 'Content-Type': 'application/json', 'x-agent-token': agentToken() });
   // ── Match status notices (postponed / abandoned / ...). Text only, never innerHTML. ──
   let msKey = null;
+  let msLoaded = false;
+  function msEnsure() { if (!msLoaded) { msLoaded = true; msSearch(); } }
   function msToggle() {
     const s = $('msStatus').value;
     $('msDateBox').style.display = s === 'rescheduled' ? 'block' : 'none';
     $('msStopBox').style.display = (s === 'abandoned' || s === 'suspended') ? 'block' : 'none';
   }
+  let msList = [];
+  let msTimer = null;
+  function msDebounce() { clearTimeout(msTimer); msTimer = setTimeout(msSearch, 400); }
+  const msIso = (offsetDays) => { const d = new Date(Date.now() + offsetDays * 86400000); return d.toISOString().slice(0, 10); };
   async function msSearch() {
-    const box = $('msResults');
-    box.textContent = 'Searching...';
+    const sel = $('msPick');
+    sel.textContent = '';
+    const loading = document.createElement('option');
+    loading.value = ''; loading.textContent = 'Loading matches...';
+    sel.appendChild(loading);
     try {
-      const q = new URLSearchParams({ team: $('msTeam').value.trim(), date_from: $('msFrom').value, limit: '15' });
+      const q = new URLSearchParams({
+        league: $('msLeague').value, team: $('msTeam').value.trim(),
+        date_from: msIso(-21), date_to: msIso(90), limit: '100',
+      });
       const res = await fetch(`${apiBase()}/api/admin/matches/search?${q}`, { headers: MS_HEADERS() });
       const d = await res.json();
-      if (!res.ok) { box.textContent = d.detail || 'Search failed.'; return; }
-      box.textContent = '';
-      if (!d.matches.length) { box.textContent = 'No matches found.'; return; }
-      d.matches.forEach((m) => {
-        const b = document.createElement('button');
-        b.style.cssText = 'display:block;width:100%;text-align:left;margin-top:6px;background:transparent;color:inherit;border:1px solid currentColor;';
+      sel.textContent = '';
+      if (!res.ok) { const o = document.createElement('option'); o.value = ''; o.textContent = d.detail || 'Could not load matches.'; sel.appendChild(o); return; }
+      msList = (d.matches || []).slice().sort((a, b) => (a.date || '').localeCompare(b.date || ''));
+      const first = document.createElement('option');
+      first.value = '';
+      first.textContent = !msList.length ? 'No matches found for this selection' : (msList.length >= 100 ? 'Choose a league above to see all matches...' : `Choose a match (${msList.length})...`);
+      sel.appendChild(first);
+      msList.forEach((m, i) => {
+        const o = document.createElement('option');
+        o.value = String(i);
         const st = m.status_info ? ` [${m.status_info.status}]` : '';
-        b.textContent = `${m.date} · ${m.league_short} · ${m.home_team} v ${m.away_team}${st}`;
-        b.onclick = () => msPick(m);
-        box.appendChild(b);
+        o.textContent = `${m.date} · ${m.league_short} · ${m.home_team} v ${m.away_team}${st}`;
+        sel.appendChild(o);
       });
-    } catch (e) { box.textContent = e.message; }
+    } catch (e) {
+      sel.textContent = '';
+      const o = document.createElement('option'); o.value = ''; o.textContent = e.message; sel.appendChild(o);
+    }
+  }
+  function msPickChange() {
+    const v = $('msPick').value;
+    if (v === '') { msKey = null; $('msForm').style.display = 'none'; return; }
+    msPick(msList[parseInt(v, 10)]);
   }
   function msPick(m) {
     msKey = m.match_key;
