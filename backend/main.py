@@ -3057,7 +3057,7 @@ def admin_search_matches(request: Request, league: str = "", team: str = "", dat
     """Find a match (and its match_key) to attach a status to. Admin or agent."""
     _authorize_writer(x_admin_token, x_agent_token)
     _rate_limit(request, "match-search", 60, 60)
-    r = db.query_match_archive(league[:10], team[:60], date_from[:10], date_to[:10], "", max(1, min(limit, 60)), 0)
+    r = db.query_match_archive(league[:10], team[:60], date_from[:10], date_to[:10], "", max(1, min(limit, 100)), 0)
     sts = _statuses()
     for m in r["matches"]:
         if m["match_key"] in sts:
