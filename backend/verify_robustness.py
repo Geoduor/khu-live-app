@@ -408,5 +408,55 @@ check("only an admin can delete a profile", c.delete(f"/api/admin/players/profil
 main.cache["fixtures_results"] = _old_fr13
 main.cache["standings"].clear(); main.cache["standings"].update(_old_std13)
 
+print("14. Squad import from the KHU website")
+import khusquads, playerprofiles as _ppx
+from bs4 import BeautifulSoup as _BS
+SQUAD_HTML = """<div id="stab_main"><table id="jstable_plz"><thead><tr><th>Name</th><th></th><th>Shirt Number</th></tr></thead><tbody>
+<tr><td><div class="jsDivLineEmbl"><a href="https://www.kenyahockeyunion.org/joomsport_player/ann-one/?sid=1"><img src="https://www.kenyahockeyunion.org/wp-content/uploads/player_st.png"></a>
+ <div class="js_div_particName"><a href="x">Ann One</a></div></div></td><td>0</td><td>07</td></tr>
+<tr><td><div class="js_div_particName">Bea Two</div></td><td>0</td><td></td></tr>
+<tr><td><div class="js_div_particName">Cy Three</div><img src="/wp-content/uploads/cy-50x50.jpg"></td><td>1</td><td>101</td></tr>
+</tbody></table></div>
+<div class="jsplayerCart"><a href="/joomsport_player/ann-one/"><img src="/wp-content/uploads/ann-310x413.jpeg"></a><div class="js_div_particName">Ann One</div></div>
+<div class="jsplayerCart"><a href="/joomsport_player/dee-four/"><img src="/wp-content/uploads/player_st.png"></a><div class="js_div_particName">Dee Four</div></div>"""
+sq = khusquads.parse_squad(_BS(SQUAD_HTML, "lxml"), "https://www.kenyahockeyunion.org/t/x/")
+by = {p["name"]: p for p in sq}
+check("squad parsed: every name once, incl. card-only players", sorted(by) == ["Ann One", "Bea Two", "Cy Three", "Dee Four"], str(sorted(by)))
+check("shirt numbers read (leading zero ok, blank = none, over 99 ignored)", by["Ann One"]["jersey"] == 7 and by["Bea Two"]["jersey"] is None and by["Cy Three"]["jersey"] is None)
+check("big card photo wins, grey placeholder ignored", by["Ann One"]["photo_url"].endswith("ann-310x413.jpeg") and by["Dee Four"]["photo_url"] == "")
+check("relative photo links resolved to KHU", by["Ann One"]["photo_url"].startswith("https://www.kenyahockeyunion.org/"))
+JPEGB = b"\xff\xd8\xff\xe0" + b"0" * 50
+tally = {"photos": 0, "photos_skipped": 0}
+khusquads.import_team(_BS(SQUAD_HTML, "lxml"), "PLM", "Imp Team", "https://www.kenyahockeyunion.org/t/x/", lambda u: JPEGB, _ppx.add_from_source, tally)
+check("import created the four players with one photo", tally.get("created") == 4 and tally["photos"] == 2, str(tally))
+ann = [p for p in c.get("/api/admin/players/list?league=PLM&team=Imp Team", headers=H).json()["players"] if p["player_name"] == "Ann One"][0]
+check("imported player has number and photo", ann["jersey"] == 7 and ann["has_photo"])
+# an admin's own entries are never overwritten
+_ppx.save_profile("PLM", "Imp Team", "Bea Two", 5, "Defender", "Kenyan", True, "Mine", "", False, "admin")
+t2 = {"photos": 0, "photos_skipped": 0}
+khusquads.import_team(_BS(SQUAD_HTML.replace("<td>0</td><td></td>", "<td>0</td><td>44</td>"), "lxml"), "PLM", "Imp Team", "https://www.kenyahockeyunion.org/t/x/", lambda u: JPEGB, _ppx.add_from_source, t2)
+bea = [p for p in c.get("/api/admin/players/list?league=PLM&team=Imp Team", headers=H).json()["players"] if p["player_name"] == "Bea Two"][0]
+check("existing profile keeps admin's number, position, bio", bea["jersey"] == 5 and bea["position"] == "Defender" and bea["bio"] == "Mine" and bea["captain"])
+check("second run creates nothing new", t2.get("created", 0) == 0)
+def _boom(u): raise RuntimeError("net down")
+t3 = {"photos": 0, "photos_skipped": 0}
+khusquads.import_team(_BS(SQUAD_HTML, "lxml"), "PLM", "Imp Team B", "https://www.kenyahockeyunion.org/t/x/", _boom, _ppx.add_from_source, t3)
+check("a photo that fails to download does not stop the team", t3.get("created") == 4 and t3["photos_skipped"] >= 1, str(t3))
+check("import needs the admin login", c.post("/api/admin/players/import-khu", json={}).status_code == 401 and c.get("/api/admin/players/import-khu/status").status_code == 401)
+check("agent cannot start an import", c.post("/api/admin/players/import-khu", json={}, headers={"x-agent-token": "x"}).status_code == 401)
+check("unknown league refused", c.post("/api/admin/players/import-khu", json={"league_short": "ZZZ"}, headers=H).status_code == 400)
+main._rate_hits.clear()
+main.cache["standings"]["t_imp"] = {"league": "Premier League Men", "short": "PLM", "standings": [{"team": "Imp Team", "team_url": "https://www.kenyahockeyunion.org/t/x/"}]}
+import scraper as _scx
+_orig_fp, _orig_pd = _scx.fetch_page, main.polite_delay
+_scx.fetch_page = lambda u: _BS(SQUAD_HTML, "lxml"); main.polite_delay = lambda: None
+main._fetch_khu_photo = lambda u: JPEGB
+r = c.post("/api/admin/players/import-khu", json={"league_short": "PLM"}, headers=H)
+st = c.get("/api/admin/players/import-khu/status", headers=H).json()
+check("import runs and reports", r.status_code == 200 and st["running"] is False and st["teams_done"] >= 1 and st["teams_done"] == st["teams_total"] and st["failed_teams"] == [], str(st))
+_scx.fetch_page, main.polite_delay = _orig_fp, _orig_pd
+check("photo downloads are limited to KHU's own host", __import__("scraper").is_allowed_khu_url("https://evil.example/x.jpg") is False)
+main.cache["standings"].clear(); main.cache["standings"].update(_old_std13)
+
 print("\nRESULT:", "all checks passed" if not fails else f"{len(fails)} FAILURE(S): {fails}")
 sys.exit(1 if fails else 0)

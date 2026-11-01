@@ -185,3 +185,46 @@ def import_all(items) -> int:
     finally:
         conn.close()
     return n
+
+
+def add_from_source(league_short, team_name, player_name, jersey=None, photo_bytes=None, by="khu-website") -> str:
+    """Create a profile from a public squad list, or fill in only what is still
+    blank on an existing one. Anything an admin or agent already set is kept.
+    Returns "created", "updated" or "unchanged"."""
+    player_name, team_name = " ".join((player_name or "").split())[:80], (team_name or "").strip()
+    if not player_name or not team_name or not league_short:
+        return "unchanged"
+    if jersey is not None and not (0 <= int(jersey) <= 99):
+        jersey = None
+    mime = b64 = ""
+    if photo_bytes:
+        try:
+            mime, b64 = decode_photo("data:image/jpeg;base64," + base64.b64encode(photo_bytes).decode("ascii"))
+        except ValueError:
+            mime = b64 = ""
+    pid = player_id(league_short, team_name, player_name)
+    conn = db.get_connection()
+    try:
+        _ensure(conn)
+        old = conn.execute("SELECT jersey, photo_b64 FROM player_profiles WHERE player_id = ?", (pid,)).fetchone()
+        now = datetime.now().isoformat()
+        if not old:
+            conn.execute("""INSERT INTO player_profiles (player_id, league_short, team_name, player_name, jersey, position,
+                            nationality, captain, bio, photo_mime, photo_b64, updated_at, updated_by)
+                            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                         (pid, league_short.strip().upper()[:20], team_name[:120], player_name, jersey, "", "", 0, "", mime, b64, now, by))
+            conn.commit()
+            return "created"
+        sets, args = [], []
+        if old["jersey"] is None and jersey is not None:
+            sets.append("jersey = ?"); args.append(jersey)
+        if not old["photo_b64"] and b64:
+            sets += ["photo_mime = ?", "photo_b64 = ?"]; args += [mime, b64]
+        if not sets:
+            return "unchanged"
+        conn.execute(f"UPDATE player_profiles SET {', '.join(sets)}, updated_at = ?, updated_by = ? WHERE player_id = ?",
+                     (*args, now, by, pid))
+        conn.commit()
+        return "updated"
+    finally:
+        conn.close()

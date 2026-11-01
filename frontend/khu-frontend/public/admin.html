@@ -405,6 +405,25 @@
 </div>
 
 <div class="card">
+  <div class="section-title">Import squads from the KHU website</div>
+  <div class="subtitle">Reads each team's public player list on kenyahockeyunion.org and adds the players, their shirt numbers and the photos KHU has. It only fills gaps: anything you or an agent already entered is never changed, and grey placeholder pictures are ignored. Positions are not on the KHU site, so add those with the form above. It runs in the background and can take 10 to 30 minutes for all leagues, so doing one league at a time is easier.</div>
+  <label>League</label>
+  <select id="siLeague">
+    <option value="">All leagues</option>
+    <option value="PLM">Premier League Men</option>
+    <option value="PLW">Premier League Women</option>
+    <option value="SLM">Super League Men</option>
+    <option value="SLW">Super League Women</option>
+    <option value="NLM-EZ">National League Men — Eastern Zone</option>
+    <option value="NLM-CZ">National League Men — Central Zone</option>
+    <option value="NLM-WZ">National League Men — Western Zone</option>
+    <option value="NLM-SZ">National League Men — Southern Zone</option>
+  </select>
+  <button style="margin-top: 10px;" id="siBtn" onclick="startSquadImport()">Import squads now</button>
+  <div id="siMsg" class="msg"></div>
+</div>
+
+<div class="card">
   <div class="section-title">Player Stats</div>
   <div class="subtitle" style="margin-bottom: 12px;">KHU's site doesn't publish player stats — these are tracked here directly. Re-entering the same player replaces their totals (send the new total, not a delta).</div>
 
@@ -1269,6 +1288,37 @@
     showAdminTab(t);
   })();
 
+
+  // ── Import squads from KHU (status text via textContent only) ──
+  let siTimer = null;
+  function siReport(st) {
+    const parts = [`${st.teams_done || 0} of ${st.teams_total || 0} teams read`, `${st.created || 0} new players`,
+                   `${st.updated || 0} completed`, `${st.photos || 0} photos added`];
+    if (st.failed_teams && st.failed_teams.length) parts.push(`could not read: ${st.failed_teams.slice(0, 8).join(', ')}${st.failed_teams.length > 8 ? '…' : ''}`);
+    return (st.running ? 'Running… ' : (st.message ? st.message + ' ' : '')) + parts.join(' · ') + '.';
+  }
+  async function siPoll() {
+    try {
+      const res = await fetch(`${apiBase()}/api/admin/players/import-khu/status`, { headers: adminHeaders() });
+      const st = await res.json();
+      if (!res.ok) { clearInterval(siTimer); siTimer = null; return; }
+      if (st.started) say($('siMsg'), siReport(st));
+      if (!st.running) { clearInterval(siTimer); siTimer = null; $('siBtn').disabled = false; }
+    } catch (e) { /* try again on the next tick */ }
+  }
+  async function startSquadImport() {
+    const msg = $('siMsg');
+    if (!confirm('Start reading the squads from the KHU website now?')) return;
+    $('siBtn').disabled = true;
+    try {
+      const res = await fetch(`${apiBase()}/api/admin/players/import-khu`, { method: 'POST', headers: adminHeaders(), body: JSON.stringify({ league_short: $('siLeague').value }) });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok) { say(msg, typeof d.detail === 'string' ? d.detail : 'Could not start the import.'); $('siBtn').disabled = false; return; }
+      say(msg, d.message);
+      if (siTimer) clearInterval(siTimer);
+      siTimer = setInterval(siPoll, 4000);
+    } catch (e) { say(msg, 'Could not reach the server: ' + e.message); $('siBtn').disabled = false; }
+  }
 
   // ── Player profiles (text via textContent only; photos are shrunk in the browser first) ──
   let ppPlayers = [], ppPhotoData = '', ppId = '';
