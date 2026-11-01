@@ -177,6 +177,7 @@
     <button class="tab" data-tab="tour" onclick="showTab('tour')">🏆 Tournament</button>
     <button class="tab" data-tab="league" onclick="showTab('league')">⚽ League</button>
     <button class="tab" data-tab="mine" onclick="showTab('mine')">🕘 Entries</button>
+    <button class="tab" data-tab="notices" onclick="showTab('notices')">📣 Notices</button>
   </div>
 
   <!-- Tournament -->
@@ -252,9 +253,8 @@
     </div>
   </div>
 
-  <!-- My entries -->
-  <div class="panel" id="panel-mine">
-
+  <!-- Match notices: postponed, rescheduled, suspended, abandoned, cancelled, awarded -->
+  <div class="panel" id="panel-notices">
     <div class="card" id="statusCard">
   <div class="section-title">Postponed, stopped or cancelled matches</div>
   <div class="subtitle">Tell fans what happened to a match. This only adds a notice on the match: it never changes the table. If a result stands or is awarded, enter the score as usual.</div>
@@ -308,6 +308,11 @@
   </div>
   <div id="msMsg" class="msg"></div>
 </div>
+  </div>
+
+  <!-- My entries -->
+  <div class="panel" id="panel-mine">
+
     <div class="card">
       <h2>Recently entered league results</h2>
       <div id="resultsList"></div>
