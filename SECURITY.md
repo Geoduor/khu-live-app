@@ -28,6 +28,9 @@ Severity: **High** = someone could take over admin or break the service ·
 | 15 | Low | CORS allowed credentials and every method/header. | No credentials (auth uses headers), only the methods/headers the app uses; a warning is logged if `ALLOWED_ORIGINS` is unset. |
 | 16 | Low | A push payload could in theory open another website. | Notification clicks stay on the app's own origin. |
 | 17 | Low | Raw scraped pages were written to disk on failures. | Only when `KHU_DEBUG_DUMP=1`. |
+| 18 | Medium | **Session tokens were stored as-is** in the database. | Agent sessions are stored as SHA-256 hashes; a database leak no longer gives usable sessions. |
+| 19 | Medium | **Player photos could carry scripts or be fake images.** | Photos are accepted only as PNG/JPEG/WebP judged by the file's own first bytes (SVG refused), capped at 300 KB, served with `nosniff` and a sandbox CSP. The admin/agent forms shrink photos in the browser first. Only admins can delete a profile. |
+| 20 | Medium | **The squad importer could be pointed at other sites.** | It only fetches pages and images through `safe_get()` (KHU's own host, redirects checked), is admin-only, rate-limited, and runs one at a time. It never overwrites data an admin or agent entered. |
 
 ## Checked and found safe
 SQL injection (every query is parameterised) · HTML injection in the React app
@@ -37,6 +40,8 @@ comparison · agent deactivation takes effect immediately · uploaded PDFs are
 admin-only and size-capped.
 
 ## Still open — your decision
+- **Player photos are personal data.** Only add a photo with the player's permission (a parent or guardian's for anyone under 18). Do not store dates of birth, addresses or phone numbers; the app has no field for them. Any profile or photo can be removed from the admin or agent Players form.
+- **Page security policy:** `admin.html` and `agent.html` allow images only from the site itself and `data:` (no `blob:`). Code that previews uploads must read files with `FileReader`, not `URL.createObjectURL`.
 - **Rotate `ADMIN_TOKEN` after deploying this.** Before the fix it lived in
   browsers; a new value also invalidates any old session. Use a 40+ character
   random string.

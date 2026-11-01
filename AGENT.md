@@ -15,7 +15,7 @@ info, and now manual-entry tooling for **Kenya Hockey Union** leagues.
 Not affiliated with KHU — clearly labeled "Unofficial Fan App"
 everywhere a user would see it.
 
-- **Backend:** FastAPI + BeautifulSoup, deployed on Render (free tier)
+- **Backend:** FastAPI + BeautifulSoup, deployed on Render (paid instance)
 - **Frontend:** React PWA, deployed on Vercel
 - **Data sources:** live scrape of `kenyahockeyunion.org` (team-page
   based, not the season calendar view — see below), KHU's own published
@@ -234,6 +234,13 @@ Every manual result records `entered_by`.
   `KHU_REFRESH_INTERVAL_MINUTES`. The durable fix is KHU's cooperation
   (see PRD §6/§8) — not escalating an arms race with the filter.
 
+- **Page security policy (admin.html / agent.html):** `img-src 'self' data:`. A preview built with `URL.createObjectURL` (`blob:`) is blocked, so the image never loads and the form reports "photo could not be read". Read uploads with `FileReader.readAsDataURL`.
+- **Sandbox shell:** never `pkill -f <name>` when that name appears in the same command line; it kills your own shell (exit 144). Start long-running test servers with `nohup`, and stop them by PID.
+- **Stale installed PWA:** after shipping a frontend change, bump `CACHE_VERSION` in `public/service-worker.js` so installed apps drop their old saved copy.
+- **Hook warnings about "unpushed commits"** are often stale: confirm with `git ls-remote origin <branch>` against `git rev-parse HEAD`.
+- **Player identity:** a player is `sha1(league|team|name)[:12]`. Renaming a player creates a new profile, so decide full names before bulk-loading.
+- **Squad import** (`khusquads.py`) was built and tested against a saved KHU team page, not the live site; verify one league first after a deploy.
+
 ## Deployment checklist
 
 1. Backend changes → push → Render auto-deploys from `backend/`
@@ -248,10 +255,11 @@ Every manual result records `entered_by`.
 5. After adding PDF fixtures, manual results, stats or tournaments you
    want to persist permanently, export and commit the matching seed file
    (see above). Agents: export to the `AGENTS_SEED` env var instead.
-6. Before deploying, run `python verify_robustness.py` (backend) and
+6. Before deploying, run `verify_robustness.py`, `verify_manual_results_v2.py` and `verify_security.py` (backend, on SQLite and, when touching SQL, on Postgres with a fresh database each) and
    `CI=true npm run build` (frontend).
+7. Bump `CACHE_VERSION` in `service-worker.js` when the shipped screens change.
 
 ---
 
-*Last updated: October 2026, after scraper block-handling, share cards,
-the tournaments (Cups) section and admin hardening.*
+*Last updated: November 2026, after player profiles, squad import,
+postponed/stopped match display, match archive, backups and the admin tabs.*

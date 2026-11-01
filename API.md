@@ -23,9 +23,16 @@ These require no authentication and are what the frontend uses directly.
 | GET | `/api/results` | Completed results, grouped by league, most-recent-first within each league |
 | GET | `/api/live` | Currently-live matches |
 | GET | `/api/teams/all` | Every team across every league |
-| GET | `/api/team?url=&name=` | One team's profile — position, form, upcoming fixtures, **every result this season** and a `season_summary` (matches listed, W/D/L, goals for/against, played per table). Built from cached standings/fixtures/results data, not scraped fresh (see ARCHITECTURE.md §6) |
+| GET | `/api/team?url=&name=` | One team's profile — position, form, upcoming fixtures, **every result this season** and a `season_summary` (matches listed, W/D/L, goals for/against, played per table). Also returns a `squad` list (name, shirt number, position, captain, photo flag, goals), read fresh on every request. Built from cached standings/fixtures/results data, not scraped fresh (see ARCHITECTURE.md §6) |
 | GET | `/api/match?url=` | Detail for one match. Scraped details plus, when the match is in our cache, `league`, `state`, `scorers`, `cards` and logo URLs (the KHU match page itself doesn't publish scorers) |
+| GET | `/api/players/{player_id}` | One player's page: details, season stats, goals log, team link. `player_id` is 12 hex characters (shown in `/api/team` squads and top scorers). Rate-limited |
+| GET | `/api/players/{player_id}/photo` | The player's photo (cached for a day, `nosniff`, sandboxed CSP). 404 when none |
 | GET | `/api/players/top-scorers?league_short=` | Goals leaderboard. Merges admin/agent season stat lines (authoritative) with goals tallied from scorers recorded on results — no double counting |
+| GET | `/api/matches/history` | The permanent match archive: filter by `league_short`, `season`, `team`, `kind` (`results` or `fixtures`), `date_from`, `date_to`. Matches with a status notice carry `status_info` |
+| GET | `/api/seasons`, `/api/seasons/{label}` | Saved past seasons (final tables, results) |
+| GET | `/api/history/honours` | Roll of honour: the team in position 1 of each league, per saved season |
+| GET | `/api/sponsors/active` | The sponsor to show (if any), within its dates |
+| POST | `/api/analytics/hit`, `/api/analytics/install` | Private, cookie-free counts (screen views, installs). Respects Do Not Track |
 | GET | `/api/tournaments` | All tournaments with `matches_total` / `matches_played`. Separate from league data |
 | GET | `/api/tournaments/{id}` | One tournament: details, matches grouped by stage (chronological: first game at the top, Final last), computed group tables and `rosters` (real team names per gender/section, used for dropdowns) |
 | GET | `/api/playoffs/nlm` | National League playoff bracket |
@@ -87,6 +94,42 @@ neither (0–99); date as `YYYY-MM-DD` or `YYYY-MM-DD HH:MM`.
 Same pattern as manual results (`set`, `list`, `DELETE .../{stat_key}`, `export-seed`), under
 `/api/admin/team-stats/*` and `/api/admin/player-stats/*`. Seeds:
 `team_stats_seed.json`, `player_stats_seed.json`.
+
+## Admin & agents — match status notices
+
+`x-admin-token` or `x-agent-token`.
+
+| Method | Path | Description |
+|---|---|---|
+| GET | `/api/admin/matches/search` | Find matches to mark (filters: league, team, kind). Returns each match's `match_key` |
+| POST | `/api/admin/matches/status` | Set a notice: `postponed`, `rescheduled` (with `new_date`), `suspended`, `abandoned` (optional `minute`, `home_score`, `away_score`), `cancelled` or `awarded`, plus `reason`/`note`. Never changes the table |
+| DELETE | `/api/admin/matches/status?match_key=` | Remove a notice |
+| GET | `/api/admin/matches/export` | Admin only: archive, notices, analytics totals and sponsors for backups |
+
+## Admin & agents — player profiles
+
+| Method | Path | Auth | Description |
+|---|---|---|---|
+| GET | `/api/admin/players/list?league=&team=` | admin or agent | Profiles and stat lines for one team |
+| POST | `/api/admin/players/profile` | admin or agent | Create/edit: `{league_short, team_name, player_name, jersey 0-99, position, nationality, captain, bio (300), photo_data_url, remove_photo}`. PNG/JPEG/WebP only (checked by file bytes), max 300 KB, SVG refused. Editing keeps the existing photo unless replaced or removed |
+| DELETE | `/api/admin/players/profile/{player_id}` | admin only | Remove a whole profile (stats stay) |
+| GET | `/api/admin/players/profiles/export` | admin only | All profiles with photos (also included in backups) |
+| POST | `/api/admin/players/import-khu` | admin only | Body `{league_short}` (empty = all). Starts a background import of each team's public squad list from kenyahockeyunion.org: names, shirt numbers, photos. Only fills blanks, never overwrites. One run at a time; 4 starts per 10 minutes |
+| GET | `/api/admin/players/import-khu/status` | admin only | Progress: teams read, players created/completed, photos added, teams that could not be read |
+
+## Admin — sponsors, analytics, backups and seasons
+
+Admin only (`x-admin-token`).
+
+| Method | Path | Description |
+|---|---|---|
+| GET / POST | `/api/admin/sponsors` | List / save the sponsor slot (https link, PNG/JPEG/WebP logo up to 400 KB) |
+| DELETE | `/api/admin/sponsors/{id}` | Remove a sponsor |
+| GET | `/api/admin/analytics/summary` | Visitor and usage numbers |
+| GET | `/api/admin/backup/status`, POST `/api/admin/backup/run` | Off-site backup configured? / run it now |
+| POST | `/api/admin/restore` | Restore a backup file. Existing agents and player profiles are kept; never deletes |
+| POST | `/api/admin/seasons/snapshot` | Freeze the current season into history (append-only) |
+| POST | `/api/admin/seasons/import`, GET `/api/admin/seasons/export` | Add a past season from a file / export all |
 
 ## Admin — agent accounts
 

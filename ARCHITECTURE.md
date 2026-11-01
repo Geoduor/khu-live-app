@@ -12,7 +12,7 @@ true, it's called out explicitly so nobody re-introduces the same bug.
 ```
 ┌─────────────────┐         ┌──────────────────────┐         ┌─────────────────────┐
 │  React PWA       │  HTTPS  │  FastAPI backend      │  HTTPS  │  kenyahockeyunion.org │
-│  (Vercel)        │◄───────►│  (Render, free tier)  │◄───────►│  (JoomSport/WordPress)│
+│  (Vercel)        │◄───────►│  (Render, paid)       │◄───────►│  (JoomSport/WordPress)│
 └─────────────────┘         └──────────┬───────────┘         └─────────────────────┘
                                         │
                                         ▼
@@ -24,7 +24,7 @@ true, it's called out explicitly so nobody re-introduces the same bug.
 ```
 
 - **Frontend**: React PWA, deployed on Vercel. `frontend/khu-frontend/`.
-- **Backend**: FastAPI + BeautifulSoup, deployed on Render's free tier.
+- **Backend**: FastAPI + BeautifulSoup, deployed on Render (paid instance), with data in Supabase Postgres when `DATABASE_URL` is set.
   `backend/`.
 - **Data sources**: KHU's live site (scraped), KHU's own published PDF
   season calendars (parsed), and manually-entered results (human-verified).
@@ -38,6 +38,11 @@ true, it's called out explicitly so nobody re-introduces the same bug.
 | `pdf_fixtures.py` | Parses KHU's season-calendar PDF into the same match schema as the live scraper |
 | `database.py` | SQLite persistence layer — cache, PDF fixtures, manual results, agent accounts/sessions |
 | `push.py` | Web Push (VAPID) notifications for favorited teams going live |
+| `dbconn.py` | One connection layer: Postgres (`DATABASE_URL`, Supabase pooler) or SQLite, with SQL translation between them |
+| `backup.py` | Builds the backup file; nightly upload to an S3-compatible bucket (see `docs/BACKUP_SETUP.md`) |
+| `insights.py` | Private analytics counts and the sponsor slot |
+| `playerprofiles.py` | Player profiles: shirt number, position, bio, photo (validated by file bytes) |
+| `khusquads.py` | Reads a team's public squad list from kenyahockeyunion.org into profiles (fills blanks only) |
 
 ### Data flow per refresh cycle (every 15 minutes, plus on-demand)
 
@@ -93,7 +98,7 @@ by their match URL.
 
 ## 4. Render's ephemeral filesystem
 
-Render's free tier wipes the backend's local disk — including the SQLite
+Without `DATABASE_URL`, Render wipes the backend's local disk — including the SQLite
 database — every time the service spins down from inactivity and cold-
 starts again. This is documented Render behavior, not a bug, but it means
 anything written only to SQLite disappears unpredictably.
@@ -207,7 +212,7 @@ are drawn when a logo is missing.
 |---|---|
 | `src/App.js` | Main app shell, all views (Home, Table, Fixtures, Results, Cups), navigation |
 | `src/api.js` | Backend API client, including the logo-proxy URL rewriter |
-| `src/components/` | `MatchCard`, `LeagueTable`, `TeamProfile`, `TeamLogo`, `TournamentsView`, `ShareButton`, `PlayoffBracket`, `InstallBanner`, etc. |
+| `src/components/` | `MatchCard` (shows P-P for postponed and score + symbol for stopped matches), `LeagueTable`, `TeamProfile` (with Squad), `PlayerProfile`, `PastMatches`, `CupsTab`, `SeasonsView`, `SponsorSlot`, `TeamLogo`, `TournamentsView`, `ShareButton`, `PlayoffBracket`, `InstallBanner`, etc. |
 | `src/utils/` | `shareCard.js` — canvas share-image generation |
 | `src/hooks/` | `useTheme`, `useFavorites`, `usePushNotifications`, `useInstallPrompt`, `useDiffedStandings` |
 | `public/` | Static assets, manifest, service worker, `admin.html`, `agent.html` |
