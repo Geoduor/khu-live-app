@@ -455,6 +455,30 @@ r = c.post("/api/admin/players/import-khu", json={"league_short": "PLM"}, header
 st = c.get("/api/admin/players/import-khu/status", headers=H).json()
 check("import runs and reports", r.status_code == 200 and st["running"] is False and st["teams_done"] >= 1 and st["teams_done"] == st["teams_total"] and st["failed_teams"] == [], str(st))
 _scx.fetch_page, main.polite_delay = _orig_fp, _orig_pd
+_ppx.save_profile("PLM", "Dup Team", "Barry", 14, "Forward", "", False, "", "", False, "agent")
+_ppx.add_from_source("PLM", "Dup Team", "Danstone Barry", 14, JPEGB)
+_dl = [p for p in c.get("/api/admin/players/list?league=PLM&team=Dup Team", headers=H).json()["players"]]
+check("a shirt number identifies the player: import completes #14 instead of adding a second", len(_dl) == 1 and _dl[0]["player_name"] == "Barry" and _dl[0]["has_photo"] and _dl[0]["position"] == "Forward", str(_dl))
+_ppx.add_from_source("PLM", "Dup Team", "Barry Otieno", 7, None)
+check("a different shirt number is a different person", len(c.get("/api/admin/players/list?league=PLM&team=Dup Team", headers=H).json()["players"]) == 2)
+PPX = lambda **kw: c.post("/api/admin/players/profile", headers=H, json=dict(dict(league_short="PLM", team_name="Dup Team", player_name="Someone Else", jersey=14), **kw))
+r = PPX()
+check("form refuses a second player with the same number in a team", r.status_code == 422 and "Barry" in r.json()["detail"] and "14" in r.json()["detail"], r.text[:160])
+check("same number in another team is fine", c.post("/api/admin/players/profile", headers=H, json={"league_short": "PLM", "team_name": "Rival Hawks", "player_name": "Someone Else", "jersey": 14}).status_code == 200)
+_bid = [p for p in c.get("/api/admin/players/list?league=PLM&team=Dup Team", headers=H).json()["players"] if p["player_name"] == "Barry"][0]["player_id"]
+r = PPX(player_name="Danstone Barry", existing_id=_bid, position="Forward")
+_after = c.get("/api/admin/players/list?league=PLM&team=Dup Team", headers=H).json()["players"]
+_db = [p for p in _after if p["player_name"] == "Danstone Barry"]
+check("renaming through the picked player keeps number, position and photo", r.status_code == 200 and len(_db) == 1 and _db[0]["jersey"] == 14 and _db[0]["has_photo"] and _db[0]["position"] == "Forward" and not [p for p in _after if p["player_name"] == "Barry"], str(_after)[:200])
+# duplicates that already exist (made before the rule) are merged on request
+_cn = __import__("database").get_connection()
+_cn.execute("INSERT INTO player_profiles (player_id, league_short, team_name, player_name, jersey, position, updated_at) VALUES ('aaaaaaaaaaaa','PLM','Dup Team','Dan B',14,'','x')"); _cn.commit(); _cn.close()
+check("merge needs the admin login", c.post("/api/admin/players/merge-duplicates").status_code == 401 and c.post("/api/admin/players/merge-duplicates", headers={"x-agent-token": "x"}).status_code == 401)
+r = c.post("/api/admin/players/merge-duplicates", headers=H).json()
+_fin = [p for p in c.get("/api/admin/players/list?league=PLM&team=Dup Team", headers=H).json()["players"] if p["jersey"] == 14]
+check("existing duplicates merge into the fullest profile", len(r["merged"]) == 1 and len(_fin) == 1 and _fin[0]["player_name"] == "Danstone Barry" and _fin[0]["has_photo"], str([(p["player_name"], p["has_photo"], p["jersey"]) for p in _fin]))
+check("merge with nothing to do says so", "No duplicates" in c.post("/api/admin/players/merge-duplicates", headers=H).json()["message"])
+check("initials alone never match", _ppx._same_person("K.O", "Kevin Okoth") is False and _ppx._same_person("JB", "John Bosco") is False and _ppx._same_person("Ann One", "Ann One Two") is True)
 check("photo downloads are limited to KHU's own host", __import__("scraper").is_allowed_khu_url("https://evil.example/x.jpg") is False)
 main.cache["standings"].clear(); main.cache["standings"].update(_old_std13)
 

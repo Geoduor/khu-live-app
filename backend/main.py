@@ -2746,6 +2746,7 @@ class PlayerProfileInput(BaseModel):
     bio: str = Field(default="", max_length=300)
     photo_data_url: str = Field(default="", max_length=420_000)
     remove_photo: bool = False
+    existing_id: str = Field("", max_length=12)
 
 
 def _all_player_records() -> dict:
@@ -2864,7 +2865,7 @@ def admin_save_player_profile(payload: PlayerProfileInput, x_admin_token: str = 
     try:
         pid = _pp.save_profile(league["short"], payload.team_name, payload.player_name, payload.jersey, payload.position,
                                payload.nationality, payload.captain, payload.bio, payload.photo_data_url,
-                               payload.remove_photo, who)
+                               payload.remove_photo, who, payload.existing_id if re.fullmatch(r"[0-9a-f]{12}", payload.existing_id or "") else "")
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     logger.info(f"Player profile saved by {who}: {pid}")
@@ -2962,6 +2963,16 @@ def admin_import_squads_status(x_admin_token: str = Header(default="")):
     if not _is_admin(x_admin_token):
         raise HTTPException(status_code=401, detail="Missing or invalid admin token.")
     return dict(_squad_job)
+
+
+@app.post("/api/admin/players/merge-duplicates")
+def admin_merge_duplicate_players(x_admin_token: str = Header(default="")):
+    """Players of one team who share a shirt number are one person: merge them (admin only)."""
+    if not _is_admin(x_admin_token):
+        raise HTTPException(status_code=401, detail="Missing or invalid admin token.")
+    merged = _pp.merge_duplicate_jerseys()
+    return {"message": f"Merged {len(merged)} duplicate player(s)." if merged else "No duplicates found: every shirt number is used once per team.",
+            "merged": merged}
 
 
 @app.get("/api/admin/players/profiles/export")
