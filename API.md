@@ -111,8 +111,9 @@ Same pattern as manual results (`set`, `list`, `DELETE .../{stat_key}`, `export-
 | Method | Path | Auth | Description |
 |---|---|---|---|
 | GET | `/api/admin/players/list?league=&team=` | admin or agent | Profiles and stat lines for one team |
-| POST | `/api/admin/players/profile` | admin or agent | Create/edit: `{league_short, team_name, player_name, jersey 0-99, position, nationality, captain, bio (300), photo_data_url, remove_photo}`. PNG/JPEG/WebP only (checked by file bytes), max 300 KB, SVG refused. Editing keeps the existing photo unless replaced or removed |
+| POST | `/api/admin/players/profile` | admin or agent | Create/edit: `{league_short, team_name, player_name, jersey 0-99, position, nationality, captain, bio (300), photo_data_url, remove_photo}`. PNG/JPEG/WebP only (checked by file bytes), max 300 KB, SVG refused. A shirt number identifies a player within a team: a second player with the same number is refused (422). Send `existing_id` (the picked player's id) to rename someone. Editing keeps the existing photo unless replaced or removed |
 | DELETE | `/api/admin/players/profile/{player_id}` | admin only | Remove a whole profile (stats stay) |
+| POST | `/api/admin/players/merge-duplicates` | admin only | Merge players of one team who share a shirt number into the fullest profile |
 | GET | `/api/admin/players/profiles/export` | admin only | All profiles with photos (also included in backups) |
 | POST | `/api/admin/players/import-khu` | admin only | Body `{league_short}` (empty = all). Starts a background import of each team's public squad list from kenyahockeyunion.org: names, shirt numbers, photos. Only fills blanks, never overwrites. One run at a time; 4 starts per 10 minutes |
 | GET | `/api/admin/players/import-khu/status` | admin only | Progress: teams read, players created/completed, photos added, teams that could not be read |

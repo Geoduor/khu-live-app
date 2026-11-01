@@ -66,9 +66,23 @@ def decode_photo(data_url: str):
     return mime, base64.b64encode(raw).decode("ascii")
 
 
+def _jersey_owner(conn, league_short, team_name, jersey, exclude=()):
+    """The profile in this team that already wears this shirt number, if any."""
+    if jersey is None:
+        return None
+    rows = conn.execute("SELECT player_id, player_name FROM player_profiles WHERE league_short = ? AND team_name = ? AND jersey = ?",
+                        (league_short, team_name, int(jersey))).fetchall()
+    for r in rows:
+        if r["player_id"] not in exclude:
+            return r
+    return None
+
+
 def save_profile(league_short, team_name, player_name, jersey, position, nationality, captain, bio,
-                 photo_data_url="", remove_photo=False, by="") -> str:
-    player_name, team_name = (player_name or "").strip(), (team_name or "").strip()
+                 photo_data_url="", remove_photo=False, by="", existing_id="") -> str:
+    """Save one profile. A shirt number identifies a player within a team: two players of the
+    same team cannot share one. To rename a player, pass their current `existing_id`."""
+    player_name, team_name = " ".join((player_name or "").split()), (team_name or "").strip()
     if not player_name or not team_name:
         raise ValueError("Choose the team and type the player's name.")
     if jersey is not None and not (0 <= int(jersey) <= 99):
@@ -78,11 +92,24 @@ def save_profile(league_short, team_name, player_name, jersey, position, nationa
         raise ValueError("Position must be Goalkeeper, Defender, Midfielder or Forward.")
     nationality = (nationality or "").strip()[:40]
     bio = " ".join((bio or "").split())[:300]
+    league_short = league_short.strip().upper()
     pid = player_id(league_short, team_name, player_name)
     conn = db.get_connection()
     try:
         _ensure(conn)
-        old = conn.execute("SELECT photo_mime, photo_b64 FROM player_profiles WHERE player_id = ?", (pid,)).fetchone()
+        src = pid
+        if existing_id and existing_id != pid:
+            row = conn.execute("SELECT 1 FROM player_profiles WHERE player_id = ? AND league_short = ? AND team_name = ?",
+                               (existing_id, league_short, team_name)).fetchone()
+            if row:
+                if conn.execute("SELECT 1 FROM player_profiles WHERE player_id = ?", (pid,)).fetchone():
+                    raise ValueError("A player with that name is already in this team.")
+                src = existing_id
+        owner = _jersey_owner(conn, league_short, team_name, jersey, exclude=(pid, src))
+        if owner:
+            raise ValueError(f"Shirt number {int(jersey)} already belongs to {owner['player_name']} in this team. "
+                             f"Pick {owner['player_name']} from the list to edit them, or use a different number.")
+        old = conn.execute("SELECT photo_mime, photo_b64 FROM player_profiles WHERE player_id = ?", (src,)).fetchone()
         if photo_data_url:
             mime, b64 = decode_photo(photo_data_url)
         elif old and not remove_photo:
@@ -97,8 +124,10 @@ def save_profile(league_short, team_name, player_name, jersey, position, nationa
             ON CONFLICT(player_id) DO UPDATE SET jersey=excluded.jersey, position=excluded.position, nationality=excluded.nationality,
               captain=excluded.captain, bio=excluded.bio, photo_mime=excluded.photo_mime, photo_b64=excluded.photo_b64,
               updated_at=excluded.updated_at, updated_by=excluded.updated_by
-        """, (pid, league_short.strip().upper(), team_name, player_name, jersey, position, nationality, 1 if captain else 0,
+        """, (pid, league_short, team_name, player_name[:80], jersey, position, nationality, 1 if captain else 0,
               bio, mime, b64, now, by))
+        if src != pid:
+            conn.execute("DELETE FROM player_profiles WHERE player_id = ?", (src,))
         conn.commit()
         return pid
     finally:
@@ -187,6 +216,21 @@ def import_all(items) -> int:
     return n
 
 
+def _tokens(name: str) -> set:
+    import re
+    return {t for t in re.findall(r"[a-z0-9]+", (name or "").lower()) if t}
+
+
+def _same_person(a: str, b: str) -> bool:
+    """True when one name is the other with extra names added (Barry / Danstone Barry).
+    Needs at least one real word (3+ letters) in common, so initials alone never match."""
+    ta, tb = _tokens(a), _tokens(b)
+    if not ta or not tb:
+        return False
+    small, big = (ta, tb) if len(ta) <= len(tb) else (tb, ta)
+    return small <= big and any(len(t) >= 3 for t in small)
+
+
 def add_from_source(league_short, team_name, player_name, jersey=None, photo_bytes=None, by="khu-website") -> str:
     """Create a profile from a public squad list, or fill in only what is still
     blank on an existing one. Anything an admin or agent already set is kept.
@@ -207,6 +251,21 @@ def add_from_source(league_short, team_name, player_name, jersey=None, photo_byt
     try:
         _ensure(conn)
         old = conn.execute("SELECT jersey, photo_b64 FROM player_profiles WHERE player_id = ?", (pid,)).fetchone()
+        if not old and jersey is not None:
+            # A shirt number identifies a player within a team: whoever already wears it is this player.
+            owner = _jersey_owner(conn, league_short.strip().upper()[:20], team_name[:120], jersey)
+            if owner:
+                pid, old = owner["player_id"], conn.execute(
+                    "SELECT jersey, photo_b64 FROM player_profiles WHERE player_id = ?", (owner["player_id"],)).fetchone()
+        if not old:
+            # No number to go by: a name that is the same name with more (or fewer) words may be the same person.
+            # Two different shirt numbers = two people; several candidates = unclear, so add normally.
+            near = [r for r in conn.execute("SELECT player_id, player_name, jersey, photo_b64 FROM player_profiles "
+                                            "WHERE league_short = ? AND team_name = ?", (league_short.strip().upper()[:20], team_name[:120])).fetchall()
+                    if _same_person(r["player_name"], player_name)
+                    and not (r["jersey"] is not None and jersey is not None and r["jersey"] != jersey)]
+            if len(near) == 1:
+                pid, old = near[0]["player_id"], near[0]
         now = datetime.now().isoformat()
         if not old:
             conn.execute("""INSERT INTO player_profiles (player_id, league_short, team_name, player_name, jersey, position,
@@ -228,3 +287,39 @@ def add_from_source(league_short, team_name, player_name, jersey=None, photo_byt
         return "updated"
     finally:
         conn.close()
+
+
+def merge_duplicate_jerseys() -> list:
+    """Players of one team who share a shirt number are the same person: keep the fullest profile
+    (photo first, then the longer name), fill its blanks from the others and remove the others."""
+    merged = []
+    conn = db.get_connection()
+    try:
+        _ensure(conn)
+        rows = conn.execute("SELECT * FROM player_profiles WHERE jersey IS NOT NULL ORDER BY league_short, team_name, jersey").fetchall()
+        groups = {}
+        for r in rows:
+            groups.setdefault((r["league_short"], r["team_name"], r["jersey"]), []).append(r)
+        for (lg, team, num), grp in groups.items():
+            if len(grp) < 2:
+                continue
+            grp.sort(key=lambda r: (bool(r["photo_b64"]), len(r["player_name"]), bool(r["bio"]), bool(r["position"])), reverse=True)
+            keep, others = grp[0], grp[1:]
+            upd = {}
+            for o in others:
+                for col in ("position", "nationality", "bio", "photo_mime", "photo_b64"):
+                    if not (upd.get(col) or keep[col]) and o[col]:
+                        upd[col] = o[col]
+                if not (keep["captain"] or upd.get("captain")) and o["captain"]:
+                    upd["captain"] = 1
+            if upd:
+                sets = ", ".join(f"{k} = ?" for k in upd)
+                conn.execute(f"UPDATE player_profiles SET {sets}, updated_at = ? WHERE player_id = ?",
+                             (*upd.values(), datetime.now().isoformat(), keep["player_id"]))
+            for o in others:
+                conn.execute("DELETE FROM player_profiles WHERE player_id = ?", (o["player_id"],))
+            merged.append({"team": team, "league_short": lg, "jersey": num, "kept": keep["player_name"], "removed": [o["player_name"] for o in others]})
+        conn.commit()
+    finally:
+        conn.close()
+    return merged

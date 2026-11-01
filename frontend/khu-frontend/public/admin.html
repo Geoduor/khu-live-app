@@ -357,7 +357,7 @@
 
 <div class="card">
   <div class="section-title">Player profiles</div>
-  <div class="subtitle" style="margin-bottom: 12px;">Add a player's shirt number, position, short bio and photo. These show on the team's Squad list and on the player's own page. Only add a photo with the player's permission (a parent or guardian's for anyone under 18). Do not enter dates of birth, addresses or phone numbers.</div>
+  <div class="subtitle" style="margin-bottom: 12px;">Add a player's shirt number, position, short bio and photo. These show on the team's Squad list and on the player's own page. A shirt number belongs to one player in a team. To rename a player, pick them from the list and change the name. Only add a photo with the player's permission (a parent or guardian's for anyone under 18). Do not enter dates of birth, addresses or phone numbers.</div>
   <div class="row">
     <div>
       <label>League</label>
@@ -396,11 +396,12 @@
   <label>Short bio (optional, up to 300 characters)</label>
   <input id="ppBio" maxlength="300" placeholder="e.g. Club captain since 2024" />
   <label style="display:flex; gap:8px; align-items:center; margin-top:12px;"><input id="ppCaptain" type="checkbox" style="width:auto;" /> Team captain</label>
-  <label>Photo (PNG, JPEG or WebP; it is shrunk automatically)</label>
+  <label>Photo (PNG, JPEG or WebP; it is cropped square and shrunk automatically)</label>
   <input id="ppPhoto" type="file" accept="image/png,image/jpeg,image/webp" />
   <label style="display:flex; gap:8px; align-items:center; margin-top:12px;"><input id="ppRemovePhoto" type="checkbox" style="width:auto;" /> Remove the current photo</label>
   <button style="margin-top: 10px;" onclick="ppSave()">Save player profile</button>
   <button style="margin-top: 8px; background: transparent; color: inherit; border: 1px solid currentColor;" onclick="ppDelete()">Delete this whole profile</button>
+  <button style="margin-top: 8px; background: transparent; color: inherit; border: 1px solid currentColor;" onclick="ppMerge()">Merge players who share a shirt number</button>
   <div id="ppMsg" class="msg"></div>
 </div>
 
@@ -1368,10 +1369,13 @@
     reader.onload = () => {
       const img = new Image();
       img.onload = () => {
-        const scale = Math.min(1, 480 / Math.max(img.width, img.height));
+        // Square crop, leaning towards the top of the picture where the face usually is, at most 480 px.
+        const side = Math.min(img.width, img.height);
+        const sx = (img.width - side) / 2, sy = (img.height - side) * 0.15;
+        const out = Math.max(1, Math.min(480, side));
         const c = document.createElement('canvas');
-        c.width = Math.max(1, Math.round(img.width * scale)); c.height = Math.max(1, Math.round(img.height * scale));
-        const ctx = c.getContext('2d'); ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, c.width, c.height); ctx.drawImage(img, 0, 0, c.width, c.height);
+        c.width = out; c.height = out;
+        const ctx = c.getContext('2d'); ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, out, out); ctx.drawImage(img, sx, sy, side, side, 0, 0, out, out);
         ppPhotoData = c.toDataURL('image/jpeg', 0.85);
       };
       img.onerror = () => { say($('ppMsg'),'That photo could not be read. Please choose a PNG, JPEG or WebP image.');; $('ppPhoto').value = ''; };
@@ -1390,11 +1394,24 @@
           league_short: $('ppLeague').value, team_name: $('ppTeam').value, player_name: $('ppName').value.trim(),
           jersey: j === '' ? null : parseInt(j, 10), position: $('ppPosition').value, nationality: $('ppNationality').value,
           captain: $('ppCaptain').checked, bio: $('ppBio').value, photo_data_url: ppPhotoData, remove_photo: $('ppRemovePhoto').checked,
+          existing_id: ppId,
         }),
       });
       const d = await res.json().catch(() => ({}));
       say(msg, res.ok ? d.message : (typeof d.detail === 'string' ? d.detail : 'Please check the fields and try again.'));
       if (res.ok) { ppId = d.player_id; $('ppPhoto').value = ''; ppPhotoData = ''; $('ppRemovePhoto').checked = false; ppLoadPlayers(); }
+    } catch (e) { say(msg, 'Could not reach the server: ' + e.message); }
+  }
+  async function ppMerge() {
+    const msg = $('ppMsg');
+    if (!confirm('In every team, players who share a shirt number are one person. Merge them into the fullest profile and remove the extras?')) return;
+    try {
+      const res = await fetch(`${apiBase()}/api/admin/players/merge-duplicates`, { method: 'POST', headers: adminHeaders() });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok) { say(msg, typeof d.detail === 'string' ? d.detail : 'Could not merge.'); return; }
+      const names = (d.merged || []).slice(0, 6).map((m) => `${m.kept} (#${m.jersey}, ${m.team}) absorbed ${m.removed.join(', ')}`).join('; ');
+      say(msg, d.message + (names ? ' ' + names + '.' : ''));
+      ppId = ''; ppLoadPlayers();
     } catch (e) { say(msg, 'Could not reach the server: ' + e.message); }
   }
   async function ppDelete() {

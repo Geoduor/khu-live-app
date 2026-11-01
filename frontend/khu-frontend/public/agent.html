@@ -315,7 +315,7 @@
   <div class="panel" id="panel-players">
     <div class="card">
       <div class="section-title">Player profiles</div>
-      <div class="subtitle">Add a player's shirt number, position, short bio and photo. These show on the team's Squad list and on the player's own page. Only add a photo with the player's permission (a parent or guardian's for anyone under 18). Do not enter dates of birth, addresses or phone numbers.</div>
+      <div class="subtitle">Add a player's shirt number, position, short bio and photo. These show on the team's Squad list and on the player's own page. A shirt number belongs to one player in a team. To rename a player, pick them from the list and change the name. Only add a photo with the player's permission (a parent or guardian's for anyone under 18). Do not enter dates of birth, addresses or phone numbers.</div>
       <label>League</label>
       <select id="ppLeague" onchange="ppLeagueChanged()">
         <option value="PLM">Premier League Men</option>
@@ -348,7 +348,7 @@
       <label>Short bio (optional, up to 300 characters)</label>
       <input id="ppBio" maxlength="300" placeholder="e.g. Club captain since 2024" />
       <label style="display:flex; gap:8px; align-items:center; margin-top:12px;"><input id="ppCaptain" type="checkbox" style="width:auto;" /> Team captain</label>
-      <label>Photo (PNG, JPEG or WebP; it is shrunk automatically)</label>
+      <label>Photo (PNG, JPEG or WebP; it is cropped square and shrunk automatically)</label>
       <input id="ppPhoto" type="file" accept="image/png,image/jpeg,image/webp" />
       <label style="display:flex; gap:8px; align-items:center; margin-top:12px;"><input id="ppRemovePhoto" type="checkbox" style="width:auto;" /> Remove the current photo</label>
       <button style="margin-top: 14px;" onclick="ppSave()">Save player profile</button>
@@ -892,11 +892,11 @@
   }
 
   // ───────── player profiles (text via textContent only) ─────────
-  let ppPlayers = [], ppPhotoData = '';
+  let ppPlayers = [], ppPhotoData = '', ppId = '';
   function ppShow(text) {
     const msg = $('ppMsg');
     msg.textContent = text;
-    msg.className = 'msg ' + (/(failed|could not|couldn.t|invalid|error|cannot|first|unknown|please)/i.test(text) ? 'error' : 'success');
+    msg.className = 'msg ' + (/(failed|could not|couldn.t|invalid|error|cannot|first|unknown|please|already belongs|already in)/i.test(text) ? 'error' : 'success');
     if (msg.scrollIntoView) msg.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   }
   async function ppLeagueChanged() {
@@ -920,8 +920,9 @@
   }
   function ppPick() {
     const v = $('ppExisting').value;
-    if (v === '') return;
+    if (v === '') { ppId = ''; return; }
     const p = ppPlayers[parseInt(v, 10)];
+    ppId = p.player_id;
     $('ppName').value = p.player_name; $('ppJersey').value = p.jersey == null ? '' : p.jersey;
     $('ppPosition').value = p.position || ''; $('ppNationality').value = p.nationality || '';
     $('ppBio').value = p.bio || ''; $('ppCaptain').checked = !!p.captain;
@@ -938,10 +939,13 @@
     reader.onload = () => {
       const img = new Image();
       img.onload = () => {
-        const scale = Math.min(1, 480 / Math.max(img.width, img.height));
+        // Square crop, leaning towards the top of the picture where the face usually is, at most 480 px.
+        const side = Math.min(img.width, img.height);
+        const sx = (img.width - side) / 2, sy = (img.height - side) * 0.15;
+        const out = Math.max(1, Math.min(480, side));
         const c = document.createElement('canvas');
-        c.width = Math.max(1, Math.round(img.width * scale)); c.height = Math.max(1, Math.round(img.height * scale));
-        const ctx = c.getContext('2d'); ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, c.width, c.height); ctx.drawImage(img, 0, 0, c.width, c.height);
+        c.width = out; c.height = out;
+        const ctx = c.getContext('2d'); ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, out, out); ctx.drawImage(img, sx, sy, side, side, 0, 0, out, out);
         ppPhotoData = c.toDataURL('image/jpeg', 0.85);
       };
       img.onerror = () => { ppShow('That photo could not be read. Please choose a PNG, JPEG or WebP image.'); $('ppPhoto').value = ''; };
@@ -959,11 +963,12 @@
           league_short: $('ppLeague').value, team_name: $('ppTeam').value, player_name: $('ppName').value.trim(),
           jersey: j === '' ? null : parseInt(j, 10), position: $('ppPosition').value, nationality: $('ppNationality').value,
           captain: $('ppCaptain').checked, bio: $('ppBio').value, photo_data_url: ppPhotoData, remove_photo: $('ppRemovePhoto').checked,
+          existing_id: ppId,
         }),
       });
       let d = {}; try { d = await res.json(); } catch (e) { /* plain text */ }
       ppShow(res.ok ? d.message : (typeof d.detail === 'string' ? d.detail : `The server could not save this (error ${res.status}). Please check the fields and try again.`));
-      if (res.ok) { $('ppPhoto').value = ''; ppPhotoData = ''; $('ppRemovePhoto').checked = false; ppLoadPlayers(); }
+      if (res.ok) { ppId = d.player_id || ppId; $('ppPhoto').value = ''; ppPhotoData = ''; $('ppRemovePhoto').checked = false; ppLoadPlayers(); }
     } catch (e) { ppShow('Could not reach the server: ' + e.message); }
   }
 
