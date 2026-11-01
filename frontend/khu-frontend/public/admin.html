@@ -16,7 +16,10 @@
     background: var(--bg); color: var(--text); padding: 16px; max-width: 560px; margin: 0 auto;
   }
   h1 { font-size: 18px; margin-bottom: 4px; }
-  .subtitle { color: var(--muted); font-size: 12px; margin-bottom: 20px; }
+  .subtitle { color: var(--muted); font-size: 12px; margin-bottom: 20px; overflow-wrap: anywhere; }
+  .fmt-help { color: var(--muted); font-size: 12px; margin: -8px 0 14px; }
+  .fmt-help summary { cursor: pointer; font-weight: 600; margin-bottom: 6px; }
+  .fmt-help pre { white-space: pre-wrap; overflow-wrap: anywhere; background: rgba(255,255,255,.04); border-radius: 8px; padding: 10px; margin: 6px 0 0; font-size: 11px; }
   .card {
     background: var(--card); border: 1px solid var(--border); border-radius: 12px;
     padding: 16px; margin-bottom: 16px;
@@ -522,7 +525,25 @@
 
 <div class="card">
   <div class="section-title">Add a past season</div>
-  <div class="subtitle">Import a finished season from a file (for example data supplied by the KHU). Saved seasons are permanent and cannot be overwritten. The file is JSON shaped like {"leagues":[{"league":"Premier League Men","short":"PLM","standings":[{"position":"1","team":"...","played":"..","won":"..","drawn":"..","lost":"..","goal_diff":"..","points":".."}]}],"results":[...]}.</div>
+  <div class="subtitle">Import a finished season from a file (for example data supplied by the KHU). Saved seasons are permanent and cannot be overwritten.</div>
+  <details class="fmt-help">
+    <summary>What should the file look like?</summary>
+    <div>A JSON file with the leagues, each with its final table, and optionally the results:</div>
+    <pre>{
+  "leagues": [
+    {
+      "league": "Premier League Men",
+      "short": "PLM",
+      "standings": [
+        { "position": "1", "team": "...", "played": "..",
+          "won": "..", "drawn": "..", "lost": "..",
+          "goal_diff": "..", "points": ".." }
+      ]
+    }
+  ],
+  "results": [ ... ]
+}</pre>
+  </details>
   <label>Season label</label>
   <input id="ssLabel" maxlength="40" placeholder="e.g. 2024" />
   <label>Title shown to fans</label>
