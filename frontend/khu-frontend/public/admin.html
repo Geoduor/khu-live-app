@@ -77,6 +77,14 @@
     width: auto; margin: 0; padding: 6px 12px; font-size: 12px;
     background: transparent; border: 1px solid var(--border); color: var(--muted);
   }
+
+  .admin-tabs { display: flex; gap: 6px; overflow-x: auto; padding: 4px 0 12px; margin: 0 -2px 4px; position: sticky; top: 0; z-index: 5; background: var(--bg, #0a0606); scrollbar-width: none; }
+  .admin-tabs::-webkit-scrollbar { display: none; }
+  .admin-tab { width: auto; flex-shrink: 0; margin: 0; padding: 9px 14px; border-radius: 20px; font-size: 13px; background: transparent; border: 1px solid var(--border); color: var(--muted); }
+  .admin-tab.active { background: var(--red); border-color: var(--red); color: #fff; }
+  .admin-panel { display: none; }
+  .admin-panel.active { display: block; }
+  .admin-panel .card { margin-bottom: 14px; }
   #loginScreen, #mainScreen { display: none; }
 </style>
 </head>
@@ -104,6 +112,17 @@
     <button class="logout-btn" onclick="logout()">Log Out</button>
   </div>
 
+  <div class="admin-tabs" id="adminTabs" role="tablist">
+    <button class="admin-tab" data-tab="results" role="tab" onclick="showAdminTab('results')">Results</button>
+    <button class="admin-tab" data-tab="matches" role="tab" onclick="showAdminTab('matches')">Match notices</button>
+    <button class="admin-tab" data-tab="cups" role="tab" onclick="showAdminTab('cups')">Tournaments</button>
+    <button class="admin-tab" data-tab="stats" role="tab" onclick="showAdminTab('stats')">Stats</button>
+    <button class="admin-tab" data-tab="people" role="tab" onclick="showAdminTab('people')">Agents</button>
+    <button class="admin-tab" data-tab="growth" role="tab" onclick="showAdminTab('growth')">Visitors &amp; sponsors</button>
+    <button class="admin-tab" data-tab="data" role="tab" onclick="showAdminTab('data')">Data &amp; backups</button>
+  </div>
+
+  <div class="admin-panel" id="apanel-results">
   <div class="card">
     <div class="section-title">Add a Result</div>
 
@@ -175,83 +194,8 @@
   <div class="section-title">Currently Stored Manual Results</div>
   <div id="resultsList"><div class="empty-note">Enter your backend URL and token above, then this loads automatically.</div></div>
 </div>
-
-<div class="card">
-  <div class="section-title">Agents</div>
-  <div class="row">
-    <div><label>Username</label><input id="agentUsername" placeholder="e.g. john_k" /></div>
-    <div><label>Display Name</label><input id="agentDisplayName" placeholder="e.g. John Kamau" /></div>
   </div>
-  <label>Password (min 6 characters)</label>
-  <input id="agentPassword" type="password" placeholder="Give this to the agent directly" />
-  <button id="createAgentBtn" onclick="createAgent()">Add Agent</button>
-  <div id="agentMsg" class="msg"></div>
-
-  <div id="agentsList" style="margin-top: 16px;"></div>
-</div>
-
-<div class="card">
-  <div class="section-title">Tournaments</div>
-  <div class="subtitle" style="margin-bottom: 12px;">Hosted tournaments are kept completely separate from the leagues &mdash; they never touch league tables or results.</div>
-
-  <label>Tournament name</label>
-  <input id="tnName" placeholder="e.g. Kisumu Hockey Festival 2026" />
-  <div class="row">
-    <div><label>Start date</label><input id="tnStart" type="date" /></div>
-    <div><label>End date</label><input id="tnEnd" type="date" /></div>
-  </div>
-  <div class="row">
-    <div><label>Venue</label><input id="tnVenue" placeholder="e.g. Dashmesh Stadium" /></div>
-    <div><label>Status</label>
-      <select id="tnStatus"><option value="upcoming">Upcoming</option><option value="ongoing">Happening now</option><option value="completed">Completed</option></select>
-    </div>
-  </div>
-  <label>Description (optional)</label>
-  <input id="tnDesc" placeholder="One line about the event" />
-  <button id="tnSaveBtn" onclick="saveTournament()">Create Tournament</button>
-  <div id="tnMsg" class="msg"></div>
-
-  <div id="tnList" style="margin-top: 16px;"></div>
-
-  <div id="tnMatchBox" style="display:none; margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--border, #ddd);">
-    <div class="section-title" id="tnMatchTitle">Matches</div>
-    <div class="row">
-      <div><label>Stage</label><input id="tmStage" placeholder="e.g. Group A, Semi-final, Final" /></div>
-      <div><label>Group (for tables)</label><input id="tmGroup" placeholder="e.g. Group A (blank for knockouts)" /></div>
-    </div>
-    <div class="row">
-      <div><label>Home team</label><input id="tmHome" list="tmTeams" placeholder="Pick or type a team" autocomplete="off" /></div>
-      <div><label>Away team</label><input id="tmAway" list="tmTeams" placeholder="Pick or type a team" autocomplete="off" /><datalist id="tmTeams"></datalist></div>
-    </div>
-    <div class="row">
-      <div><label>Home score</label><input id="tmHomeScore" type="number" min="0" placeholder="blank = upcoming" /></div>
-      <div><label>Away score</label><input id="tmAwayScore" type="number" min="0" placeholder="blank = upcoming" /></div>
-    </div>
-    <div class="row">
-      <div><label>Date</label><input id="tmDate" type="date" /></div>
-      <div><label>Time</label><input id="tmTime" type="time" /></div>
-    </div>
-    <label>Venue (optional)</label>
-    <input id="tmVenue" placeholder="Pitch / stadium" />
-    <button id="tmAddBtn" onclick="addTournamentMatch()">Add Match</button>
-    <div id="tmMsg" class="msg"></div>
-    <div id="tmList" style="margin-top: 12px;"></div>
-  </div>
-
-  <button style="margin-top: 14px; background: transparent; color: inherit; border: 1px solid currentColor;" onclick="exportTournamentSeed()">Export tournaments (to keep them after a restart)</button>
-  <div class="subtitle" id="tnExportNote" style="margin-top: 8px;"></div>
-</div>
-
-<div class="card">
-  <div class="section-title">Backup &amp; restore</div>
-  <div class="subtitle">One file with your agents, manual results, stats and tournaments (including every score entered here or by agents). It contains agent password hashes, so keep it private and never upload it to GitHub.</div>
-  <button style="margin-top: 12px;" onclick="downloadBackup()">Download backup</button>
-  <label style="margin-top: 14px;">Restore from a backup file</label>
-  <input id="restoreFile" type="file" accept="application/json,.json" />
-  <button style="margin-top: 8px; background: transparent; color: inherit; border: 1px solid currentColor;" onclick="restoreBackup()">Restore backup</button>
-  <div id="backupMsg" class="msg"></div>
-</div>
-
+  <div class="admin-panel" id="apanel-matches">
 <div class="card" id="statusCard">
   <div class="section-title">Postponed, stopped or cancelled matches</div>
   <div class="subtitle">Tell fans what happened to a match. This only adds a notice on the match: it never changes the table. If a result stands or is awarded, enter the score as usual.</div>
@@ -305,71 +249,61 @@
   </div>
   <div id="msMsg" class="msg"></div>
 </div>
-
+  </div>
+  <div class="admin-panel" id="apanel-cups">
 <div class="card">
-  <div class="section-title">Visitors &amp; usage</div>
-  <div class="subtitle">Private counts with no cookies and no personal data: each person is counted once per day and cannot be followed across days. People whose browser asks not to be tracked are not counted.</div>
-  <label>Period</label>
-  <select id="anDays" onchange="loadAnalytics()">
-    <option value="7">Last 7 days</option>
-    <option value="30" selected>Last 30 days</option>
-    <option value="90">Last 90 days</option>
-  </select>
-  <button style="margin-top: 10px;" onclick="loadAnalytics()">Show numbers</button>
-  <div id="anMsg" class="msg"></div>
-  <div id="anOut" style="margin-top: 12px;"></div>
-</div>
+  <div class="section-title">Tournaments</div>
+  <div class="subtitle" style="margin-bottom: 12px;">Hosted tournaments are kept completely separate from the leagues &mdash; they never touch league tables or results.</div>
 
-<div class="card">
-  <div class="section-title">Sponsor slot</div>
-  <div class="subtitle">A sponsor card shown on the Home, Fixtures and Results screens, always labelled "Sponsored". Views are counted when at least half the card is seen; clicks are counted too, so you can show a sponsor real numbers.</div>
-  <input type="hidden" id="spId" />
-  <label>Sponsor name</label>
-  <input id="spName" maxlength="80" placeholder="e.g. Acme Sports" />
-  <label>Short message (optional)</label>
-  <input id="spTagline" maxlength="120" placeholder="e.g. Proud supporter of Kenyan hockey" />
-  <label>Link people go to (https://...)</label>
-  <input id="spLink" maxlength="300" placeholder="https://example.com" />
-  <label>Logo (PNG, JPEG or WebP, up to 400 KB)</label>
-  <input id="spLogo" type="file" accept="image/png,image/jpeg,image/webp" />
-  <label>Show from (optional)</label>
-  <input id="spStart" type="date" />
-  <label>Show until (optional)</label>
-  <input id="spEnd" type="date" />
-  <label style="display:flex; gap:8px; align-items:center; margin-top:12px;"><input id="spActive" type="checkbox" checked style="width:auto;" /> Switched on</label>
-  <button style="margin-top: 10px;" onclick="saveSponsor()">Save sponsor</button>
-  <button style="margin-top: 8px; background: transparent; color: inherit; border: 1px solid currentColor;" onclick="resetSponsorForm()">Clear the form</button>
-  <div id="spMsg" class="msg"></div>
-  <div id="spList" style="margin-top: 14px;"></div>
-</div>
+  <label>Tournament name</label>
+  <input id="tnName" placeholder="e.g. Kisumu Hockey Festival 2026" />
+  <div class="row">
+    <div><label>Start date</label><input id="tnStart" type="date" /></div>
+    <div><label>End date</label><input id="tnEnd" type="date" /></div>
+  </div>
+  <div class="row">
+    <div><label>Venue</label><input id="tnVenue" placeholder="e.g. Dashmesh Stadium" /></div>
+    <div><label>Status</label>
+      <select id="tnStatus"><option value="upcoming">Upcoming</option><option value="ongoing">Happening now</option><option value="completed">Completed</option></select>
+    </div>
+  </div>
+  <label>Description (optional)</label>
+  <input id="tnDesc" placeholder="One line about the event" />
+  <button id="tnSaveBtn" onclick="saveTournament()">Create Tournament</button>
+  <div id="tnMsg" class="msg"></div>
 
-<div class="card">
-  <div class="section-title">Add a past season</div>
-  <div class="subtitle">Import a finished season from a file (for example data supplied by the KHU). Saved seasons are permanent and cannot be overwritten. The file is JSON shaped like {"leagues":[{"league":"Premier League Men","short":"PLM","standings":[{"position":"1","team":"...","played":"..","won":"..","drawn":"..","lost":"..","goal_diff":"..","points":".."}]}],"results":[...]}.</div>
-  <label>Season label</label>
-  <input id="ssLabel" maxlength="40" placeholder="e.g. 2024" />
-  <label>Title shown to fans</label>
-  <input id="ssTitle" maxlength="120" placeholder="e.g. 2024 Season" />
-  <label>Where the data came from (optional)</label>
-  <input id="ssSource" maxlength="200" placeholder="e.g. Supplied by the KHU" />
-  <label>Season file</label>
-  <input id="ssFile" type="file" accept="application/json,.json" />
-  <button style="margin-top: 10px;" onclick="importSeason()">Add this season</button>
-  <div id="ssMsg" class="msg"></div>
-</div>
+  <div id="tnList" style="margin-top: 16px;"></div>
 
-<div class="card">
-  <div class="section-title">Off-site backup &amp; season history</div>
-  <div class="subtitle">A copy goes to your separate storage bucket every night at 02:00 (once the BACKUP_S3_* settings are added on Render). Saved seasons are permanent: once saved, a season cannot be changed or replaced from this page.</div>
-  <button style="margin-top: 12px;" onclick="runOffsiteBackup()">Back up to off-site storage now</button>
-  <div id="offsiteMsg" class="msg"></div>
-  <label style="margin-top: 14px;">Save the current season as history</label>
-  <input id="seasonLabel" placeholder="Season label, e.g. 2025-26" maxlength="40" />
-  <input id="seasonTitle" placeholder="Title, e.g. 2025/26 Season" maxlength="120" style="margin-top: 8px;" />
-  <button style="margin-top: 8px;" onclick="saveSeasonSnapshot()">Save season to history</button>
-  <div id="seasonMsg" class="msg"></div>
-</div>
+  <div id="tnMatchBox" style="display:none; margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--border, #ddd);">
+    <div class="section-title" id="tnMatchTitle">Matches</div>
+    <div class="row">
+      <div><label>Stage</label><input id="tmStage" placeholder="e.g. Group A, Semi-final, Final" /></div>
+      <div><label>Group (for tables)</label><input id="tmGroup" placeholder="e.g. Group A (blank for knockouts)" /></div>
+    </div>
+    <div class="row">
+      <div><label>Home team</label><input id="tmHome" list="tmTeams" placeholder="Pick or type a team" autocomplete="off" /></div>
+      <div><label>Away team</label><input id="tmAway" list="tmTeams" placeholder="Pick or type a team" autocomplete="off" /><datalist id="tmTeams"></datalist></div>
+    </div>
+    <div class="row">
+      <div><label>Home score</label><input id="tmHomeScore" type="number" min="0" placeholder="blank = upcoming" /></div>
+      <div><label>Away score</label><input id="tmAwayScore" type="number" min="0" placeholder="blank = upcoming" /></div>
+    </div>
+    <div class="row">
+      <div><label>Date</label><input id="tmDate" type="date" /></div>
+      <div><label>Time</label><input id="tmTime" type="time" /></div>
+    </div>
+    <label>Venue (optional)</label>
+    <input id="tmVenue" placeholder="Pitch / stadium" />
+    <button id="tmAddBtn" onclick="addTournamentMatch()">Add Match</button>
+    <div id="tmMsg" class="msg"></div>
+    <div id="tmList" style="margin-top: 12px;"></div>
+  </div>
 
+  <button style="margin-top: 14px; background: transparent; color: inherit; border: 1px solid currentColor;" onclick="exportTournamentSeed()">Export tournaments (to keep them after a restart)</button>
+  <div class="subtitle" id="tnExportNote" style="margin-top: 8px;"></div>
+</div>
+  </div>
+  <div class="admin-panel" id="apanel-stats">
 <div class="card">
   <div class="section-title">Correct a Team's Stats</div>
   <div class="subtitle" style="margin-bottom: 12px;">Only fill in the fields you're correcting — anything left blank keeps the live-scraped value.</div>
@@ -460,7 +394,98 @@
 
   <div id="playerStatsList" style="margin-top: 16px;"></div>
 </div>
+  </div>
+  <div class="admin-panel" id="apanel-people">
+<div class="card">
+  <div class="section-title">Agents</div>
+  <div class="row">
+    <div><label>Username</label><input id="agentUsername" placeholder="e.g. john_k" /></div>
+    <div><label>Display Name</label><input id="agentDisplayName" placeholder="e.g. John Kamau" /></div>
+  </div>
+  <label>Password (min 6 characters)</label>
+  <input id="agentPassword" type="password" placeholder="Give this to the agent directly" />
+  <button id="createAgentBtn" onclick="createAgent()">Add Agent</button>
+  <div id="agentMsg" class="msg"></div>
 
+  <div id="agentsList" style="margin-top: 16px;"></div>
+</div>
+  </div>
+  <div class="admin-panel" id="apanel-growth">
+<div class="card">
+  <div class="section-title">Visitors &amp; usage</div>
+  <div class="subtitle">Private counts with no cookies and no personal data: each person is counted once per day and cannot be followed across days. People whose browser asks not to be tracked are not counted.</div>
+  <label>Period</label>
+  <select id="anDays" onchange="loadAnalytics()">
+    <option value="7">Last 7 days</option>
+    <option value="30" selected>Last 30 days</option>
+    <option value="90">Last 90 days</option>
+  </select>
+  <button style="margin-top: 10px;" onclick="loadAnalytics()">Show numbers</button>
+  <div id="anMsg" class="msg"></div>
+  <div id="anOut" style="margin-top: 12px;"></div>
+</div>
+
+<div class="card">
+  <div class="section-title">Sponsor slot</div>
+  <div class="subtitle">A sponsor card shown on the Home, Fixtures and Results screens, always labelled "Sponsored". Views are counted when at least half the card is seen; clicks are counted too, so you can show a sponsor real numbers.</div>
+  <input type="hidden" id="spId" />
+  <label>Sponsor name</label>
+  <input id="spName" maxlength="80" placeholder="e.g. Acme Sports" />
+  <label>Short message (optional)</label>
+  <input id="spTagline" maxlength="120" placeholder="e.g. Proud supporter of Kenyan hockey" />
+  <label>Link people go to (https://...)</label>
+  <input id="spLink" maxlength="300" placeholder="https://example.com" />
+  <label>Logo (PNG, JPEG or WebP, up to 400 KB)</label>
+  <input id="spLogo" type="file" accept="image/png,image/jpeg,image/webp" />
+  <label>Show from (optional)</label>
+  <input id="spStart" type="date" />
+  <label>Show until (optional)</label>
+  <input id="spEnd" type="date" />
+  <label style="display:flex; gap:8px; align-items:center; margin-top:12px;"><input id="spActive" type="checkbox" checked style="width:auto;" /> Switched on</label>
+  <button style="margin-top: 10px;" onclick="saveSponsor()">Save sponsor</button>
+  <button style="margin-top: 8px; background: transparent; color: inherit; border: 1px solid currentColor;" onclick="resetSponsorForm()">Clear the form</button>
+  <div id="spMsg" class="msg"></div>
+  <div id="spList" style="margin-top: 14px;"></div>
+</div>
+  </div>
+  <div class="admin-panel" id="apanel-data">
+<div class="card">
+  <div class="section-title">Backup &amp; restore</div>
+  <div class="subtitle">One file with your agents, manual results, stats and tournaments (including every score entered here or by agents). It contains agent password hashes, so keep it private and never upload it to GitHub.</div>
+  <button style="margin-top: 12px;" onclick="downloadBackup()">Download backup</button>
+  <label style="margin-top: 14px;">Restore from a backup file</label>
+  <input id="restoreFile" type="file" accept="application/json,.json" />
+  <button style="margin-top: 8px; background: transparent; color: inherit; border: 1px solid currentColor;" onclick="restoreBackup()">Restore backup</button>
+  <div id="backupMsg" class="msg"></div>
+</div>
+
+<div class="card">
+  <div class="section-title">Off-site backup &amp; season history</div>
+  <div class="subtitle">A copy goes to your separate storage bucket every night at 02:00 (once the BACKUP_S3_* settings are added on Render). Saved seasons are permanent: once saved, a season cannot be changed or replaced from this page.</div>
+  <button style="margin-top: 12px;" onclick="runOffsiteBackup()">Back up to off-site storage now</button>
+  <div id="offsiteMsg" class="msg"></div>
+  <label style="margin-top: 14px;">Save the current season as history</label>
+  <input id="seasonLabel" placeholder="Season label, e.g. 2025-26" maxlength="40" />
+  <input id="seasonTitle" placeholder="Title, e.g. 2025/26 Season" maxlength="120" style="margin-top: 8px;" />
+  <button style="margin-top: 8px;" onclick="saveSeasonSnapshot()">Save season to history</button>
+  <div id="seasonMsg" class="msg"></div>
+</div>
+
+<div class="card">
+  <div class="section-title">Add a past season</div>
+  <div class="subtitle">Import a finished season from a file (for example data supplied by the KHU). Saved seasons are permanent and cannot be overwritten. The file is JSON shaped like {"leagues":[{"league":"Premier League Men","short":"PLM","standings":[{"position":"1","team":"...","played":"..","won":"..","drawn":"..","lost":"..","goal_diff":"..","points":".."}]}],"results":[...]}.</div>
+  <label>Season label</label>
+  <input id="ssLabel" maxlength="40" placeholder="e.g. 2024" />
+  <label>Title shown to fans</label>
+  <input id="ssTitle" maxlength="120" placeholder="e.g. 2024 Season" />
+  <label>Where the data came from (optional)</label>
+  <input id="ssSource" maxlength="200" placeholder="e.g. Supplied by the KHU" />
+  <label>Season file</label>
+  <input id="ssFile" type="file" accept="application/json,.json" />
+  <button style="margin-top: 10px;" onclick="importSeason()">Add this season</button>
+  <div id="ssMsg" class="msg"></div>
+</div>
+  </div>
 </div>
 
 <script>
@@ -1154,6 +1179,22 @@
       say(msg, res.ok ? d.message : (typeof d.detail === 'string' ? d.detail : 'That file could not be added. Please check its format.'));
     } catch (e) { say(msg, 'That file is not valid JSON and could not be read.'); }
   }
+
+
+  // ── Admin sections (tabs keep the page short) ──
+  function showAdminTab(name) {
+    document.querySelectorAll('.admin-panel').forEach((p) => p.classList.toggle('active', p.id === 'apanel-' + name));
+    document.querySelectorAll('.admin-tab').forEach((b) => b.classList.toggle('active', b.dataset.tab === name));
+    try { sessionStorage.setItem('khu_admin_tab', name); } catch (e) { /* storage may be blocked */ }
+    window.scrollTo({ top: 0 });
+    if (name === 'growth') { loadAnalytics(); loadSponsors(); }
+  }
+  (function initAdminTabs() {
+    let t = 'results';
+    try { t = sessionStorage.getItem('khu_admin_tab') || 'results'; } catch (e) { /* ignore */ }
+    if (!document.getElementById('apanel-' + t)) t = 'results';
+    showAdminTab(t);
+  })();
 
   async function downloadBackup() {
     const msg = $('backupMsg');
