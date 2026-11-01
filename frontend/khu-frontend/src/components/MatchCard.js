@@ -131,7 +131,20 @@ export default function MatchCard({ match, onOpenMatch, onOpenTeam, isFavorite, 
           </div>
         </div>
         <div className="score-col">
-          {(state === "FT" || state === "LIVE") && match.home_score != null ? (
+          {info && info.status === "postponed" ? (
+            <div className="score-pp" title="Postponed" aria-label="Postponed">P-P</div>
+          ) : info && (info.status === "suspended" || info.status === "abandoned") && info.home_score != null && info.away_score != null ? (
+            <div className="score-stopped" aria-label={`Stopped at ${info.home_score} ${info.away_score}`}>
+              <div className="score-display">
+                {info.home_score} <span style={{ color: "var(--muted)", fontWeight: 400 }}>–</span> {info.away_score}
+              </div>
+              <div className="score-stopped-flag" title={info.status === "suspended" ? "Play stopped, to be resumed" : "Stopped and not completed"}>
+                {info.status === "suspended" ? "⏸" : "⛔"}{info.minute != null ? ` ${info.minute}'` : ""}
+              </div>
+            </div>
+          ) : info && info.status === "cancelled" ? (
+            <div className="score-pp" title="Cancelled">C-C</div>
+          ) : (state === "FT" || state === "LIVE") && match.home_score != null ? (
             <div className="score-display">
               {match.home_score} <span style={{ color: "var(--muted)", fontWeight: 400 }}>–</span> {match.away_score}
             </div>
