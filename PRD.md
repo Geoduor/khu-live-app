@@ -67,6 +67,9 @@ There was no dedicated app for KHU fans. KHU Live fills that gap.
 - National League playoff bracket view.
 - **Cups (tournaments)**: hosted tournaments with matches by stage and
   computed group tables, kept separate from league data.
+- **Squads and player pages**: photo, position, shirt number, season stats and goals log, reached from the team page or the top-scorers list.
+- **Postponed / stopped matches**: P-P on the card for postponed games; score plus symbol and minute for games stopped midway; reasons and new dates shown to fans.
+- **Past matches and seasons**: a permanent match archive, past-season tables and a roll of honour.
 - **Share cards**: "Share result" and "Share table" make a clean image
   (with the app name) for WhatsApp and other apps — the main free
   growth loop.
@@ -90,7 +93,12 @@ There was no dedicated app for KHU fans. KHU Live fills that gap.
   and manage agent accounts.
 - **Agent portal** (`/agent.html`): a lightweight login for people helping
   enter results, without needing the master admin credential. Every
-  result records who entered it.
+  result records who entered it. Tabs for tournaments, league results,
+  their own entries, match notices (postponed, rescheduled, suspended...)
+  and player profiles.
+- **Admin extras**: tabbed admin page, player-profile form, squad import
+  from the KHU website, sponsor slot, visitor numbers, backups and past
+  seasons.
 
 ### App experience
 - Installable as a PWA on Android, iOS, and desktop — a real home-screen
@@ -132,7 +140,8 @@ There was no dedicated app for KHU fans. KHU Live fills that gap.
   full transparency, not just in the API response.
 - Scorers/cards and top scorers depend on data being entered (KHU's site doesn't publish them) — consider making scorer entry quicker for agents.
 - Tournament entry screen in the agent portal (API already supports it).
-- Move persistence off Render's ephemeral disk (managed database) so
-  seed-file exports are no longer needed.
+- Persistence now lives in Supabase Postgres with nightly off-site backups (set `BACKUP_S3_*`; see `docs/BACKUP_SETUP.md`). Next: load KHU's historical seasons and fill missing player positions and photos.
+- Match-day push notifications (kickoff soon, goals, full time) for followed teams.
+- Swahili labels and an offline fixtures view.
 - Off Pitch Africa — a related, separate client project reusing this
   app's scraping patterns — is tracked independently.

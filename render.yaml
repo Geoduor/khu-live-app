@@ -3,7 +3,8 @@ services:
     name: khu-backend
     runtime: python
     region: oregon
-    plan: free
+    # Paid instance (no cold starts). Keep this in step with the plan chosen in the Render dashboard.
+    plan: starter
     rootDir: backend
     buildCommand: "pip install -r requirements.txt"
     startCommand: "uvicorn main:app --host 0.0.0.0 --port $PORT"

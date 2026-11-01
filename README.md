@@ -47,12 +47,14 @@ Use the Supabase **Session pooler** string (Project → Connect), with the Supab
 - **Team profile pages** — league position, last-5 form, every result this season with a season record (W/D/L, goals), upcoming fixtures
 - **Results grouped by date** — newest day first
 - **Match detail pages** — date, venue, logos, live/final score, a minute-by-minute events list (goals and cards when recorded) and a Share button
-- **Top scorers** — a leaderboard per league (Table tab → Top scorers), shareable as an image
+- **Top scorers** — a leaderboard per league (Table tab → Top scorers), shareable as an image; tap a row to open the player's page
+- **Squads and player pages** — each team profile lists its squad (photo, position, shirt number, goals); a player's page shows photo, details, season stats and goals log
 - **Row-diff animations** — standings visibly flash and show rank-change arrows on each live poll, so the table feels alive instead of just reloading
 
 ### Sharing & tournaments
 - **Share cards** — a "Share result" button on finished/live matches and a "Share table" button on league and tournament group tables. They render a clean 1080×1350 image on-device (Canvas, no extra dependency) carrying the app name and the "Unofficial Fan App" line, then open the native share sheet (WhatsApp, etc.) or fall back to a download.
 - **Cups tab** — hosted tournaments (e.g. festivals, cups) with matches grouped by stage and computed group tables (3-1-0 points; tiebreak: points → goal difference → goals for). Tournament data is stored separately from league data and never affects league standings.
+- **Postponed and stopped matches** — a postponed match shows **P-P** in place of the score; a match stopped midway shows its score with a ⛔/⏸ symbol and the minute, plus a plain-English note and the reason
 - **Admin & agent entry** — `admin.html` has a Tournaments section to create tournaments and enter matches; the API also lets authorised agents enter tournament matches.
 
 ### Personalization
@@ -79,9 +81,14 @@ khu-app/
 │   ├── main.py                 API endpoints, refresh scheduling, circuit breaker
 │   ├── scraper.py               All KHU scraping logic (standings, fixtures,
 │   │                            team/match pages, name corrections)
-│   ├── database.py              SQLite persistence + circuit breaker state
+│   ├── database.py              Persistence (SQLite or Postgres) + circuit breaker state
+│   ├── dbconn.py                Database connection layer / SQL translation
+│   ├── backup.py                Backup file + nightly off-site upload
+│   ├── insights.py              Private analytics + sponsor slot
+│   ├── playerprofiles.py        Player profiles and photos
+│   ├── khusquads.py             Squad import from the KHU website
 │   ├── tournaments.py           Tournament validation, group tables, stage ordering
-│   ├── verify_robustness.py     Offline test script (run before deploying)
+│   ├── verify_*.py              Offline test scripts (run before deploying)
 │   ├── push.py                  Web Push system with favorites-based scoping
 │   ├── requirements.txt
 │   ├── .env.example              Template for required environment variables
@@ -89,7 +96,8 @@ khu-app/
 └── frontend/
     └── khu-frontend/           React PWA
         ├── public/
-        │   ├── admin.html         Admin portal (results, stats, tournaments)
+        │   ├── admin.html         Admin portal (tabs: results, matches, cups, stats, people, sponsors, backups)
+        │   ├── agent.html         Agent portal (results, notices, player profiles)
         │   ├── khu-crest.png       KHU crest (transparent background; icons are generated from it)
         │   ├── generate_icons.py  Regenerates PWA icons from the real logo
         │   ├── manifest.json
@@ -155,14 +163,16 @@ Open `http://localhost:3000`. Make sure the backend is already running, or you'l
 
 ```bash
 cd backend
-python verify_robustness.py     # offline checks incl. tournaments, auth, seed restore
+python verify_robustness.py        # offline checks incl. tournaments, auth, seed restore, player profiles, squad import
+python verify_manual_results_v2.py # manual results and table recalculation
+python verify_security.py          # attacker-style checks (see SECURITY.md)
 cd ../frontend/khu-frontend
 CI=true npm run build           # treats lint warnings as errors, as the deploy does
 ```
 
 ## Deployment & data persistence
 
-Backend on Render (free tier), frontend on Vercel. Render's disk is **ephemeral**, so data entered through the admin portal is lost on a cold start unless persisted:
+Backend on Render (paid instance), frontend on Vercel (Hobby). Without `DATABASE_URL`, Render's disk is **ephemeral**, so data entered through the admin portal is lost on a cold start unless persisted:
 
 - Public data (manual results, team/player stats, tournaments): export the seed JSON from the admin portal and commit it to `backend/` (`tournaments_seed.json`, etc.).
 - Agent accounts contain password hashes, so they are **not** committed. Export them and store the value in the `AGENTS_SEED` environment variable.
@@ -203,3 +213,10 @@ MIT — see [LICENSE](./LICENSE).
 - **Sponsor slot:** the admin page's *Sponsor slot* card manages a sponsor (name, message, https link, PNG/JPEG/WebP logo up to 400 KB, optional dates). It shows on Home, Fixtures and Results, always labelled "Sponsored". Views (card at least half visible) and clicks are counted per sponsor, so you can show a sponsor real numbers. Links must be https; SVG logos are refused.
 - **Past seasons:** the Cups tab has a *Past seasons* view with a roll of honour (the team in position 1 of each league) and each season's final tables. Seasons come from *Save season to history* or *Add a past season* (file import) on the admin page, and are permanent.
 - Sponsors and daily analytics totals are included in backups and restores.
+
+## Player profiles
+
+- **What fans see:** a Squad list on every team page and a page per player (photo, position, shirt number, nationality, captain badge, bio, season stats, goals log). Top-scorer rows open the same page.
+- **How data gets in:** the admin page (Stats tab) and the agent page (Players tab) have a form for shirt number, position, bio and photo; photos are shrunk in the browser first. The admin Stats tab also has **Import squads from the KHU website**, which reads each team's public player list (names, shirt numbers, photos) in the background and only fills gaps: nothing an admin or agent entered is ever overwritten. Positions are not on the KHU site.
+- **Privacy:** only add a photo with the player's permission (a parent or guardian's for anyone under 18). There is deliberately no field for date of birth, address or phone number. Photos and profiles are included in backups and restores; a file with just `player_profiles` can also be loaded through the admin Restore button.
+- **Pages' security policy:** photo previews must use `FileReader` (data URLs); `blob:` images are blocked on `admin.html` and `agent.html`.

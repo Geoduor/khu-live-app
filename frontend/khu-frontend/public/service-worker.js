@@ -28,7 +28,7 @@
  * cleaned up even when the strategy itself was supposed to do so.
  */
 
-const CACHE_VERSION = "v4"; // bump this string whenever service-worker.js changes meaningfully
+const CACHE_VERSION = "v5"; // bump this string whenever service-worker.js changes meaningfully
 const CACHE_NAME = `khu-app-shell-${CACHE_VERSION}`;
 const DATA_CACHE_NAME = `khu-app-data-${CACHE_VERSION}`;
 
