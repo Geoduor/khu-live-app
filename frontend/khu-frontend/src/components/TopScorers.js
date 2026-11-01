@@ -9,7 +9,7 @@ import { renderScorersCard, shareCanvas, slug, shareText } from "../utils/shareC
  * by admin/agents plus goals recorded on individual results — so the
  * list is only as complete as the scorers KHU Live has been given.
  */
-export default function TopScorers({ leagueShort, leagueName, onOpenTeam }) {
+export default function TopScorers({ leagueShort, leagueName, onOpenTeam, onOpenPlayer }) {
   const [players, setPlayers] = useState(null);
   const [failed, setFailed] = useState(false);
 
@@ -52,7 +52,15 @@ export default function TopScorers({ leagueShort, leagueName, onOpenTeam }) {
       </div>
       <div className="ts-list">
         {top.map((p, i) => (
-          <div className="ts-row" key={`${p.player_name}|${p.team_name}|${i}`}>
+          <div
+            className={`ts-row ${onOpenPlayer && p.player_id ? "ts-row-link" : ""}`}
+            key={`${p.player_name}|${p.team_name}|${i}`}
+            {...(onOpenPlayer && p.player_id ? {
+              role: "button", tabIndex: 0,
+              onClick: () => onOpenPlayer(p.player_id),
+              onKeyDown: (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onOpenPlayer(p.player_id); } },
+            } : {})}
+          >
             <span className={`ts-rank ${i === 0 ? "ts-rank-1" : ""}`}>{i + 1}</span>
             <div className="ts-who">
               <div className="ts-name">{p.player_name}</div>

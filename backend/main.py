@@ -308,6 +308,8 @@ class PushSubscription(BaseModel):
     keys: PushKeys
     expirationTime: Optional[float] = None
 
+import playerprofiles as _pp
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -2694,6 +2696,8 @@ def get_top_scorers(league_short: str = ""):
         stats = [s for s in stats if s.get("league_short", "").upper() == league_short.strip().upper()]
     stats = [s for s in stats if (s.get("goals") or 0) > 0 or not s.get("derived")]
     stats.sort(key=lambda s: (-(s.get("goals") or 0), (s.get("player_name") or "").lower()))
+    stats = [{**s, "player_id": _pp.player_id(s.get("league_short", ""), s.get("team_name", ""), s.get("player_name", ""))}
+             for s in stats]
     return {"players": stats, "count": len(stats)}
 
 
@@ -2724,6 +2728,163 @@ def export_player_stats_seed(x_admin_token: str = Header(default="")):
         raise HTTPException(status_code=401, detail="Missing or invalid admin token.")
     stats = db.load_player_stats()
     return {"players": stats, "exported_at": datetime.now().isoformat(), "count": len(stats)}
+
+
+# ══════════════════════════════════════════════════════
+# PLAYER PROFILES — details, photo and stats for each squad member
+# ══════════════════════════════════════════════════════
+
+class PlayerProfileInput(BaseModel):
+    league_short: str = Field(max_length=20)
+    team_name: str = Field(max_length=120)
+    player_name: str = Field(max_length=80)
+    jersey: Optional[int] = Field(default=None, ge=0, le=99)
+    position: str = Field(default="", max_length=20)
+    nationality: str = Field(default="", max_length=40)
+    captain: bool = False
+    bio: str = Field(default="", max_length=300)
+    photo_data_url: str = Field(default="", max_length=420_000)
+    remove_photo: bool = False
+
+
+def _all_player_records() -> dict:
+    """Everyone the app knows: stat lines (entered by hand), scorers recorded on
+    results, and anyone with a profile. {player_id: record}. Hand-entered stat
+    lines win over tallies derived from results."""
+    recs: dict = {}
+    manual = db.load_player_stats()
+    manual_keys = set()
+    for sline in manual:
+        k = (sline.get("league_short", ""), (sline.get("team_name") or "").lower(), (sline.get("player_name") or "").lower())
+        manual_keys.add(k)
+        recs[_pp.player_id(*[sline.get(x, "") for x in ("league_short", "team_name", "player_name")])] = {
+            **{x: sline.get(x, 0) or 0 for x in ("goals", "appearances", "yellow_cards", "green_cards", "red_cards")},
+            "league_short": sline.get("league_short", ""), "team_name": sline.get("team_name", ""),
+            "player_name": sline.get("player_name", ""), "has_stat_line": True}
+    for k, row in _derive_scorers_from_results().items():
+        if k in manual_keys:
+            continue
+        recs[_pp.player_id(row["league_short"], row["team_name"], row["player_name"])] = {
+            **{x: row.get(x, 0) for x in ("goals", "appearances", "yellow_cards", "green_cards", "red_cards")},
+            "league_short": row["league_short"], "team_name": row["team_name"], "player_name": row["player_name"],
+            "has_stat_line": False}
+    for pid, prof in _pp.load_profiles().items():
+        base = recs.get(pid) or {"goals": 0, "appearances": 0, "yellow_cards": 0, "green_cards": 0, "red_cards": 0,
+                                 "has_stat_line": False}
+        recs[pid] = {**base, **prof}
+    for pid, r in recs.items():
+        r["player_id"] = pid
+        r.setdefault("jersey", None); r.setdefault("position", ""); r.setdefault("nationality", "")
+        r.setdefault("captain", False); r.setdefault("bio", ""); r.setdefault("has_photo", False)
+    return recs
+
+
+def _squad_for(team_name: str, league_short: str = "") -> list:
+    league_short = (league_short or "").strip().upper()
+    squad = []
+    for r in _all_player_records().values():
+        if league_short and r["league_short"] and r["league_short"].upper() != league_short:
+            continue
+        if _team_matches_fixture_side(team_name, "", r["team_name"], ""):
+            squad.append({k: r[k] for k in ("player_id", "player_name", "jersey", "position", "captain", "has_photo", "goals")})
+    squad.sort(key=lambda p: (p["jersey"] is None, p["jersey"] if p["jersey"] is not None else 0, p["player_name"].lower()))
+    return squad
+
+
+def _goals_log(rec: dict) -> list:
+    """Each goal this player is recorded as scoring, newest first."""
+    short_by_name = {lg["name"]: lg["short"] for lg in LEAGUES.values()}
+    fr = cache.get("fixtures_results") or {}
+    out = []
+    for m in fr.get("results", []) or []:
+        if short_by_name.get(m.get("league", ""), "") != rec["league_short"]:
+            continue
+        for sc in m.get("scorers", []) or []:
+            if (sc.get("player_name") or "").strip().lower() != rec["player_name"].lower():
+                continue
+            side_team = m.get("home_team") if sc.get("team") == "home" else m.get("away_team")
+            if (side_team or "").lower() != rec["team_name"].lower():
+                continue
+            opp = m.get("away_team") if sc.get("team") == "home" else m.get("home_team")
+            out.append({"date": m.get("date", ""), "opponent": opp or "", "minute": sc.get("minute")})
+    out.sort(key=lambda g: _parse_match_date(g["date"]), reverse=True)
+    return out
+
+
+@app.get("/api/players/{player_id}")
+def get_player_profile(player_id: str, request: Request):
+    _rate_limit(request, "player", 90, 60)
+    if not re.fullmatch(r"[0-9a-f]{12}", player_id):
+        raise HTTPException(status_code=404, detail="Player not found.")
+    rec = _all_player_records().get(player_id)
+    if not rec:
+        raise HTTPException(status_code=404, detail="Player not found.")
+    entry = _find_standings_entry_for_team(rec["team_name"], "", rec["league_short"])
+    league = LEAGUES_BY_SHORT.get(rec["league_short"], {})
+    return {**rec, "league": league.get("name", rec["league_short"]),
+            "team_url": (entry or {}).get("team_url", ""), "team_logo_url": (entry or {}).get("team_logo_url", ""),
+            "goals_log": _goals_log(rec)}
+
+
+@app.get("/api/players/{player_id}/photo")
+def get_player_photo(player_id: str):
+    if not re.fullmatch(r"[0-9a-f]{12}", player_id):
+        raise HTTPException(status_code=404, detail="No photo.")
+    photo = _pp.get_photo(player_id)
+    if not photo:
+        raise HTTPException(status_code=404, detail="No photo.")
+    mime, raw = photo
+    return Response(content=raw, media_type=mime, headers={
+        "Cache-Control": "public, max-age=86400", "X-Content-Type-Options": "nosniff",
+        "Content-Security-Policy": "default-src 'none'; sandbox"})
+
+
+@app.get("/api/admin/players/list")
+def admin_list_players(league: str = "", team: str = "", x_admin_token: str = Header(default=""), x_agent_token: str = Header(default="")):
+    """Players the app knows for one team (for the profile form). Admin or agent."""
+    _authorize_writer(x_admin_token, x_agent_token)
+    if not team:
+        return {"players": []}
+    recs = [r for r in _all_player_records().values()
+            if (not league or not r["league_short"] or r["league_short"].upper() == league.upper())
+            and _team_matches_fixture_side(team[:120], "", r["team_name"], "")]
+    recs.sort(key=lambda r: r["player_name"].lower())
+    return {"players": recs}
+
+
+@app.post("/api/admin/players/profile")
+def admin_save_player_profile(payload: PlayerProfileInput, x_admin_token: str = Header(default=""), x_agent_token: str = Header(default="")):
+    """Add or update a player's profile (shirt number, position, nationality, captain, bio, photo).
+    Only add a photo with the player's permission (a parent/guardian's for under-18s)."""
+    who = _authorize_writer(x_admin_token, x_agent_token)
+    league = LEAGUES_BY_SHORT.get(payload.league_short.strip().upper())
+    if not league:
+        raise HTTPException(status_code=400, detail="Unknown league.")
+    try:
+        pid = _pp.save_profile(league["short"], payload.team_name, payload.player_name, payload.jersey, payload.position,
+                               payload.nationality, payload.captain, payload.bio, payload.photo_data_url,
+                               payload.remove_photo, who)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    logger.info(f"Player profile saved by {who}: {pid}")
+    return {"message": f"Saved the profile for {payload.player_name.strip()}.", "player_id": pid}
+
+
+@app.delete("/api/admin/players/profile/{player_id}")
+def admin_delete_player_profile(player_id: str, x_admin_token: str = Header(default="")):
+    """Remove a player's whole profile (details and photo). Admin only. Stats stay."""
+    if not _is_admin(x_admin_token):
+        raise HTTPException(status_code=401, detail="Missing or invalid admin token.")
+    if not _pp.delete_profile(player_id[:12]):
+        raise HTTPException(status_code=404, detail="That player has no profile.")
+    return {"message": "Profile removed."}
+
+
+@app.get("/api/admin/players/profiles/export")
+def admin_export_player_profiles(x_admin_token: str = Header(default="")):
+    if not _is_admin(x_admin_token):
+        raise HTTPException(status_code=401, detail="Missing or invalid admin token.")
+    return {"player_profiles": _pp.export_all()}
 
 
 # ══════════════════════════════════════════════════════
@@ -3037,6 +3198,10 @@ async def admin_restore_backup(request: Request, x_admin_token: str = Header(def
         report.update(_insights.import_all(data))
     except Exception as e:
         errors.append(f"analytics/sponsors: {type(e).__name__}")
+    try:
+        report["player_profiles"] = _pp.import_all(data.get("player_profiles"))
+    except Exception as e:
+        errors.append(f"player_profiles: {type(e).__name__}")
     # Frozen seasons are append-only: existing labels are never overwritten.
     run("seasons", data.get("seasons"), lambda sn: db.save_season_snapshot(
         str(sn["label"])[:40], str(sn.get("title") or sn["label"])[:120], sn["data"], str(sn.get("source", ""))[:200]))
@@ -3550,12 +3715,18 @@ def get_team_profile(request: Request, url: str = "", name: str = "", league: st
     cache_key = f"{url}::{name[:120]}::{league}"
     cached = _team_cache.get(cache_key)
     if cached and (time.time() - cached[1]) < TEAM_CACHE_TTL:
-        return cached[0]
-
-    data = build_team_profile_from_cache(name, url, league)
-    if not data.get("error"):
-        _cache_put(_team_cache, cache_key, (data, time.time()))
-    return data
+        data = cached[0]
+    else:
+        data = build_team_profile_from_cache(name, url, league)
+        if not data.get("error"):
+            _cache_put(_team_cache, cache_key, (data, time.time()))
+    # The squad is read fresh each time so a new photo or shirt number shows straight away.
+    try:
+        squad = _squad_for(data.get("team_name") or name, data.get("league_short") or league)
+    except Exception as e:  # noqa: BLE001
+        logger.error(f"Squad lookup failed: {type(e).__name__}: {e}")
+        squad = []
+    return {**data, "squad": squad}
 
 
 def _known_match_urls() -> set:

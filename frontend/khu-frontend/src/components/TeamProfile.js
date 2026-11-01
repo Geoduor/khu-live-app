@@ -3,8 +3,9 @@ import { getTeamProfile } from "../api";
 import LoadingState from "./LoadingState";
 import ErrorState from "./ErrorState";
 import TeamLogo from "./TeamLogo";
+import { PlayerAvatar } from "./PlayerProfile";
 
-export default function TeamProfile({ teamUrl, teamName, league, onBack, onOpenTeam, isFavorite, toggleFavorite }) {
+export default function TeamProfile({ teamUrl, teamName, league, onBack, onOpenTeam, onOpenPlayer, isFavorite, toggleFavorite }) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
 
@@ -47,6 +48,24 @@ export default function TeamProfile({ teamUrl, teamName, league, onBack, onOpenT
               </span>
             )}
           </div>
+
+          {data.squad && data.squad.length > 0 && (
+            <div className="profile-block">
+              <div className="profile-block-title">Squad ({data.squad.length})</div>
+              <div className="squad-list">
+                {data.squad.map((p) => (
+                  <button key={p.player_id} className="squad-row" onClick={() => onOpenPlayer && onOpenPlayer(p.player_id)} disabled={!onOpenPlayer}>
+                    <PlayerAvatar id={p.player_id} name={p.player_name} hasPhoto={p.has_photo} size={40} />
+                    <span className="squad-main">
+                      <span className="squad-name">{p.player_name}{p.captain && <span className="pl-captain" title="Captain">C</span>}</span>
+                      <span className="squad-sub">{[p.position, p.jersey != null ? `#${p.jersey}` : ""].filter(Boolean).join(" · ") || "Player"}</span>
+                    </span>
+                    {p.goals > 0 && <span className="squad-goals">{p.goals}<small>goals</small></span>}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
 
           {data.form && data.form.length > 0 && (
             <div className="profile-block">
