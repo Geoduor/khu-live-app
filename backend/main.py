@@ -309,6 +309,7 @@ class PushSubscription(BaseModel):
     expirationTime: Optional[float] = None
 
 import playerprofiles as _pp
+import khusquads as _khusquads
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -2878,6 +2879,89 @@ def admin_delete_player_profile(player_id: str, x_admin_token: str = Header(defa
     if not _pp.delete_profile(player_id[:12]):
         raise HTTPException(status_code=404, detail="That player has no profile.")
     return {"message": "Profile removed."}
+
+
+# ── Import squads (names, shirt numbers, photos) from the KHU website ──────────
+_squad_job = {"running": False}
+_squad_job_lock = threading.Lock()
+
+
+class SquadImportInput(BaseModel):
+    league_short: str = Field("", max_length=12)
+
+
+def _fetch_khu_photo(url: str):
+    """One KHU image, or None when it is missing, not an image, or too big."""
+    import scraper as _sc
+    if not is_allowed_khu_url(url):
+        return None
+    resp = safe_get(_sc._scraper, url, headers=SCRAPER_HEADERS, timeout=20)
+    if resp.status_code != 200 or not (resp.headers.get("Content-Type", "").lower().startswith("image/")):
+        return None
+    if len(resp.content) > _khusquads.MAX_PHOTO_BYTES:
+        return None
+    return resp.content
+
+
+def _run_squad_import(league_short: str):
+    import scraper as _sc
+    job = _squad_job
+    job.update({"running": True, "league": league_short or "ALL", "teams_total": 0, "teams_done": 0,
+                "created": 0, "updated": 0, "unchanged": 0, "photos": 0, "photos_skipped": 0,
+                "failed_teams": [], "started": datetime.now().isoformat(), "finished": "", "message": ""})
+    try:
+        teams = []
+        for blk in _leagues_in_scope(league_short):
+            short = (blk.get("short") or "").upper()
+            for row in blk.get("standings", []) or []:
+                if row.get("team_url") and row.get("team"):
+                    teams.append((short, row["team"], row["team_url"]))
+        job["teams_total"] = len(teams)
+        for short, name, url in teams:
+            try:
+                polite_delay()
+                soup = _sc.fetch_page(url)
+                if soup is None:
+                    job["failed_teams"].append(name)
+                    continue
+                _khusquads.import_team(soup, short, name, url, lambda u: (polite_delay(), _fetch_khu_photo(u))[1],
+                                       _pp.add_from_source, job)
+            except Exception as e:  # noqa: BLE001 - keep going with the next team
+                logger.warning("Squad import failed for %s: %s", name, type(e).__name__)
+                job["failed_teams"].append(name)
+            finally:
+                job["teams_done"] += 1
+        job["message"] = "Finished."
+    except Exception as e:  # noqa: BLE001
+        logger.warning("Squad import stopped: %s", type(e).__name__)
+        job["message"] = "The import stopped early. Run it again to continue."
+    finally:
+        job["running"] = False
+        job["finished"] = datetime.now().isoformat()
+
+
+@app.post("/api/admin/players/import-khu")
+def admin_import_squads(payload: SquadImportInput, request: Request, background: BackgroundTasks,
+                        x_admin_token: str = Header(default="")):
+    if not _is_admin(x_admin_token):
+        raise HTTPException(status_code=401, detail="Missing or invalid admin token.")
+    _rate_limit(request, "squadimport", 4, 600)
+    league = (payload.league_short or "").strip().upper()
+    if league and league not in {lg["short"] for lg in LEAGUES.values()}:
+        raise HTTPException(status_code=400, detail="Unknown league.")
+    with _squad_job_lock:
+        if _squad_job.get("running"):
+            raise HTTPException(status_code=409, detail="An import is already running. Wait for it to finish.")
+        _squad_job["running"] = True
+    background.add_task(_run_squad_import, league)
+    return {"message": "Import started. This takes a few minutes; the numbers below update as it goes."}
+
+
+@app.get("/api/admin/players/import-khu/status")
+def admin_import_squads_status(x_admin_token: str = Header(default="")):
+    if not _is_admin(x_admin_token):
+        raise HTTPException(status_code=401, detail="Missing or invalid admin token.")
+    return dict(_squad_job)
 
 
 @app.get("/api/admin/players/profiles/export")
