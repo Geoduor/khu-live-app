@@ -307,6 +307,58 @@
 </div>
 
 <div class="card">
+  <div class="section-title">Visitors &amp; usage</div>
+  <div class="subtitle">Private counts with no cookies and no personal data: each person is counted once per day and cannot be followed across days. People whose browser asks not to be tracked are not counted.</div>
+  <label>Period</label>
+  <select id="anDays" onchange="loadAnalytics()">
+    <option value="7">Last 7 days</option>
+    <option value="30" selected>Last 30 days</option>
+    <option value="90">Last 90 days</option>
+  </select>
+  <button style="margin-top: 10px;" onclick="loadAnalytics()">Show numbers</button>
+  <div id="anMsg" class="msg"></div>
+  <div id="anOut" style="margin-top: 12px;"></div>
+</div>
+
+<div class="card">
+  <div class="section-title">Sponsor slot</div>
+  <div class="subtitle">A sponsor card shown on the Home, Fixtures and Results screens, always labelled "Sponsored". Views are counted when at least half the card is seen; clicks are counted too, so you can show a sponsor real numbers.</div>
+  <input type="hidden" id="spId" />
+  <label>Sponsor name</label>
+  <input id="spName" maxlength="80" placeholder="e.g. Acme Sports" />
+  <label>Short message (optional)</label>
+  <input id="spTagline" maxlength="120" placeholder="e.g. Proud supporter of Kenyan hockey" />
+  <label>Link people go to (https://...)</label>
+  <input id="spLink" maxlength="300" placeholder="https://example.com" />
+  <label>Logo (PNG, JPEG or WebP, up to 400 KB)</label>
+  <input id="spLogo" type="file" accept="image/png,image/jpeg,image/webp" />
+  <label>Show from (optional)</label>
+  <input id="spStart" type="date" />
+  <label>Show until (optional)</label>
+  <input id="spEnd" type="date" />
+  <label style="display:flex; gap:8px; align-items:center; margin-top:12px;"><input id="spActive" type="checkbox" checked style="width:auto;" /> Switched on</label>
+  <button style="margin-top: 10px;" onclick="saveSponsor()">Save sponsor</button>
+  <button style="margin-top: 8px; background: transparent; color: inherit; border: 1px solid currentColor;" onclick="resetSponsorForm()">Clear the form</button>
+  <div id="spMsg" class="msg"></div>
+  <div id="spList" style="margin-top: 14px;"></div>
+</div>
+
+<div class="card">
+  <div class="section-title">Add a past season</div>
+  <div class="subtitle">Import a finished season from a file (for example data supplied by the KHU). Saved seasons are permanent and cannot be overwritten. The file is JSON shaped like {"leagues":[{"league":"Premier League Men","short":"PLM","standings":[{"position":"1","team":"...","played":"..","won":"..","drawn":"..","lost":"..","goal_diff":"..","points":".."}]}],"results":[...]}.</div>
+  <label>Season label</label>
+  <input id="ssLabel" maxlength="40" placeholder="e.g. 2024" />
+  <label>Title shown to fans</label>
+  <input id="ssTitle" maxlength="120" placeholder="e.g. 2024 Season" />
+  <label>Where the data came from (optional)</label>
+  <input id="ssSource" maxlength="200" placeholder="e.g. Supplied by the KHU" />
+  <label>Season file</label>
+  <input id="ssFile" type="file" accept="application/json,.json" />
+  <button style="margin-top: 10px;" onclick="importSeason()">Add this season</button>
+  <div id="ssMsg" class="msg"></div>
+</div>
+
+<div class="card">
   <div class="section-title">Off-site backup &amp; season history</div>
   <div class="subtitle">A copy goes to your separate storage bucket every night at 02:00 (once the BACKUP_S3_* settings are added on Render). Saved seasons are permanent: once saved, a season cannot be changed or replaced from this page.</div>
   <button style="margin-top: 12px;" onclick="runOffsiteBackup()">Back up to off-site storage now</button>
@@ -557,6 +609,7 @@
       loadTournaments();
       loadTeamStats();
       loadPlayerStats();
+      loadSponsors();
     } else {
       $('loginScreen').style.display = 'block';
       $('mainScreen').style.display = 'none';
@@ -982,6 +1035,126 @@
     if (el.scrollIntoView) el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   }
 
+
+  // ── Visitors & usage ──
+  async function loadAnalytics() {
+    const msg = $('anMsg'), out = $('anOut');
+    out.textContent = '';
+    try {
+      const res = await fetch(`${apiBase()}/api/admin/analytics/summary?days=${encodeURIComponent($('anDays').value)}`, { headers: adminHeaders() });
+      const d = await res.json();
+      if (!res.ok) { say(msg, typeof d.detail === 'string' ? d.detail : 'Could not load the numbers.'); return; }
+      msg.className = 'msg';
+      const line = (label, value) => {
+        const p = document.createElement('div');
+        p.style.cssText = 'display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid rgba(255,255,255,0.08);';
+        const a = document.createElement('span'); a.textContent = label;
+        const b = document.createElement('strong'); b.textContent = String(value);
+        p.appendChild(a); p.appendChild(b); out.appendChild(p);
+      };
+      line('Visitor-days (people counted once per day)', d.total_visitor_days);
+      line('Screen views', d.total_views);
+      line('App installs', d.installs);
+      line('People subscribed to notifications', d.push_subscribers == null ? 'n/a' : d.push_subscribers);
+      const h = document.createElement('div'); h.textContent = 'Most viewed screens'; h.style.cssText = 'margin-top:14px;font-weight:700;'; out.appendChild(h);
+      const pages = Object.entries(d.views_by_page); const max = Math.max(1, ...pages.map(p => p[1]));
+      pages.forEach(([name, n]) => {
+        const row = document.createElement('div'); row.style.cssText = 'margin-top:6px;';
+        const t = document.createElement('div'); t.textContent = `${name}: ${n}`; t.style.fontSize = '12px';
+        const bar = document.createElement('div'); bar.style.cssText = 'height:8px;border-radius:4px;background:var(--red,#bb0000);';
+        bar.style.width = Math.max(2, Math.round(100 * n / max)) + '%';
+        row.appendChild(t); row.appendChild(bar); out.appendChild(row);
+      });
+      const h2 = document.createElement('div'); h2.textContent = 'Day by day (newest first)'; h2.style.cssText = 'margin-top:14px;font-weight:700;'; out.appendChild(h2);
+      d.series.slice().reverse().slice(0, 31).forEach((r) => line(r.day, `${r.visitors} visitors · ${r.views} views`));
+      if (!d.series.length) { const e = document.createElement('div'); e.textContent = 'No visits counted yet in this period.'; out.appendChild(e); }
+    } catch (e) { say(msg, e.message); }
+  }
+
+  // ── Sponsor slot ──
+  let spLogoData = '';
+  function resetSponsorForm() {
+    ['spId', 'spName', 'spTagline', 'spLink', 'spStart', 'spEnd'].forEach((i) => { $(i).value = ''; });
+    $('spLogo').value = ''; spLogoData = ''; $('spActive').checked = true;
+  }
+  $('spLogo').addEventListener('change', () => {
+    const f = $('spLogo').files[0]; spLogoData = '';
+    if (!f) return;
+    if (f.size > 400000) { say($('spMsg'), 'That logo is too large: please use one under 400 KB.'); $('spLogo').value = ''; return; }
+    const fr = new FileReader();
+    fr.onload = () => { spLogoData = String(fr.result || ''); };
+    fr.readAsDataURL(f);
+  });
+  async function saveSponsor() {
+    const msg = $('spMsg');
+    try {
+      const res = await fetch(`${apiBase()}/api/admin/sponsors`, {
+        method: 'POST', headers: adminHeaders(),
+        body: JSON.stringify({
+          id: $('spId').value || null, name: $('spName').value, tagline: $('spTagline').value, link_url: $('spLink').value.trim(),
+          logo_data_url: spLogoData, active: $('spActive').checked, start_date: $('spStart').value, end_date: $('spEnd').value,
+        }),
+      });
+      const d = await res.json().catch(() => ({}));
+      say(msg, res.ok ? 'Sponsor saved. It shows in the app within a minute.' : (typeof d.detail === 'string' ? d.detail : 'Please check the fields and try again.'));
+      if (res.ok) { resetSponsorForm(); loadSponsors(); }
+    } catch (e) { say(msg, 'Could not reach the server: ' + e.message); }
+  }
+  async function loadSponsors() {
+    const box = $('spList');
+    try {
+      const res = await fetch(`${apiBase()}/api/admin/sponsors?days=30`, { headers: adminHeaders() });
+      const d = await res.json();
+      box.textContent = '';
+      if (!res.ok) return;
+      if (!d.sponsors.length) { box.textContent = 'No sponsors yet.'; return; }
+      d.sponsors.forEach((s) => {
+        const row = document.createElement('div');
+        row.style.cssText = 'padding:10px 0;border-top:1px solid rgba(255,255,255,0.1);';
+        const t = document.createElement('div'); t.style.fontWeight = '700';
+        t.textContent = `${s.name} ${s.showing_now ? '· showing now' : '· not showing'}`;
+        const st = document.createElement('div'); st.style.cssText = 'font-size:12px;opacity:.8;margin-top:2px;';
+        st.textContent = `Last 30 days: ${s.impressions} views · ${s.clicks} clicks · ${s.click_rate}% click rate`;
+        const mk = (label, fn) => { const b = document.createElement('button'); b.textContent = label; b.style.cssText = 'margin:8px 8px 0 0;padding:6px 12px;background:transparent;color:inherit;border:1px solid currentColor;'; b.onclick = fn; return b; };
+        row.appendChild(t); row.appendChild(st);
+        row.appendChild(mk('Edit', () => {
+          $('spId').value = s.id; $('spName').value = s.name; $('spTagline').value = s.tagline || ''; $('spLink').value = s.link_url;
+          $('spStart').value = s.start_date || ''; $('spEnd').value = s.end_date || ''; $('spActive').checked = s.active;
+          $('spLogo').value = ''; spLogoData = ''; window.scrollTo({ top: $('spName').getBoundingClientRect().top + window.scrollY - 80, behavior: 'smooth' });
+        }));
+        row.appendChild(mk(s.active ? 'Switch off' : 'Switch on', async () => {
+          const r = await fetch(`${apiBase()}/api/admin/sponsors`, { method: 'POST', headers: adminHeaders(), body: JSON.stringify({
+            id: s.id, name: s.name, tagline: s.tagline, link_url: s.link_url, active: !s.active, start_date: s.start_date || '', end_date: s.end_date || '' }) });
+          say($('spMsg'), r.ok ? 'Updated.' : 'Could not update.'); loadSponsors();
+        }));
+        row.appendChild(mk('Remove', async () => {
+          if (!confirm('Remove this sponsor? Its view and click history stays in your totals.')) return;
+          const r = await fetch(`${apiBase()}/api/admin/sponsors/${encodeURIComponent(s.id)}`, { method: 'DELETE', headers: adminHeaders() });
+          say($('spMsg'), r.ok ? 'Sponsor removed.' : 'Could not remove.'); loadSponsors();
+        }));
+        box.appendChild(row);
+      });
+    } catch (e) { /* list stays empty */ }
+  }
+
+  // ── Add a past season ──
+  async function importSeason() {
+    const msg = $('ssMsg');
+    const f = $('ssFile').files[0];
+    if (!$('ssLabel').value.trim()) { say(msg, 'Type a season label first, e.g. 2024.'); return; }
+    if (!f) { say(msg, 'Choose the season file first.'); return; }
+    if (!confirm('Add this season? Once saved it cannot be changed or replaced.')) return;
+    try {
+      const data = JSON.parse(await f.text());
+      const res = await fetch(`${apiBase()}/api/admin/seasons/import`, {
+        method: 'POST', headers: adminHeaders(),
+        body: JSON.stringify({ label: $('ssLabel').value.trim(), title: $('ssTitle').value.trim(), source: $('ssSource').value.trim(), data }),
+      });
+      const d = await res.json().catch(() => ({}));
+      say(msg, res.ok ? d.message : (typeof d.detail === 'string' ? d.detail : 'That file could not be added. Please check its format.'));
+    } catch (e) { say(msg, 'That file is not valid JSON and could not be read.'); }
+  }
+
   async function downloadBackup() {
     const msg = $('backupMsg');
     say(msg, 'Preparing backup...');
@@ -999,7 +1172,8 @@
       ]);
       const out = { agents: ag.agents, results: rs.results, stats: ts.stats, players: ps.players,
                     tournaments: tn.tournaments, matches: tn.matches, seasons: sn.seasons,
-                    match_archive: mh.match_archive, match_statuses: mh.match_statuses, exported_at: new Date().toISOString() };
+                    match_archive: mh.match_archive, match_statuses: mh.match_statuses,
+                    analytics_daily: mh.analytics_daily, sponsors: mh.sponsors, exported_at: new Date().toISOString() };
       const blob = new Blob([JSON.stringify(out, null, 2)], { type: 'application/json' });
       const a = document.createElement('a');
       a.href = URL.createObjectURL(blob);

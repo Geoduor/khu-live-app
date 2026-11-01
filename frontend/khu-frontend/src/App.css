@@ -1025,3 +1025,29 @@ button:focus-visible,[role="button"]:focus-visible,select:focus-visible{ outline
 .archive-date { display: flex; flex-direction: column; gap: 4px; font-size: 11px; font-weight: 700; color: var(--muted); }
 .archive-more { display: block; margin: 12px auto 4px; padding: 9px 22px; border-radius: 20px; border: 1px solid var(--border); background: rgba(255,255,255,0.05); color: inherit; font-weight: 700; cursor: pointer; }
 .archive-count { padding: 0 16px 8px; font-size: 12px; color: var(--muted); }
+
+/* ── SPONSOR SLOT ── */
+.sponsor-slot { display: block; margin: 18px 16px 6px; padding: 12px 14px; border-radius: 14px; border: 1px dashed var(--border); background: rgba(255,255,255,0.04); color: inherit; text-decoration: none; }
+.sponsor-slot:hover { border-color: var(--red); }
+.sponsor-tag { display: block; font-size: 10px; font-weight: 800; letter-spacing: 1px; text-transform: uppercase; color: var(--muted); margin-bottom: 8px; }
+.sponsor-body { display: flex; align-items: center; gap: 12px; }
+.sponsor-logo { width: 52px; height: 52px; object-fit: contain; border-radius: 10px; background: #fff; padding: 4px; flex-shrink: 0; }
+.sponsor-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.sponsor-name { font-weight: 800; font-size: 15px; }
+.sponsor-tagline { font-size: 12.5px; color: var(--muted); }
+
+/* ── PAST SEASONS ── */
+.seasons { padding: 0 16px 16px; display: flex; flex-direction: column; gap: 12px; }
+.season-card { border: 1px solid var(--border); border-radius: 14px; background: rgba(255,255,255,0.04); padding: 6px 14px 12px; }
+.season-head { width: 100%; display: flex; justify-content: space-between; align-items: center; padding: 10px 0; background: none; border: 0; color: inherit; font-size: 16px; font-weight: 800; cursor: pointer; text-align: left; }
+.season-chev { font-size: 11px; color: var(--muted); }
+.champ-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.champ-list li { display: flex; justify-content: space-between; gap: 10px; font-size: 13px; }
+.champ-league { color: var(--muted); }
+.champ-team { font-weight: 700; text-align: right; }
+.season-tables { margin-top: 12px; overflow-x: auto; }
+.season-league { font-weight: 800; font-size: 13px; margin: 14px 0 6px; color: var(--red); }
+.season-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.season-table th, .season-table td { padding: 6px 4px; text-align: center; border-bottom: 1px solid var(--border); }
+.season-table th { color: var(--muted); font-weight: 700; }
+.season-table .st-team { text-align: left; font-weight: 600; }

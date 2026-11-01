@@ -10,13 +10,15 @@ import LoadingState from "./components/LoadingState";
 import ErrorState from "./components/ErrorState";
 import TeamProfile from "./components/TeamProfile";
 import PastMatches from "./components/PastMatches";
+import SponsorSlot from "./components/SponsorSlot";
+import CupsTab from "./components/CupsTab";
+import { trackView } from "./utils/track";
 import MatchDetail from "./components/MatchDetail";
 import PlayoffBracket from "./components/PlayoffBracket";
 import OnboardingPicker from "./components/OnboardingPicker";
 import TeamLogo from "./components/TeamLogo";
 import InstallBanner from "./components/InstallBanner";
 import { useInstallPrompt } from "./hooks/useInstallPrompt";
-import TournamentsView from "./components/TournamentsView";
 import TopScorers from "./components/TopScorers";
 import ShareButton from "./components/ShareButton";
 import { renderTableCard, shareCanvas, slug, shareText } from "./utils/shareCard";
@@ -62,6 +64,13 @@ function App() {
   const openMatch = (url) => setOverlay({ type: "match", url });
   const openBracket = () => setOverlay({ type: "bracket" });
   const closeOverlay = () => setOverlay(null);
+
+  // Count which screen is open (see utils/track.js — no cookies, no ids).
+  // The Cups tab counts itself, since it has two screens inside.
+  useEffect(() => {
+    if (overlay) trackView({ team: "team", match: "match", bracket: "playoffs" }[overlay.type]);
+    else if (tab !== "tournaments") trackView(tab);
+  }, [tab, overlay]);
 
   const { favorites, favoriteList, isFavorite, toggleFavorite } = useFavorites();
   const { supported: pushSupported, isSubscribed, loading: pushLoading, subscribe, unsubscribe } = usePushNotifications(Object.keys(favorites));
@@ -420,7 +429,7 @@ function App() {
           <FixturesView fixtures={fixtures} leagues={leagues} loading={loadingFixtures} onOpenMatch={openMatch} onOpenTeam={openTeam} isFavorite={isFavorite} toggleFavorite={toggleFavorite} />
         )}
 
-        {!overlay && tab === "tournaments" && <TournamentsView />}
+        {!overlay && tab === "tournaments" && <CupsTab />}
 
         {!overlay && tab === "results" && (
           <ResultsView results={results} leagues={leagues} loading={loadingResults} onOpenMatch={openMatch} onOpenTeam={openTeam} isFavorite={isFavorite} toggleFavorite={toggleFavorite} />
@@ -644,6 +653,7 @@ function HomeView({ leagues, loadingLeagues, onSelectLeague, fixtures, results, 
             compact
           />
         )}
+        <SponsorSlot />
       </div>
     </>
   );
@@ -873,6 +883,7 @@ function FixturesView({ fixtures, leagues, loading, onOpenMatch, onOpenTeam, isF
           message="No upcoming fixtures are available right now. Pull to refresh after the next schedule update from KHU."
         />
       )}
+      {mode === "upcoming" && <SponsorSlot />}
     </div>
   );
 }
@@ -932,6 +943,7 @@ function ResultsView({ results, leagues, loading, onOpenMatch, onOpenTeam, isFav
           message="No finished matches are available right now. Pull to refresh once results are published."
         />
       )}
+      {mode === "recent" && <SponsorSlot />}
     </div>
   );
 }

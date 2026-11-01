@@ -45,6 +45,7 @@ def build_backup() -> dict:
         "seasons": db.load_season_snapshots(),
         "match_archive": db.load_match_archive(),
         "match_statuses": db.load_match_statuses(),
+        **__import__("insights").export_all(),
         "exported_at": datetime.now(timezone.utc).isoformat(),
     }
 

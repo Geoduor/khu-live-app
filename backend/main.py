@@ -10,7 +10,7 @@ Strategy (matches how ESPN/SofaScore/FotMob handle unreliable upstream sources):
      and tell the frontend exactly how stale it is
 """
 
-from fastapi import FastAPI, HTTPException, UploadFile, File, Header, Response, Request
+from fastapi import FastAPI, HTTPException, UploadFile, File, Header, Response, Request, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from typing import Optional, List
@@ -3033,6 +3033,10 @@ async def admin_restore_backup(request: Request, x_admin_token: str = Header(def
         _status_changed()
     except Exception as e:
         errors.append(f"archive/statuses: {type(e).__name__}")
+    try:
+        report.update(_insights.import_all(data))
+    except Exception as e:
+        errors.append(f"analytics/sponsors: {type(e).__name__}")
     # Frozen seasons are append-only: existing labels are never overwritten.
     run("seasons", data.get("seasons"), lambda sn: db.save_season_snapshot(
         str(sn["label"])[:40], str(sn.get("title") or sn["label"])[:120], sn["data"], str(sn.get("source", ""))[:200]))
@@ -3093,7 +3097,8 @@ def admin_set_match_status(payload: MatchStatusPayload, x_admin_token: str = Hea
 def admin_export_match_history(x_admin_token: str = Header(default="")):
     if not _is_admin(x_admin_token):
         raise HTTPException(status_code=401, detail="Missing or invalid admin token.")
-    return {"match_archive": db.load_match_archive(), "match_statuses": db.load_match_statuses()}
+    return {"match_archive": db.load_match_archive(), "match_statuses": db.load_match_statuses(),
+            **__import__("insights").export_all()}
 
 
 @app.delete("/api/admin/matches/status")
@@ -3139,6 +3144,143 @@ def match_history(request: Request, league: str = "", team: str = "", season: st
             m["status_info"] = sts[m["match_key"]]
     r["seasons"] = db.archive_seasons()
     return r
+
+
+# ══════════════════════════════════════════════════════
+# ANALYTICS, SPONSOR SLOT, SEASON HISTORY
+# ══════════════════════════════════════════════════════
+import insights as _insights
+
+
+class HitPayload(BaseModel):
+    view: str = Field(max_length=20)
+
+
+def _tracking_refused(request: Request) -> bool:
+    """Respect Do Not Track and Global Privacy Control."""
+    return request.headers.get("dnt") == "1" or request.headers.get("sec-gpc") == "1"
+
+
+@app.post("/api/analytics/hit", status_code=204)
+def analytics_hit(payload: HitPayload, request: Request, background: BackgroundTasks):
+    """Count one screen view. No cookies, no stored IP (see insights.py)."""
+    _rate_limit(request, "analytics", 120, 60)
+    if _tracking_refused(request) or payload.view not in _insights.VIEWS:
+        return Response(status_code=204)
+    background.add_task(_insights.record_hit, payload.view, _client_ip(request), request.headers.get("user-agent", ""))
+    return Response(status_code=204)
+
+
+@app.post("/api/analytics/install", status_code=204)
+def analytics_install(request: Request, background: BackgroundTasks):
+    _rate_limit(request, "analytics-install", 10, 600)
+    if not _tracking_refused(request):
+        background.add_task(_insights.record_event, "installs")
+    return Response(status_code=204)
+
+
+@app.get("/api/admin/analytics/summary")
+def admin_analytics_summary(days: int = 30, x_admin_token: str = Header(default="")):
+    if not _is_admin(x_admin_token):
+        raise HTTPException(status_code=401, detail="Missing or invalid admin token.")
+    out = _insights.summary(days)
+    try:
+        out["push_subscribers"] = push.count_subscriptions()
+    except Exception:  # noqa: BLE001
+        out["push_subscribers"] = None
+    return out
+
+
+class SponsorPayload(BaseModel):
+    id: Optional[str] = Field(default=None, max_length=20)
+    name: str = Field(max_length=80)
+    tagline: str = Field(default="", max_length=120)
+    link_url: str = Field(max_length=300)
+    logo_data_url: str = Field(default="", max_length=620_000)
+    active: bool = True
+    start_date: str = Field(default="", max_length=10)
+    end_date: str = Field(default="", max_length=10)
+
+
+@app.get("/api/admin/sponsors")
+def admin_list_sponsors(days: int = 30, x_admin_token: str = Header(default="")):
+    if not _is_admin(x_admin_token):
+        raise HTTPException(status_code=401, detail="Missing or invalid admin token.")
+    stats = _insights.summary(days)["sponsor_stats"]
+    sponsors = _insights.list_sponsors(admin=True)
+    for sp in sponsors:
+        st = stats.get(sp["id"], {"impressions": 0, "clicks": 0})
+        sp["impressions"], sp["clicks"] = st["impressions"], st["clicks"]
+        sp["click_rate"] = round(100.0 * st["clicks"] / st["impressions"], 2) if st["impressions"] else 0.0
+    return {"sponsors": sponsors, "days": days}
+
+
+@app.post("/api/admin/sponsors")
+def admin_save_sponsor(payload: SponsorPayload, x_admin_token: str = Header(default="")):
+    if not _is_admin(x_admin_token):
+        raise HTTPException(status_code=401, detail="Missing or invalid admin token.")
+    try:
+        sid = _insights.save_sponsor(payload.id, payload.name, payload.tagline, payload.link_url,
+                                     payload.logo_data_url, payload.active, payload.start_date, payload.end_date)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    return {"message": "Sponsor saved.", "id": sid}
+
+
+@app.delete("/api/admin/sponsors/{sponsor_id}")
+def admin_delete_sponsor(sponsor_id: str, x_admin_token: str = Header(default="")):
+    if not _is_admin(x_admin_token):
+        raise HTTPException(status_code=401, detail="Missing or invalid admin token.")
+    if not _insights.delete_sponsor(sponsor_id[:20]):
+        raise HTTPException(status_code=404, detail="Sponsor not found.")
+    return {"message": "Sponsor removed."}
+
+
+@app.get("/api/sponsors/active")
+def active_sponsors(response: Response):
+    response.headers["Cache-Control"] = "public, max-age=60"
+    return {"sponsors": _insights.list_sponsors(admin=False)}
+
+
+@app.get("/api/sponsors/{sponsor_id}/logo")
+def sponsor_logo(sponsor_id: str):
+    logo = _insights.get_logo(sponsor_id[:20])
+    if not logo:
+        raise HTTPException(status_code=404, detail="No logo.")
+    mime, raw = logo
+    return Response(content=raw, media_type=mime, headers={
+        "Cache-Control": "public, max-age=3600", "X-Content-Type-Options": "nosniff",
+        "Content-Security-Policy": "default-src 'none'; sandbox"})
+
+
+@app.post("/api/sponsors/{sponsor_id}/{event}", status_code=204)
+def sponsor_event(sponsor_id: str, event: str, request: Request, background: BackgroundTasks):
+    """Count a sponsor view ('impression') or click. Only for sponsors that are showing now."""
+    if event not in ("impression", "click"):
+        raise HTTPException(status_code=404, detail="Not found.")
+    _rate_limit(request, "sponsor-" + event, 60, 60)
+    if _tracking_refused(request) or not _insights.sponsor_is_live(sponsor_id[:20]):
+        return Response(status_code=204)
+    background.add_task(_insights.record_event, ("sponsor_imp:" if event == "impression" else "sponsor_click:") + sponsor_id[:20])
+    return Response(status_code=204)
+
+
+@app.get("/api/history/honours")
+def history_honours():
+    """Roll of honour: for each saved season, the team that finished top of each league."""
+    out = []
+    for meta in db.list_season_snapshots():
+        snap = db.get_season_snapshot(meta["label"]) or {}
+        champs = []
+        for lg in (snap.get("data") or {}).get("leagues", []):
+            rows = lg.get("standings") or []
+            if not rows:
+                continue
+            top = next((r for r in rows if str(r.get("position")) == "1"), rows[0])
+            champs.append({"league": lg.get("league", ""), "short": lg.get("short", ""),
+                           "champion": top.get("team", ""), "points": top.get("points", "")})
+        out.append({"label": meta["label"], "title": meta["title"], "champions": champs})
+    return {"seasons": out}
 
 
 # ══════════════════════════════════════════════════════

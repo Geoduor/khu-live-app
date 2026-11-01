@@ -196,3 +196,10 @@ MIT — see [LICENSE](./LICENSE).
 - **Permanent archive:** every fixture and result the app ever sees is copied into a `match_archive` table on every refresh and never deleted. A score, once archived, is never replaced by a score-less copy. Fans browse it under *Results → Past matches* (filter by league, season, team and dates); the API is `GET /api/matches/history`.
 - **Status notices:** admins and agents can mark a match postponed, rescheduled (with the new date), suspended, abandoned (minute and score when it stopped), cancelled or awarded, with a reason. The notice shows on the match card for fans, rescheduled matches move to their new date, and a stopped match leaves the Live list. Notices never change the table: enter a real score the normal way if a result stands. Every change is logged in `match_status_log`.
 - Both are included in backups and restores.
+
+## Analytics, sponsor slot and past seasons
+
+- **Analytics (private, no cookies):** the app counts screen views, installs and one visit per person per day. A person is counted from a one-way fingerprint that changes daily, so nobody can be followed across days; IP addresses are never stored, fingerprints are deleted after 3 days, and browsers that send Do Not Track / Global Privacy Control are not counted. Numbers are on the admin page under *Visitors & usage* (`GET /api/admin/analytics/summary`).
+- **Sponsor slot:** the admin page's *Sponsor slot* card manages a sponsor (name, message, https link, PNG/JPEG/WebP logo up to 400 KB, optional dates). It shows on Home, Fixtures and Results, always labelled "Sponsored". Views (card at least half visible) and clicks are counted per sponsor, so you can show a sponsor real numbers. Links must be https; SVG logos are refused.
+- **Past seasons:** the Cups tab has a *Past seasons* view with a roll of honour (the team in position 1 of each league) and each season's final tables. Seasons come from *Save season to history* or *Add a past season* (file import) on the admin page, and are permanent.
+- Sponsors and daily analytics totals are included in backups and restores.
