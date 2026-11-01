@@ -311,5 +311,55 @@ bk = __import__("backup").build_backup()
 check("backup carries archive and statuses", len(bk["match_archive"]) >= 2 and key in bk["match_statuses"])
 main.cache["fixtures_results"] = _old_fr
 
+print("12. Analytics, sponsor slot, honours")
+import insights as _ins
+main._rate_hits.clear()
+UA = {"user-agent": "TestBrowser/1.0"}
+check("hit accepted (204)", c.post("/api/analytics/hit", json={"view": "home"}, headers=UA).status_code == 204)
+c.post("/api/analytics/hit", json={"view": "home"}, headers=UA)
+c.post("/api/analytics/hit", json={"view": "table"}, headers={"user-agent": "Other/2.0", "x-forwarded-for": "9.9.9.9"})
+c.post("/api/analytics/hit", json={"view": "<script>"}, headers=UA)
+c.post("/api/analytics/hit", json={"view": "fixtures"}, headers={**UA, "dnt": "1"})
+c.post("/api/analytics/install", headers=UA)
+sm = c.get("/api/admin/analytics/summary?days=7", headers=H).json()
+check("views counted, unknown view and Do-Not-Track ignored", sm["views_by_page"].get("home") == 2 and sm["views_by_page"].get("table") == 1 and "fixtures" not in sm["views_by_page"] and len(sm["views_by_page"]) == 2, str(sm["views_by_page"]))
+check("same browser counted once as a visitor, a different one separately", sm["total_visitor_days"] == 2, str(sm["total_visitor_days"]))
+check("installs counted", sm["installs"] == 1)
+check("analytics summary is admin-only", c.get("/api/admin/analytics/summary").status_code == 401)
+check("no IP address stored", "9.9.9.9" not in str(_ins.export_all()) and all(len(r["vhash"]) == 20 for r in [dict(x) for x in __import__("database").get_connection().execute("SELECT vhash FROM analytics_seen").fetchall()]))
+PNG = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=="
+sp = lambda **kw: c.post("/api/admin/sponsors", headers=H, json=dict(dict(name="Acme", link_url="https://acme.example", tagline="Proud supporter", logo_data_url=PNG), **kw))
+check("sponsor admin-only", c.post("/api/admin/sponsors", json={"name": "x", "link_url": "https://a.example"}).status_code == 401)
+check("http link refused", sp(link_url="http://acme.example").status_code == 422)
+check("link with embedded login refused", sp(link_url="https://user:pw@acme.example").status_code == 422)
+check("javascript link refused", sp(link_url="javascript:alert(1)").status_code == 422)
+check("SVG logo refused", sp(logo_data_url="data:image/svg+xml;base64,PHN2ZyBvbmxvYWQ9YWxlcnQoMSk+").status_code == 422)
+check("fake PNG label with non-image bytes refused", sp(logo_data_url="data:image/png;base64,SGVsbG8gd29ybGQ=").status_code == 422)
+r = sp(); sid = r.json()["id"]
+check("valid sponsor saved", r.status_code == 200 and sid)
+check("sponsor shows publicly", [x["id"] for x in c.get("/api/sponsors/active").json()["sponsors"]] == [sid])
+lg = c.get(f"/api/sponsors/{sid}/logo")
+check("logo served as an image with nosniff", lg.status_code == 200 and lg.headers["content-type"] == "image/png" and lg.headers["x-content-type-options"] == "nosniff")
+main._rate_hits.clear()
+c.post(f"/api/sponsors/{sid}/impression", headers=UA); c.post(f"/api/sponsors/{sid}/impression", headers=UA); c.post(f"/api/sponsors/{sid}/click", headers=UA)
+c.post("/api/sponsors/doesnotexist/click", headers=UA); c.post(f"/api/sponsors/{sid}/explode", headers=UA)
+ad = [x for x in c.get("/api/admin/sponsors", headers=H).json()["sponsors"] if x["id"] == sid][0]
+check("impressions and clicks counted for a live sponsor only", ad["impressions"] == 2 and ad["clicks"] == 1 and ad["click_rate"] == 50.0, str(ad))
+check("public sponsor list hides link-less internals", set(c.get("/api/sponsors/active").json()["sponsors"][0]) == {"id", "name", "tagline", "link_url", "has_logo"})
+sp(id=sid, active=False)
+check("switched-off sponsor disappears", c.get("/api/sponsors/active").json()["sponsors"] == [])
+c.post(f"/api/sponsors/{sid}/impression", headers=UA)
+ad = [x for x in c.get("/api/admin/sponsors", headers=H).json()["sponsors"] if x["id"] == sid][0]
+check("switched-off sponsor is not counted, logo kept on edit", ad["impressions"] == 2 and ad["has_logo"])
+sp(id=sid, active=True, end_date="2000-01-01")
+check("expired sponsor disappears", c.get("/api/sponsors/active").json()["sponsors"] == [])
+bk2 = __import__("backup").build_backup()
+check("backup carries sponsors and analytics", any(x["id"] == sid for x in bk2["sponsors"]) and bk2["analytics_daily"])
+check("sponsor removable", c.delete(f"/api/admin/sponsors/{sid}", headers=H).status_code == 200 and c.delete(f"/api/admin/sponsors/{sid}", headers=H).status_code == 404)
+import database as _dbh
+_dbh.save_season_snapshot("2018-test", "2018 Test", {"leagues": [{"league": "Premier League Men", "short": "PLM", "standings": [{"position": "2", "team": "Second", "points": "30"}, {"position": "1", "team": "First FC", "points": "40"}]}]}, "test")
+hon = [x for x in c.get("/api/history/honours").json()["seasons"] if x["label"] == "2018-test"][0]
+check("roll of honour picks the team in position 1", hon["champions"] == [{"league": "Premier League Men", "short": "PLM", "champion": "First FC", "points": "40"}], str(hon))
+
 print("\nRESULT:", "all checks passed" if not fails else f"{len(fails)} FAILURE(S): {fails}")
 sys.exit(1 if fails else 0)

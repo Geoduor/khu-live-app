@@ -1,6 +1,7 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import "./App.css";
+import { trackInstall } from "./utils/track";
 import App from "./App";
 import * as serviceWorkerRegistration from "./serviceWorkerRegistration";
 
@@ -36,6 +37,7 @@ window.addEventListener("beforeinstallprompt", (e) => {
 window.addEventListener("appinstalled", () => {
   window.__khuInstallEvent = null;
   window.dispatchEvent(new Event("khu-install-done"));
+  trackInstall();
 });
 
 const root = ReactDOM.createRoot(document.getElementById("root"));

@@ -66,6 +66,13 @@ export const getTournament = (id) => api.get(`/api/tournaments/${encodeURICompon
 export const getMatchHistory = (params = {}) => api.get("/api/matches/history", { params }).then(r => r.data);
 export const getMatchNotices = () => api.get("/api/match-notices").then(r => r.data);
 
+// ── Sponsor slot + season history ──
+export const getSponsors = () => api.get("/api/sponsors/active").then(r => r.data);
+export const sponsorLogoUrl = (id) => `${API_BASE}/api/sponsors/${encodeURIComponent(id)}/logo`;
+export const getSeasons = () => api.get("/api/seasons").then(r => r.data);
+export const getSeason = (label) => api.get(`/api/seasons/${encodeURIComponent(label)}`).then(r => r.data);
+export const getHonours = () => api.get("/api/history/honours").then(r => r.data);
+
 // ── Health check ──
 export const getHealth = () => api.get("/api/health").then(r => r.data);
 
