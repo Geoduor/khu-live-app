@@ -1051,3 +1051,29 @@ button:focus-visible,[role="button"]:focus-visible,select:focus-visible{ outline
 .season-table th, .season-table td { padding: 6px 4px; text-align: center; border-bottom: 1px solid var(--border); }
 .season-table th { color: var(--muted); font-weight: 700; }
 .season-table .st-team { text-align: left; font-weight: 600; }
+
+/* ── PLAYER PROFILE + SQUAD ── */
+.pl-avatar { border-radius: 50%; object-fit: cover; flex-shrink: 0; background: #fff; }
+.pl-avatar-fallback { display: flex; align-items: center; justify-content: center; font-weight: 800; color: #fff; background: linear-gradient(135deg, var(--red), #7a0000); }
+.pl-hero { display: flex; gap: 16px; align-items: center; margin: 8px 0 18px; }
+.pl-hero-text { min-width: 0; display: flex; flex-direction: column; gap: 4px; align-items: flex-start; }
+.pl-name { font-size: 22px; font-weight: 900; line-height: 1.15; }
+.pl-captain { display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; margin-left: 8px; border-radius: 50%; font-size: 11px; font-weight: 800; background: var(--amber); color: #000; vertical-align: middle; }
+.pl-sub { font-size: 13px; color: var(--muted); font-weight: 600; }
+.pl-team { display: inline-flex; align-items: center; gap: 8px; padding: 5px 10px 5px 6px; border-radius: 20px; border: 1px solid var(--border); background: rgba(255,255,255,0.05); color: inherit; font-weight: 700; font-size: 13px; cursor: pointer; margin-top: 4px; }
+.pl-league { font-size: 11px; color: var(--muted); }
+.pl-bio { font-size: 14px; line-height: 1.5; }
+.pl-stats { display: flex; gap: 8px; flex-wrap: wrap; }
+.pl-stats > div { flex: 1; min-width: 56px; text-align: center; padding: 10px 6px; border-radius: 12px; border: 1px solid var(--border); background: rgba(255,255,255,0.04); display: flex; flex-direction: column; gap: 2px; }
+.pl-stats b { font-size: 20px; }
+.pl-stats span { font-size: 10.5px; color: var(--muted); font-weight: 700; text-transform: uppercase; letter-spacing: .4px; }
+.squad-list { display: flex; flex-direction: column; gap: 6px; }
+.squad-row { display: flex; align-items: center; gap: 12px; width: 100%; padding: 8px 10px; border-radius: 14px; border: 1px solid var(--border); background: rgba(255,255,255,0.04); color: inherit; text-align: left; cursor: pointer; }
+.squad-row:hover:not(:disabled) { border-color: var(--red); }
+.squad-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.squad-name { font-weight: 700; font-size: 14px; }
+.squad-sub { font-size: 12px; color: var(--muted); }
+.squad-goals { font-weight: 800; font-size: 16px; text-align: center; display: flex; flex-direction: column; line-height: 1; }
+.squad-goals small { font-size: 9px; color: var(--muted); font-weight: 700; text-transform: uppercase; margin-top: 2px; }
+.ts-row-link { cursor: pointer; }
+.ts-row-link:hover { border-color: var(--red); }

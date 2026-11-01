@@ -10,6 +10,7 @@ import LoadingState from "./components/LoadingState";
 import ErrorState from "./components/ErrorState";
 import TeamProfile from "./components/TeamProfile";
 import PastMatches from "./components/PastMatches";
+import PlayerProfile from "./components/PlayerProfile";
 import SponsorSlot from "./components/SponsorSlot";
 import CupsTab from "./components/CupsTab";
 import { trackView } from "./utils/track";
@@ -63,6 +64,8 @@ function App() {
   const openTeam = (url, name = "", league = "") => setOverlay({ type: "team", url, name, league });
   const openMatch = (url) => setOverlay({ type: "match", url });
   const openBracket = () => setOverlay({ type: "bracket" });
+  // "Back" from a player returns to the screen they were opened from (e.g. the team page).
+  const openPlayer = (id) => setOverlay((prev) => ({ type: "player", id, from: prev && prev.type !== "player" ? prev : null }));
   const closeOverlay = () => setOverlay(null);
 
   // Count which screen is open (see utils/track.js — no cookies, no ids).
@@ -383,7 +386,10 @@ function App() {
             .main sat BEHIND the header and was invisible and untappable. */}
         {!overlay && <InstallBanner />}
         {overlay?.type === "team" && (
-          <TeamProfile teamUrl={overlay.url} teamName={overlay.name} league={overlay.league} onBack={closeOverlay} onOpenTeam={openTeam} isFavorite={isFavorite} toggleFavorite={toggleFavorite} />
+          <TeamProfile teamUrl={overlay.url} teamName={overlay.name} league={overlay.league} onBack={closeOverlay} onOpenTeam={openTeam} onOpenPlayer={openPlayer} isFavorite={isFavorite} toggleFavorite={toggleFavorite} />
+        )}
+        {overlay?.type === "player" && (
+          <PlayerProfile playerId={overlay.id} onBack={() => setOverlay(overlay.from || null)} onOpenTeam={openTeam} />
         )}
         {overlay?.type === "match" && (
           <MatchDetail matchUrl={overlay.url} onBack={closeOverlay} onOpenTeam={openTeam} />
@@ -420,6 +426,7 @@ function App() {
             standings={standings}
             loading={loadingStandings}
             onOpenTeam={openTeam}
+            onOpenPlayer={openPlayer}
             isFavorite={isFavorite}
             toggleFavorite={toggleFavorite}
           />
@@ -662,7 +669,7 @@ function HomeView({ leagues, loadingLeagues, onSelectLeague, fixtures, results, 
 // ══════════════════════════════════════════════════
 // TABLE VIEW
 // ══════════════════════════════════════════════════
-function TableView({ leagues, selectedLeague, setSelectedLeague, standings, loading, onOpenTeam, isFavorite, toggleFavorite }) {
+function TableView({ leagues, selectedLeague, setSelectedLeague, standings, loading, onOpenTeam, onOpenPlayer, isFavorite, toggleFavorite }) {
   const [view, setView] = useState("table"); // "table" | "scorers"
   const currentLeague = leagues.find((l) => l.key === selectedLeague);
   return (
@@ -688,7 +695,7 @@ function TableView({ leagues, selectedLeague, setSelectedLeague, standings, load
       </div>
 
       {view === "scorers" ? (
-        <TopScorers leagueShort={currentLeague?.short || ""} leagueName={currentLeague?.name || standings?.league || "League"} onOpenTeam={onOpenTeam} />
+        <TopScorers leagueShort={currentLeague?.short || ""} leagueName={currentLeague?.name || standings?.league || "League"} onOpenTeam={onOpenTeam} onOpenPlayer={onOpenPlayer} />
       ) : loading ? (
         <LoadingState message="Fetching live standings from KHU..." />
       ) : standings?.error ? (

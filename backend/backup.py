@@ -43,6 +43,7 @@ def build_backup() -> dict:
         "tournaments": db.load_tournaments(),
         "matches": db.load_tournament_matches(),
         "seasons": db.load_season_snapshots(),
+        "player_profiles": __import__("playerprofiles").export_all(),
         "match_archive": db.load_match_archive(),
         "match_statuses": db.load_match_statuses(),
         **__import__("insights").export_all(),

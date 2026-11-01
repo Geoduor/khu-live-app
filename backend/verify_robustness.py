@@ -361,5 +361,52 @@ _dbh.save_season_snapshot("2018-test", "2018 Test", {"leagues": [{"league": "Pre
 hon = [x for x in c.get("/api/history/honours").json()["seasons"] if x["label"] == "2018-test"][0]
 check("roll of honour picks the team in position 1", hon["champions"] == [{"league": "Premier League Men", "short": "PLM", "champion": "First FC", "points": "40"}], str(hon))
 
+print("13. Player profiles")
+main._rate_hits.clear()
+PNGP = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=="
+_old_fr13 = main.cache["fixtures_results"]
+_old_std13 = dict(main.cache["standings"])
+main.cache["standings"]["t_plw"] = {"league": "Premier League Women", "short": "PLW", "standings": [{"team": "Lakers Hockey Club", "team_url": "https://kenyahockeyunion.org/t/lakers", "position": 1}]}
+main.cache["fixtures_results"] = {"fixtures": [], "live": [], "results": [
+    {"league": "Premier League Women", "league_short": "PLW", "home_team": "Lakers Hockey Club", "away_team": "Opp FC", "date": "2026-10-10 12:00",
+     "state": "FT", "home_score": 2, "away_score": 0, "scorers": [{"team": "home", "player_name": "Amina Odhiambo", "minute": 12}, {"team": "home", "player_name": "Amina Odhiambo", "minute": 40}]}]}
+PP = lambda **kw: c.post("/api/admin/players/profile", headers=H, json=dict(dict(league_short="PLW", team_name="Lakers Hockey Club", player_name="Amina Odhiambo",
+        jersey=9, position="Forward", nationality="Kenyan", captain=True, bio="Club captain.", photo_data_url=PNGP), **kw))
+check("profile needs a login", c.post("/api/admin/players/profile", json={"league_short": "PLW", "team_name": "x", "player_name": "y"}).status_code == 401)
+check("unknown league refused", PP(league_short="XXX").status_code == 400)
+check("bad position refused", PP(position="Wizard").status_code == 422)
+check("shirt number over 99 refused", PP(jersey=100).status_code == 422)
+check("SVG photo refused", PP(photo_data_url="data:image/svg+xml;base64,PHN2ZyBvbmxvYWQ9YWxlcnQoMSk+").status_code == 422)
+check("non-image bytes with an image label refused", PP(photo_data_url="data:image/png;base64,SGVsbG8gd29ybGQ=").status_code == 422)
+check("oversized photo refused", PP(photo_data_url="data:image/png;base64," + "iVBORw0KGgo" + "A" * 410_000).status_code in (413, 422))
+r = PP(); pid = r.json().get("player_id")
+check("profile saved", r.status_code == 200 and pid and len(pid) == 12, r.text[:100])
+pr = c.get(f"/api/players/{pid}").json()
+check("player page has details, stats from recorded goals and goal log", pr["jersey"] == 9 and pr["position"] == "Forward" and pr["captain"] and pr["has_photo"]
+      and pr["goals"] == 2 and sorted(g["minute"] for g in pr["goals_log"]) == [12, 40], str(pr)[:200])
+check("player page links to the team", pr["team_url"] == "https://kenyahockeyunion.org/t/lakers")
+ph = c.get(f"/api/players/{pid}/photo")
+check("photo served as an image with nosniff and sandbox", ph.status_code == 200 and ph.headers["content-type"] == "image/png" and ph.headers["x-content-type-options"] == "nosniff" and "sandbox" in ph.headers["content-security-policy"])
+check("bad player id is a 404, not an error", c.get("/api/players/zzzz").status_code == 404 and c.get("/api/players/" + "0" * 12).status_code == 404)
+check("no personal details beyond the allowed fields", set(pr) <= {"player_id","league_short","team_name","player_name","jersey","position","nationality","captain","bio","has_photo","goals","appearances","yellow_cards","green_cards","red_cards","has_stat_line","league","team_url","team_logo_url","goals_log"}, str(sorted(pr)))
+tp = c.get("/api/team?name=Lakers%20Hockey%20Club&league=PLW").json()
+check("team profile lists the squad with the player", any(p["player_id"] == pid and p["jersey"] == 9 for p in tp.get("squad", [])), str(tp.get("squad"))[:200])
+ts = c.get("/api/players/top-scorers?league_short=PLW").json()["players"]
+check("top scorers rows link to player pages", ts and ts[0]["player_id"] == pid)
+lst = c.get("/api/admin/players/list?league=PLW&team=Lakers%20Hockey%20Club", headers=H).json()["players"]
+check("admin player list for a team", any(p["player_id"] == pid for p in lst))
+check("player list needs a login", c.get("/api/admin/players/list?team=x").status_code == 401)
+PP(remove_photo=True, photo_data_url="", jersey=10)
+pr2 = c.get(f"/api/players/{pid}").json()
+check("photo can be removed and details updated", not pr2["has_photo"] and pr2["jersey"] == 10 and c.get(f"/api/players/{pid}/photo").status_code == 404)
+PP(photo_data_url=PNGP)
+PP(jersey=11, photo_data_url="")
+check("editing details keeps the existing photo", c.get(f"/api/players/{pid}").json()["has_photo"])
+bkp = __import__("backup").build_backup()
+check("backup carries profiles with photos", any(x["player_id"] == pid and x["photo_b64"] for x in bkp["player_profiles"]))
+check("only an admin can delete a profile", c.delete(f"/api/admin/players/profile/{pid}").status_code == 401 and c.delete(f"/api/admin/players/profile/{pid}", headers=H).status_code == 200 and c.get(f"/api/players/{pid}").json()["goals"] == 2)
+main.cache["fixtures_results"] = _old_fr13
+main.cache["standings"].clear(); main.cache["standings"].update(_old_std13)
+
 print("\nRESULT:", "all checks passed" if not fails else f"{len(fails)} FAILURE(S): {fails}")
 sys.exit(1 if fails else 0)

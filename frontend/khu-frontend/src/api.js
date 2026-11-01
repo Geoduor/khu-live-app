@@ -73,6 +73,10 @@ export const getSeasons = () => api.get("/api/seasons").then(r => r.data);
 export const getSeason = (label) => api.get(`/api/seasons/${encodeURIComponent(label)}`).then(r => r.data);
 export const getHonours = () => api.get("/api/history/honours").then(r => r.data);
 
+// ── Players ──
+export const getPlayer = (id) => api.get(`/api/players/${encodeURIComponent(id)}`).then(r => r.data);
+export const playerPhotoUrl = (id, version = "") => `${API_BASE}/api/players/${encodeURIComponent(id)}/photo${version ? `?v=${encodeURIComponent(version)}` : ""}`;
+
 // ── Health check ──
 export const getHealth = () => api.get("/api/health").then(r => r.data);
 
