@@ -178,6 +178,7 @@
     <button class="tab" data-tab="league" onclick="showTab('league')">⚽ League</button>
     <button class="tab" data-tab="mine" onclick="showTab('mine')">🕘 Entries</button>
     <button class="tab" data-tab="notices" onclick="showTab('notices')">📣 Notices</button>
+    <button class="tab" data-tab="players" onclick="showTab('players')">👤 Players</button>
   </div>
 
   <!-- Tournament -->
@@ -310,6 +311,51 @@
 </div>
   </div>
 
+  <!-- Player profiles -->
+  <div class="panel" id="panel-players">
+    <div class="card">
+      <div class="section-title">Player profiles</div>
+      <div class="subtitle">Add a player's shirt number, position, short bio and photo. These show on the team's Squad list and on the player's own page. Only add a photo with the player's permission (a parent or guardian's for anyone under 18). Do not enter dates of birth, addresses or phone numbers.</div>
+      <label>League</label>
+      <select id="ppLeague" onchange="ppLeagueChanged()">
+        <option value="PLM">Premier League Men</option>
+        <option value="PLW">Premier League Women</option>
+        <option value="SLM">Super League Men</option>
+        <option value="SLW">Super League Women</option>
+        <option value="NLM-EZ">National League Men - Eastern Zone</option>
+        <option value="NLM-CZ">National League Men - Central Zone</option>
+        <option value="NLM-WZ">National League Men - Western Zone</option>
+        <option value="NLM-SZ">National League Men - Southern Zone</option>
+      </select>
+      <label>Team</label>
+      <select id="ppTeam" onchange="ppLoadPlayers()"><option value="">Select a team...</option></select>
+      <label>Players already on record for this team</label>
+      <select id="ppExisting" onchange="ppPick()"><option value="">Choose a player to edit, or type a new name below</option></select>
+      <label>Player name</label>
+      <input id="ppName" maxlength="80" placeholder="e.g. Amina Odhiambo" />
+      <div class="row">
+        <div><label>Shirt number</label><input id="ppJersey" type="number" min="0" max="99" /></div>
+        <div>
+          <label>Position</label>
+          <select id="ppPosition">
+            <option value="">Not set</option>
+            <option>Goalkeeper</option><option>Defender</option><option>Midfielder</option><option>Forward</option>
+          </select>
+        </div>
+      </div>
+      <label>Nationality (optional)</label>
+      <input id="ppNationality" maxlength="40" placeholder="e.g. Kenyan" />
+      <label>Short bio (optional, up to 300 characters)</label>
+      <input id="ppBio" maxlength="300" placeholder="e.g. Club captain since 2024" />
+      <label style="display:flex; gap:8px; align-items:center; margin-top:12px;"><input id="ppCaptain" type="checkbox" style="width:auto;" /> Team captain</label>
+      <label>Photo (PNG, JPEG or WebP; it is shrunk automatically)</label>
+      <input id="ppPhoto" type="file" accept="image/png,image/jpeg,image/webp" />
+      <label style="display:flex; gap:8px; align-items:center; margin-top:12px;"><input id="ppRemovePhoto" type="checkbox" style="width:auto;" /> Remove the current photo</label>
+      <button style="margin-top: 14px;" onclick="ppSave()">Save player profile</button>
+      <div id="ppMsg" class="msg"></div>
+    </div>
+  </div>
+
   <!-- My entries -->
   <div class="panel" id="panel-mine">
 
@@ -402,6 +448,7 @@
       populateSelectWithTeams('awayTeam', teams);
       updateTeamLabels();
     }
+    if ($('ppLeague') && $('ppTeam')) populateSelectWithTeams('ppTeam', allTeams.filter((t) => t.league_short === $('ppLeague').value));
   }
 
   function teamLabel(side) {
@@ -843,6 +890,79 @@
     try { d = await res.json(); } catch (e) { /* server sent plain text */ }
     return d;
   }
+
+  // ───────── player profiles (text via textContent only) ─────────
+  let ppPlayers = [], ppPhotoData = '';
+  function ppShow(text) {
+    const msg = $('ppMsg');
+    msg.textContent = text;
+    msg.className = 'msg ' + (/(failed|could not|couldn.t|invalid|error|cannot|first|unknown|please)/i.test(text) ? 'error' : 'success');
+    if (msg.scrollIntoView) msg.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
+  async function ppLeagueChanged() {
+    const allTeams = await fetchAllTeams();
+    populateSelectWithTeams('ppTeam', allTeams.filter((t) => t.league_short === $('ppLeague').value));
+    ppLoadPlayers();
+  }
+  async function ppLoadPlayers() {
+    setKids($('ppExisting'), opt('', 'Choose a player to edit, or type a new name below'));
+    ppPlayers = [];
+    if (!$('ppTeam').value) return;
+    try {
+      const q = new URLSearchParams({ league: $('ppLeague').value, team: $('ppTeam').value });
+      const res = await fetch(`${apiBase()}/api/admin/players/list?${q}`, { headers: MS_HEADERS() });
+      const d = await res.json();
+      if (!res.ok) return;
+      ppPlayers = d.players || [];
+      setKids($('ppExisting'), opt('', 'Choose a player to edit, or type a new name below'),
+        ppPlayers.map((p, i) => opt(String(i), `${p.player_name}${p.jersey != null ? ' #' + p.jersey : ''}${p.has_photo ? ' 📷' : ''}`)));
+    } catch (e) { /* list stays empty */ }
+  }
+  function ppPick() {
+    const v = $('ppExisting').value;
+    if (v === '') return;
+    const p = ppPlayers[parseInt(v, 10)];
+    $('ppName').value = p.player_name; $('ppJersey').value = p.jersey == null ? '' : p.jersey;
+    $('ppPosition').value = p.position || ''; $('ppNationality').value = p.nationality || '';
+    $('ppBio').value = p.bio || ''; $('ppCaptain').checked = !!p.captain;
+    $('ppPhoto').value = ''; ppPhotoData = ''; $('ppRemovePhoto').checked = false;
+  }
+  // Shrink a chosen photo to at most 480 px on its long side and re-save it as JPEG.
+  $('ppPhoto').addEventListener('change', () => {
+    ppPhotoData = '';
+    const f = $('ppPhoto').files[0];
+    if (!f) return;
+    const url = URL.createObjectURL(f);
+    const img = new Image();
+    img.onload = () => {
+      const scale = Math.min(1, 480 / Math.max(img.width, img.height));
+      const c = document.createElement('canvas');
+      c.width = Math.max(1, Math.round(img.width * scale)); c.height = Math.max(1, Math.round(img.height * scale));
+      const ctx = c.getContext('2d'); ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, c.width, c.height); ctx.drawImage(img, 0, 0, c.width, c.height);
+      ppPhotoData = c.toDataURL('image/jpeg', 0.85);
+      URL.revokeObjectURL(url);
+    };
+    img.onerror = () => { ppShow('That photo could not be read. Please choose a PNG, JPEG or WebP image.'); $('ppPhoto').value = ''; URL.revokeObjectURL(url); };
+    img.src = url;
+  });
+  async function ppSave() {
+    if (!$('ppTeam').value || !$('ppName').value.trim()) { ppShow('Choose the team and type the player\'s name first.'); return; }
+    try {
+      const j = $('ppJersey').value.trim();
+      const res = await fetch(`${apiBase()}/api/admin/players/profile`, {
+        method: 'POST', headers: MS_HEADERS(),
+        body: JSON.stringify({
+          league_short: $('ppLeague').value, team_name: $('ppTeam').value, player_name: $('ppName').value.trim(),
+          jersey: j === '' ? null : parseInt(j, 10), position: $('ppPosition').value, nationality: $('ppNationality').value,
+          captain: $('ppCaptain').checked, bio: $('ppBio').value, photo_data_url: ppPhotoData, remove_photo: $('ppRemovePhoto').checked,
+        }),
+      });
+      let d = {}; try { d = await res.json(); } catch (e) { /* plain text */ }
+      ppShow(res.ok ? d.message : (typeof d.detail === 'string' ? d.detail : `The server could not save this (error ${res.status}). Please check the fields and try again.`));
+      if (res.ok) { $('ppPhoto').value = ''; ppPhotoData = ''; $('ppRemovePhoto').checked = false; ppLoadPlayers(); }
+    } catch (e) { ppShow('Could not reach the server: ' + e.message); }
+  }
+
   async function msSave() {
     if (!msKey) { msShow('Pick a match first.'); return; }
     const btn = $('msSaveBtn');
