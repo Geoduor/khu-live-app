@@ -600,3 +600,36 @@ def count_open(order_ids) -> int:
         return conn.execute(f"SELECT COUNT(*) AS n FROM shop_orders WHERE status = 'pending_payment' AND order_id IN ({q})", tuple(ids)).fetchone()["n"]
     finally:
         conn.close()
+
+
+def reconcile(query, max_orders: int = 15) -> dict:
+    """Ask Safaricom about orders whose payment report may have been lost (callback missed while the server restarted).
+    Covers orders still waiting for more than 40 seconds and orders that timed out in the last 90 minutes, since a late
+    payment on those is still money to deal with. `query(checkout_request_id)` returns {state, reason, receipt}."""
+    now = datetime.now()
+    waiting_before = (now - timedelta(seconds=40)).isoformat()
+    expired_after = (now - timedelta(minutes=90)).isoformat()
+    conn = db.get_connection()
+    try:
+        _ensure(conn)
+        expire_stale(conn)
+        rows = conn.execute(
+            """SELECT checkout_request_id FROM shop_orders WHERE checkout_request_id != '' AND checkout_request_id IS NOT NULL AND
+               ((status = 'pending_payment' AND created_at < ?) OR (status = 'expired' AND updated_at > ?))
+               ORDER BY created_at LIMIT ?""", (waiting_before, expired_after, int(max_orders))).fetchall()
+        ids = [r["checkout_request_id"] for r in rows]
+    finally:
+        conn.close()
+    out = {"checked": 0, "paid": 0, "failed": 0, "errors": 0}
+    for cid in ids:
+        try:
+            q = query(cid)
+            out["checked"] += 1
+            if q.get("state") == "pending":
+                continue
+            res = apply_payment_result(cid, q.get("state") == "paid", q.get("reason", ""), q.get("receipt", ""), None)
+            if res in ("paid", "failed"):
+                out[res] += 1
+        except Exception:  # noqa: BLE001 - Safaricom busy: try again next minute
+            out["errors"] += 1
+    return out

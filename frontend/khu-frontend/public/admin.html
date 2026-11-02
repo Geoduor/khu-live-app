@@ -90,6 +90,8 @@
   .admin-panel .card { margin-bottom: 14px; }
   #loginScreen, #mainScreen { display: none; }
 </style>
+<script src="/edge-config.js"></script>
+<script src="/turnstile.js"></script>
 </head>
 <body>
 
@@ -104,6 +106,7 @@
     <label>Password</label>
     <input id="adminPassword" type="password" placeholder="Your admin password" />
 
+    <div id="tsBox" style="margin:10px 0;"></div>
     <button id="loginBtn" onclick="login()">Log In</button>
     <div id="loginMsg" class="msg"></div>
   </div>
@@ -790,7 +793,7 @@
   // (frontend/.env -> REACT_APP_API_URL || http://localhost:8000).
   const API_BASE = (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1")
     ? "http://localhost:8000"
-    : "https://khu-backend.onrender.com";
+    : ((window.KHU_EDGE && window.KHU_EDGE.apiBase) || "https://khu-backend.onrender.com");
 
   function apiBase() { return API_BASE; }
   function token() { return sessionStorage.getItem('khu_admin_token') || ''; }
@@ -812,6 +815,7 @@
     }
   }
 
+  const tsLogin = window.khuTurnstile(document.getElementById('tsBox'));
   async function login() {
     const btn = $('loginBtn');
     const msg = $('loginMsg');
@@ -830,7 +834,7 @@
     try {
       const res = await fetch(`${API_BASE}/api/admin/login`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...(tsLogin.on ? { 'x-turnstile-token': tsLogin.token() } : {}) },
         body: JSON.stringify({ username, password }),
       });
       const data = await res.json();
@@ -840,6 +844,7 @@
       $('adminPassword').value = '';
       showScreen();
     } catch (e) {
+      tsLogin.reset();
       msg.textContent = e.message;
       msg.className = 'msg error';
     } finally {

@@ -7,7 +7,9 @@
  */
 import axios from "axios";
 
-const API_BASE = process.env.REACT_APP_API_URL || "http://localhost:8000";
+// public/edge-config.js can point the app at the Cloudflare Worker without rebuilding (see docs/EDGE_SETUP.md).
+const EDGE = (typeof window !== "undefined" && window.KHU_EDGE) || {};
+const API_BASE = EDGE.apiBase || process.env.REACT_APP_API_URL || "http://localhost:8000";
 
 /**
  * teamLogoUrl — routes a KHU-hosted team logo through our own backend's
@@ -83,7 +85,8 @@ export const getShopStores = () => api.get("/api/shop/stores").then(r => r.data)
 export const getShopStore = (id) => api.get(`/api/shop/stores/${encodeURIComponent(id)}`).then(r => r.data);
 export const shopImageUrl = (id) => `${API_BASE}/api/shop/images/${encodeURIComponent(id)}`;
 export const shopLogoUrl = (id) => `${API_BASE}/api/shop/stores/${encodeURIComponent(id)}/logo`;
-export const createShopOrder = (payload) => api.post("/api/shop/orders", payload).then(r => r.data);
+export const createShopOrder = (payload, humanToken = "") =>
+  api.post("/api/shop/orders", payload, humanToken ? { headers: { "x-turnstile-token": humanToken } } : undefined).then(r => r.data);
 export const getShopOrder = (id, phone) => api.get(`/api/shop/orders/${encodeURIComponent(id)}`, { params: { phone } }).then(r => r.data);
 
 export const getHealth = () => api.get("/api/health").then(r => r.data);

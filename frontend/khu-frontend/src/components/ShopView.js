@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import { getShopStores, getShopStore, shopImageUrl, shopLogoUrl, createShopOrder, getShopOrder } from "../api";
 import LoadingState from "./LoadingState";
 import ErrorState from "./ErrorState";
+import HumanCheck, { humanCheckOn } from "./HumanCheck";
 
 const kes = (n) => `KES ${Number(n || 0).toLocaleString("en-KE")}`;
 const CART_KEY = "khu_cart";
@@ -81,6 +82,8 @@ export default function ShopView({ onBack }) {
   const [note, setNote] = useState("");
   const [formError, setFormError] = useState("");
   const [placing, setPlacing] = useState(false);
+  const [humanToken, setHumanToken] = useState("");
+  const [humanReset, setHumanReset] = useState(0);
   const [order, setOrder] = useState(null); // current order being paid / tracked
   const [myOrders, setMyOrders] = useState(() => load(ORDERS_KEY, []));
   const [orderStates, setOrderStates] = useState({});
@@ -140,12 +143,13 @@ export default function ShopView({ onBack }) {
     if (me.name.trim().length < 2) return setFormError("Enter your name.");
     if (!me.phone.trim()) return setFormError("Enter the Safaricom number that will pay.");
     if (!me.town.trim() || me.address.trim().length < 3) return setFormError("Enter the town and where to deliver.");
+    if (humanCheckOn() && !humanToken) return setFormError("Please tick the box to show you are not a robot.");
     setPlacing(true);
     try {
       const res = await createShopOrder({
         store_id: cart.storeId, customer_name: me.name, phone: me.phone, town: me.town, address: me.address, note,
         items: Object.entries(cart.lines).map(([product_id, l]) => ({ product_id, qty: l.qty })),
-      });
+      }, humanToken);
       save(ME_KEY, me);
       const entry = { order_id: res.order_id, phone: me.phone };
       const list = [entry, ...myOrders.filter((o) => o.order_id !== res.order_id)].slice(0, 20);
@@ -157,6 +161,7 @@ export default function ShopView({ onBack }) {
     } catch (e) {
       const d = e && e.response && e.response.data && e.response.data.detail;
       setFormError(typeof d === "string" ? d : "We could not place the order. Please try again.");
+      setHumanToken(""); setHumanReset((n) => n + 1);
     } finally { setPlacing(false); }
   };
 
@@ -295,6 +300,7 @@ export default function ShopView({ onBack }) {
           We will send an M-Pesa request to this number: enter your PIN on your phone to pay. Your name, phone and address are shared only with the store so it can deliver, and are kept
           for order records. See the <a href="/privacy.html" target="_blank" rel="noopener noreferrer">privacy notice</a>.
         </p>
+        <HumanCheck onToken={setHumanToken} resetKey={humanReset} />
         {formError && <div className="shop-error" role="alert">{formError}</div>}
         <button className="shop-btn shop-btn-wide" disabled={placing} onClick={placeOrder}>{placing ? "Sending the M-Pesa request..." : `Pay ${kes(subtotal + fee)} with M-Pesa`}</button>
       </div>
