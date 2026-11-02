@@ -69,9 +69,9 @@ check("picture served safely", img.status_code == 200 and img.headers["x-content
 check("logo served", c.get(f"/api/shop/stores/{sid}/logo").status_code == 200 and c.get(f"/api/shop/stores/{hid}/logo").status_code == 404)
 
 print("4. Ordering")
-main._rate_hits.clear()
+(main._rate_hits.clear(), main._shop_open_orders.clear())
 def _ORD(clear, **kw):
-    if clear: main._rate_hits.clear()
+    if clear: (main._rate_hits.clear(), main._shop_open_orders.clear())
     return c.post("/api/shop/orders", json=dict(dict(store_id=sid, items=[{"product_id": p1, "qty": 1}, {"product_id": p2, "qty": 2}], customer_name="Amina Odhiambo",
                                                             phone="0712345678", town="Kisumu", address="Milimani Road, Blue house"), **kw))
 ORD = lambda **kw: _ORD(True, **kw)
@@ -80,7 +80,7 @@ r = ORD(); o = r.json()
 check("order created and PIN request sent", r.status_code == 200 and o["order_id"].startswith("KHU-") and len(SENT) == 1, r.text[:120])
 check("total is worked out by the server: 6500 + 2x800 + 300 delivery", o["total"] == 8400 and SENT[0] == ("254712345678", 8400, o["order_id"]), str(SENT))
 r2 = ORD(items=[{"product_id": p1, "qty": 1}], phone="0722000111")
-check("a phone cannot set its own price", (main._rate_hits.clear(), c.post("/api/shop/orders", json={"store_id": sid, "items": [{"product_id": p1, "qty": 1, "price": 1}], "customer_name": "Zed Zed", "phone": "0733000111", "town": "K", "address": "abc"}))[1].json().get("total") == 6800)
+check("a phone cannot set its own price", ((main._rate_hits.clear(), main._shop_open_orders.clear()), c.post("/api/shop/orders", json={"store_id": sid, "items": [{"product_id": p1, "qty": 1, "price": 1}], "customer_name": "Zed Zed", "phone": "0733000111", "town": "K", "address": "abc"}))[1].json().get("total") == 6800)
 admin_prod = {p["product_id"]: p for p in c.get(f"/api/admin/shop/stores/{sid}/products", headers=H).json()["products"]}
 check("stock was reserved straight away", admin_prod[p1]["stock"] == 3 - 1 - 1 - 1 and admin_prod[p2]["stock"] == 10 - 2, str({k: v["stock"] for k, v in admin_prod.items()}))
 r = ORD(items=[{"product_id": p1, "qty": 5}], phone="0733111222")
@@ -99,6 +99,7 @@ check("callback to a wrong secret is refused", c.post("/api/shop/mpesa/callback/
 st = lambda oid, ph="0712345678": c.get(f"/api/shop/orders/{oid}?phone={ph}")
 check("order starts as pending", st(o["order_id"]).json()["status"] == "pending_payment")
 check("wrong amount is NOT accepted as paid", (c.post("/api/shop/mpesa/callback/cb-secret-xyz", json=cb("ws_CO_0001", amount=1)).status_code == 200) and st(o["order_id"]).json()["status"] == "pending_payment")
+check("a success report with NO amount is not trusted as paid", (c.post("/api/shop/mpesa/callback/cb-secret-xyz", json={"Body": {"stkCallback": {"CheckoutRequestID": "ws_CO_0001", "ResultCode": 0, "ResultDesc": "ok"}}}).status_code == 200) and st(o["order_id"]).json()["status"] == "pending_payment")
 check("callback with garbage is harmless", c.post("/api/shop/mpesa/callback/cb-secret-xyz", content=b"not json").status_code == 200)
 check("unknown payment id is ignored", c.post("/api/shop/mpesa/callback/cb-secret-xyz", json=cb("ws_CO_9999")).status_code == 200)
 c.post("/api/shop/mpesa/callback/cb-secret-xyz", json=cb("ws_CO_0001"))
@@ -130,16 +131,26 @@ check("a lost callback is recovered by asking Safaricom", st(o4["order_id"], "07
 QUERY.clear(); QUERY.update({"state": "pending"})
 
 print("7. Limits and safety")
-main._rate_hits.clear()
+(main._rate_hits.clear(), main._shop_open_orders.clear())
 codes = [ORD_RAW(items=[{"product_id": p2, "qty": 1}], phone="0799000555").status_code for _ in range(6)]
 check("one phone cannot be spammed with payment requests", 422 in codes, str(codes))
-main._rate_hits.clear()
+(main._rate_hits.clear(), main._shop_open_orders.clear())
 codes = [ORD_RAW(items=[{"product_id": p2, "qty": 1}], phone=f"07100005{i:02d}").status_code for i in range(8)]
 check("one connection cannot place unlimited orders", 429 in codes, str(codes))
-main._rate_hits.clear()
+(main._rate_hits.clear(), main._shop_open_orders.clear())
 mpesa_cfg = {k: os.environ.pop(k) for k in ("MPESA_PASSKEY",)}
 check("payments off until M-Pesa is set up (and nothing is reserved)", ORD(phone="0701000999").status_code == 503)
 os.environ.update(mpesa_cfg)
+
+print("7b. Stock-hoarding and prompt-spam attacks")
+pq = prod(name="Restock Ball", brand="Dita", price=500, stock=50).json()["product_id"]
+(main._rate_hits.clear(), main._shop_open_orders.clear())
+r1 = ORD_RAW(items=[{"product_id": pq, "qty": 1}], phone="0766000001")
+r1b = ORD_RAW(items=[{"product_id": pq, "qty": 1}], phone="0766000001")
+check("a phone with a payment waiting cannot get a second prompt", r1.status_code == 200 and r1b.status_code == 422, f"{r1.status_code} {r1b.status_code}")
+(main._rate_hits.clear(), main._shop_open_orders.clear())
+codes = [ORD_RAW(items=[{"product_id": pq, "qty": 1}], phone=f"07670000{i:02d}").status_code for i in range(4)]
+check("one visitor cannot hold more than 2 unpaid orders (rotating phone numbers)", codes[:2] == [200, 200] and codes[2:] == [429, 429], str(codes))
 
 print("8. Admin: fulfilment, refunds, money per store")
 check("order list needs the admin login", c.get("/api/admin/shop/orders").status_code == 401)
