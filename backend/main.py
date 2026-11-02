@@ -310,6 +310,8 @@ class PushSubscription(BaseModel):
 
 import playerprofiles as _pp
 import khusquads as _khusquads
+import shop as _shop
+import mpesa as _mpesa
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -2965,6 +2967,257 @@ def admin_import_squads_status(x_admin_token: str = Header(default="")):
     return dict(_squad_job)
 
 
+# ── Shop: stores, products, orders, M-Pesa ─────────────────────────────────────
+class ShopItemIn(BaseModel):
+    product_id: str = Field(max_length=20)
+    qty: int = Field(ge=1, le=10)
+
+
+class ShopOrderIn(BaseModel):
+    store_id: str = Field(max_length=20)
+    items: List[ShopItemIn] = Field(min_length=1, max_length=10)
+    customer_name: str = Field(max_length=80)
+    phone: str = Field(max_length=20)
+    town: str = Field(max_length=60)
+    address: str = Field(max_length=200)
+    note: str = Field(default="", max_length=200)
+
+
+class ShopStoreIn(BaseModel):
+    store_id: str = Field(default="", max_length=20)
+    name: str = Field(max_length=60)
+    tagline: str = Field(default="", max_length=120)
+    whatsapp: str = Field(default="", max_length=20)
+    delivery_fee: int = Field(default=0, ge=0, le=20000)
+    delivery_note: str = Field(default="", max_length=200)
+    active: bool = True
+    sort: int = Field(default=0, ge=0, le=1000)
+    logo_data_url: str = Field(default="", max_length=420_000)
+    remove_logo: bool = False
+
+
+class ShopProductIn(BaseModel):
+    product_id: str = Field(default="", max_length=20)
+    store_id: str = Field(max_length=20)
+    name: str = Field(max_length=100)
+    brand: str = Field(default="", max_length=40)
+    category: str = Field(default="", max_length=40)
+    description: str = Field(default="", max_length=600)
+    price: int = Field(ge=1, le=1_000_000)
+    stock: int = Field(ge=0, le=100_000)
+    active: bool = True
+
+
+class ShopImageIn(BaseModel):
+    image_data_url: str = Field(max_length=420_000)
+
+
+class ShopFulfilIn(BaseModel):
+    status: str = Field(max_length=20)
+    note: str = Field(default="", max_length=200)
+
+
+def _safe_id(v: str, n: int = 20) -> str:
+    return re.sub(r"[^A-Za-z0-9-]", "", v or "")[:n]
+
+
+def _image_response(found):
+    if not found:
+        raise HTTPException(status_code=404, detail="No picture.")
+    mime, raw = found
+    return Response(content=raw, media_type=mime, headers={
+        "Cache-Control": "public, max-age=3600", "X-Content-Type-Options": "nosniff",
+        "Content-Security-Policy": "default-src 'none'; sandbox"})
+
+
+@app.get("/api/shop/status")
+def shop_status():
+    return {"payments_ready": _mpesa.configured(), "stores": len(_shop.list_stores())}
+
+
+@app.get("/api/shop/stores")
+def shop_stores(request: Request):
+    _rate_limit(request, "shopread", 120, 60)
+    return {"stores": _shop.list_stores(), "payments_ready": _mpesa.configured()}
+
+
+@app.get("/api/shop/stores/{store_id}")
+def shop_store(store_id: str, request: Request):
+    _rate_limit(request, "shopread", 120, 60)
+    store = _shop.get_store(_safe_id(store_id))
+    if not store:
+        raise HTTPException(status_code=404, detail="Store not found.")
+    return {"store": store, "products": _shop.list_products(store["store_id"]), "payments_ready": _mpesa.configured()}
+
+
+@app.get("/api/shop/stores/{store_id}/logo")
+def shop_store_logo(store_id: str):
+    return _image_response(_shop.get_store_logo(_safe_id(store_id)))
+
+
+@app.get("/api/shop/images/{image_id}")
+def shop_image(image_id: str):
+    return _image_response(_shop.get_image(_safe_id(image_id)))
+
+
+@app.get("/api/shop/products/{product_id}")
+def shop_product(product_id: str, request: Request):
+    _rate_limit(request, "shopread", 120, 60)
+    p = _shop.get_product(_safe_id(product_id))
+    if not p:
+        raise HTTPException(status_code=404, detail="Product not found.")
+    return p
+
+
+@app.post("/api/shop/orders")
+def shop_create_order(payload: ShopOrderIn, request: Request):
+    """Create an order and send the M-Pesa PIN request to the customer's phone."""
+    _rate_limit(request, "shoporder", 6, 600)
+    if not _mpesa.configured():
+        raise HTTPException(status_code=503, detail="Payments are not switched on yet. Please try again later.")
+    try:
+        order = _shop.create_order(_safe_id(payload.store_id), [i.model_dump() for i in payload.items], payload.customer_name,
+                                   payload.phone, payload.town, payload.address, payload.note)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    try:
+        res = _mpesa.stk_push(order["phone"], order["total"], order["order_id"], "Order")
+        _shop.attach_checkout(order["order_id"], res["checkout_request_id"], res["merchant_request_id"])
+    except Exception as e:  # noqa: BLE001
+        logger.warning("STK push failed for %s: %s", order["order_id"], type(e).__name__)
+        _shop.fail_order(order["order_id"], "We could not send the M-Pesa request.")
+        raise HTTPException(status_code=502, detail="We could not send the M-Pesa request to your phone. Please try again.")
+    return {"order_id": order["order_id"], "total": order["total"], "status": "pending_payment",
+            "message": "Check your phone and enter your M-Pesa PIN to pay."}
+
+
+@app.get("/api/shop/orders/{order_id}")
+def shop_order_status(order_id: str, request: Request, phone: str = ""):
+    """The customer's own order, found only with the order code AND the phone used. Re-asks Safaricom if the callback is late."""
+    _rate_limit(request, "shopstatus", 60, 60)
+    order, pending_checkout = _shop.get_order_for_customer(_safe_id(order_id, 12), phone)
+    if not order:
+        raise HTTPException(status_code=404, detail="We could not find that order. Check the code and phone number.")
+    if pending_checkout and _mpesa.configured():
+        try:
+            q = _mpesa.stk_query(pending_checkout)
+            if q["state"] != "pending":
+                _shop.apply_payment_result(pending_checkout, q["state"] == "paid", q.get("reason", ""), q.get("receipt", ""), None)
+                order, _ = _shop.get_order_for_customer(_safe_id(order_id, 12), phone)
+        except Exception as e:  # noqa: BLE001 - the callback may still arrive
+            logger.info("STK query skipped: %s", type(e).__name__)
+    return order
+
+
+@app.post("/api/shop/mpesa/callback/{secret}")
+async def shop_mpesa_callback(secret: str, request: Request):
+    """Safaricom reports the payment here. Only the secret URL we gave them is accepted."""
+    if not _mpesa.callback_secret() or not hmac.compare_digest(secret, _mpesa.callback_secret()):
+        raise HTTPException(status_code=404, detail="Not found.")
+    try:
+        raw = await request.body()
+        if len(raw) > 20_000:
+            raise ValueError("too large")
+        parsed = _mpesa.parse_callback(json.loads(raw))
+    except Exception:  # noqa: BLE001
+        parsed = None
+    if parsed:
+        result = _shop.apply_payment_result(parsed["checkout_request_id"], parsed["ok"], parsed["reason"], parsed["receipt"], parsed["amount"])
+        logger.info("M-Pesa callback %s -> %s", parsed["checkout_request_id"][:12], result)
+    return {"ResultCode": 0, "ResultDesc": "Accepted"}
+
+
+def _admin_only(x_admin_token: str):
+    if not _is_admin(x_admin_token):
+        raise HTTPException(status_code=401, detail="Missing or invalid admin token.")
+
+
+@app.get("/api/admin/shop/overview")
+def admin_shop_overview(x_admin_token: str = Header(default="")):
+    _admin_only(x_admin_token)
+    return {"stores": _shop.list_stores(admin=True), "settlement": _shop.settlement_summary(), "payments_ready": _mpesa.configured(),
+            "mpesa_env": os.environ.get("MPESA_ENV", "sandbox")}
+
+
+@app.post("/api/admin/shop/stores")
+def admin_shop_save_store(payload: ShopStoreIn, x_admin_token: str = Header(default="")):
+    _admin_only(x_admin_token)
+    try:
+        sid = _shop.save_store(_safe_id(payload.store_id), payload.name, payload.tagline, payload.whatsapp, payload.delivery_fee,
+                               payload.delivery_note, payload.active, payload.sort, payload.logo_data_url, payload.remove_logo)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    return {"message": f"Saved {payload.name.strip()}.", "store_id": sid}
+
+
+@app.delete("/api/admin/shop/stores/{store_id}")
+def admin_shop_delete_store(store_id: str, x_admin_token: str = Header(default="")):
+    _admin_only(x_admin_token)
+    res = _shop.delete_store(_safe_id(store_id))
+    if res == "missing":
+        raise HTTPException(status_code=404, detail="Store not found.")
+    return {"message": "Store removed." if res == "deleted" else "This store has orders, so it was hidden instead of deleted."}
+
+
+@app.get("/api/admin/shop/stores/{store_id}/products")
+def admin_shop_products(store_id: str, x_admin_token: str = Header(default="")):
+    _admin_only(x_admin_token)
+    return {"products": _shop.list_products(_safe_id(store_id), admin=True)}
+
+
+@app.post("/api/admin/shop/products")
+def admin_shop_save_product(payload: ShopProductIn, x_admin_token: str = Header(default="")):
+    _admin_only(x_admin_token)
+    try:
+        pid = _shop.save_product(_safe_id(payload.product_id), _safe_id(payload.store_id), payload.name, payload.brand, payload.category,
+                                 payload.description, payload.price, payload.stock, payload.active)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    return {"message": f"Saved {payload.name.strip()}.", "product_id": pid}
+
+
+@app.delete("/api/admin/shop/products/{product_id}")
+def admin_shop_delete_product(product_id: str, x_admin_token: str = Header(default="")):
+    _admin_only(x_admin_token)
+    if not _shop.delete_product(_safe_id(product_id)):
+        raise HTTPException(status_code=404, detail="Product not found.")
+    return {"message": "Product removed."}
+
+
+@app.post("/api/admin/shop/products/{product_id}/images")
+def admin_shop_add_image(product_id: str, payload: ShopImageIn, x_admin_token: str = Header(default="")):
+    _admin_only(x_admin_token)
+    try:
+        iid = _shop.add_image(_safe_id(product_id), payload.image_data_url)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    return {"message": "Picture added.", "image_id": iid}
+
+
+@app.delete("/api/admin/shop/images/{image_id}")
+def admin_shop_delete_image(image_id: str, x_admin_token: str = Header(default="")):
+    _admin_only(x_admin_token)
+    if not _shop.delete_image(_safe_id(image_id)):
+        raise HTTPException(status_code=404, detail="Picture not found.")
+    return {"message": "Picture removed."}
+
+
+@app.get("/api/admin/shop/orders")
+def admin_shop_orders(status: str = "", store_id: str = "", x_admin_token: str = Header(default="")):
+    _admin_only(x_admin_token)
+    return {"orders": _shop.list_orders(status[:20], _safe_id(store_id))}
+
+
+@app.post("/api/admin/shop/orders/{order_id}/status")
+def admin_shop_order_status(order_id: str, payload: ShopFulfilIn, x_admin_token: str = Header(default="")):
+    _admin_only(x_admin_token)
+    try:
+        st = _shop.set_fulfilment(_safe_id(order_id, 12), payload.status, payload.note)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    return {"message": f"Order marked {st}."}
+
+
 @app.post("/api/admin/players/merge-duplicates")
 def admin_merge_duplicate_players(x_admin_token: str = Header(default="")):
     """Players of one team who share a shirt number are one person: merge them (admin only)."""
@@ -3291,6 +3544,7 @@ async def admin_restore_backup(request: Request, x_admin_token: str = Header(def
         errors.append(f"archive/statuses: {type(e).__name__}")
     try:
         report.update(_insights.import_all(data))
+        report.update(_shop.import_all(data.get("shop")))
     except Exception as e:
         errors.append(f"analytics/sponsors: {type(e).__name__}")
     try:

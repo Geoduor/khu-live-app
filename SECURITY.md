@@ -59,3 +59,13 @@ admin-only and size-capped.
 ## New settings (all optional)
 `TRUSTED_PROXY_HOPS` (default 1) · `KHU_ENABLE_DOCS` · `KHU_DEBUG_DUMP`.
 Keep `ALLOWED_ORIGINS` set to your Vercel address(es) only.
+
+
+## Shop and payments
+
+- Prices, totals and delivery fees are always computed on the server from the product list; quantities are capped, so a tampered request cannot change what is charged.
+- Stock is reserved in one atomic step when an order is created and released if payment fails, times out (15 minutes) or the order is cancelled, so the last item cannot be sold twice.
+- An order is marked paid only by Safaricom's callback (sent to a URL containing a secret, compared in constant time) or by the server's own query to Safaricom, and only when the amount matches. The browser can never mark an order paid. Repeated callbacks are harmless.
+- Rate limits: 6 orders per 10 minutes per IP and 4 per hour per phone number; order status needs the order code and the phone number.
+- Customer name, phone and address are personal data: shown only on the admin page, included in the nightly backup, and covered by the privacy notice. M-Pesa keys live only in Render environment variables.
+- Admin store/product text is shown with `textContent`, never HTML; product pictures are checked by their bytes (no SVG).

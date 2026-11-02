@@ -118,6 +118,36 @@ Same pattern as manual results (`set`, `list`, `DELETE .../{stat_key}`, `export-
 | POST | `/api/admin/players/import-khu` | admin only | Body `{league_short}` (empty = all). Starts a background import of each team's public squad list from kenyahockeyunion.org: names, shirt numbers, photos. Only fills blanks, never overwrites. One run at a time; 4 starts per 10 minutes |
 | GET | `/api/admin/players/import-khu/status` | admin only | Progress: teams read, players created/completed, photos added, teams that could not be read |
 
+## Shop
+
+Public (no login). Prices are always computed on the server from the product list; the browser only sends product ids and quantities.
+
+| Method | Path | Description |
+|---|---|---|
+| GET | `/api/shop/status` | `{payments_ready, stores}`: lets the app hide the Shop button until a store exists |
+| GET | `/api/shop/stores` | Visible stores with logo flag, delivery fee and product count; `payments_ready` |
+| GET | `/api/shop/stores/{id}` | One store and its products (brand, type, price, in-stock flag, picture ids). `/logo` serves the logo |
+| GET | `/api/shop/images/{id}` | A product picture |
+| GET | `/api/shop/products/{id}` | One product |
+| POST | `/api/shop/orders` | `{store_id, customer_name, phone, town, address, note, items:[{product_id, qty}]}`. Reserves stock, sends the M-Pesa prompt to the phone, returns `{order_id, total}`. 503 until M-Pesa is configured. Limits: 6 per 10 min per IP, 4 per hour per phone |
+| GET | `/api/shop/orders/{id}?phone=` | Order status (needs the order code and the phone number used). A pending order is re-checked with Safaricom |
+| POST | `/api/shop/mpesa/callback/{secret}` | Safaricom's payment result. The secret in the URL is checked; an order is marked paid only if the amount matches |
+
+Admin only (`x-admin-token`):
+
+| Method | Path | Description |
+|---|---|---|
+| GET | `/api/admin/shop/overview` | Payments status plus, per store, money collected, orders to prepare, refunds due |
+| POST | `/api/admin/shop/stores` | Create/edit a store: name, tagline, delivery fee/note, WhatsApp, logo, visible, order |
+| DELETE | `/api/admin/shop/stores/{id}` | Delete (a store that has orders is hidden instead) |
+| GET | `/api/admin/shop/stores/{id}/products` | A store's products including hidden and stock |
+| POST | `/api/admin/shop/products` | Create/edit a product: store, name, brand, type, description, price (KES), stock, visible |
+| DELETE | `/api/admin/shop/products/{id}` | Remove a product |
+| POST | `/api/admin/shop/products/{id}/images` | Add a picture (max 4; PNG/JPEG/WebP checked by bytes) |
+| DELETE | `/api/admin/shop/images/{id}` | Remove a picture |
+| GET | `/api/admin/shop/orders?status=` | Orders with customer and delivery details |
+| POST | `/api/admin/shop/orders/{id}/status` | `processing`, `shipped`, `delivered` or `cancelled` (cancel returns stock and flags the refund to pay) |
+
 ## Admin — sponsors, analytics, backups and seasons
 
 Admin only (`x-admin-token`).

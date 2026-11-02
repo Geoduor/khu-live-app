@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import "./App.css";
-import { getLeagues, getStandings, getFixtures, getResults, getLiveMatches, getHealth, teamLogoUrl } from "./api";
+import { getLeagues, getStandings, getFixtures, getResults, getLiveMatches, getHealth, teamLogoUrl, getShopStores } from "./api";
 import { usePushNotifications } from "./hooks/usePushNotifications";
 import { useFavorites, useOnboarding } from "./hooks/useFavorites";
 import { useTheme } from "./hooks/useTheme";
@@ -20,6 +20,7 @@ import OnboardingPicker from "./components/OnboardingPicker";
 import TeamLogo from "./components/TeamLogo";
 import InstallBanner from "./components/InstallBanner";
 import { useInstallPrompt } from "./hooks/useInstallPrompt";
+import ShopView from "./components/ShopView";
 import TopScorers from "./components/TopScorers";
 import ShareButton from "./components/ShareButton";
 import { renderTableCard, shareCanvas, slug, shareText } from "./utils/shareCard";
@@ -67,11 +68,14 @@ function App() {
   // "Back" from a player returns to the screen they were opened from (e.g. the team page).
   const openPlayer = (id) => setOverlay((prev) => ({ type: "player", id, from: prev && prev.type !== "player" ? prev : null }));
   const closeOverlay = () => setOverlay(null);
+  // The Shop button only appears once at least one store has been set up.
+  const [shopOpen, setShopOpen] = useState(false);
+  useEffect(() => { getShopStores().then((d) => setShopOpen(((d && d.stores) || []).length > 0)).catch(() => {}); }, []);
 
   // Count which screen is open (see utils/track.js — no cookies, no ids).
   // The Cups tab counts itself, since it has two screens inside.
   useEffect(() => {
-    if (overlay) trackView({ team: "team", match: "match", bracket: "playoffs" }[overlay.type]);
+    if (overlay) { const v = { team: "team", match: "match", bracket: "playoffs" }[overlay.type]; if (v) trackView(v); }
     else if (tab !== "tournaments") trackView(tab);
   }, [tab, overlay]);
 
@@ -319,6 +323,11 @@ function App() {
             </div>
           </div>
           <div className="header-right">
+            {shopOpen && (
+              <button className="theme-toggle-btn get-app-btn" onClick={() => setOverlay({ type: "shop" })} title="Shop hockey gear">
+                <span aria-hidden="true">🛍</span> Shop
+              </button>
+            )}
             {!installState.alreadyInstalled && (
               <a className="theme-toggle-btn get-app-btn" href="/install.html" title="Install the app on your phone">
                 <span aria-hidden="true">📲</span> Get app
@@ -394,6 +403,7 @@ function App() {
         {overlay?.type === "match" && (
           <MatchDetail matchUrl={overlay.url} onBack={closeOverlay} onOpenTeam={openTeam} />
         )}
+        {overlay?.type === "shop" && <ShopView onBack={closeOverlay} />}
         {overlay?.type === "bracket" && (
           <PlayoffBracket onBack={closeOverlay} onOpenTeam={openTeam} />
         )}
