@@ -44,7 +44,9 @@ def callback_secret() -> str:
 
 
 def callback_url() -> str:
-    return f"{_env('PUBLIC_API_URL').rstrip('/')}/api/shop/mpesa/callback/{callback_secret()}"
+    # MPESA_CALLBACK_BASE points Safaricom at the Cloudflare Worker (which never misses a callback); falls back to the API itself.
+    base = _env("MPESA_CALLBACK_BASE") or _env("PUBLIC_API_URL")
+    return f"{base.rstrip('/')}/api/shop/mpesa/callback/{callback_secret()}"
 
 
 def normalize_phone(raw: str) -> str:

@@ -143,6 +143,8 @@
   #loginScreen { padding: 24px 16px; }
   @media (prefers-reduced-motion: reduce) { * { transition: none !important; scroll-behavior: auto !important; } }
 </style>
+<script src="/edge-config.js"></script>
+<script src="/turnstile.js"></script>
 </head>
 <body>
 
@@ -166,6 +168,7 @@
     <input id="username" placeholder="Your username" autocomplete="username" />
     <label for="password">Password</label>
     <input id="password" type="password" placeholder="Your password" autocomplete="current-password" />
+    <div id="tsBox" style="margin:10px 0;"></div>
     <button class="btn" id="loginBtn" onclick="login()">Log in</button>
     <div id="loginMsg" class="msg"></div>
   </div>
@@ -404,7 +407,7 @@
   // Use local backend when running on localhost, otherwise production.
   const API_BASE = (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1")
     ? "http://localhost:8000"
-    : "https://khu-backend.onrender.com";
+    : ((window.KHU_EDGE && window.KHU_EDGE.apiBase) || "https://khu-backend.onrender.com");
   function apiBase() { return API_BASE; }
   function agentToken() { return localStorage.getItem('khu_agent_token') || ''; }
   function displayName() { return localStorage.getItem('khu_agent_display_name') || ''; }
@@ -536,6 +539,7 @@
     }
   }
 
+  const tsLogin = window.khuTurnstile(document.getElementById('tsBox'));
   async function login() {
     const btn = $('loginBtn');
     const msg = $('loginMsg');
@@ -552,7 +556,7 @@
     try {
       const res = await fetch(`${API_BASE}/api/agent/login`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...(tsLogin.on ? { 'x-turnstile-token': tsLogin.token() } : {}) },
         body: JSON.stringify({ username, password }),
       });
       const data = await res.json();
@@ -561,6 +565,7 @@
       localStorage.setItem('khu_agent_display_name', data.display_name);
       showScreen();
     } catch (e) {
+      tsLogin.reset();
       msg.textContent = e.message;
       msg.className = 'msg error';
     } finally {

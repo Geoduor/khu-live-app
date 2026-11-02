@@ -1,0 +1,37 @@
+# Cloudflare Worker config. Secrets are NOT stored here: add them with `wrangler secret put` (see docs/EDGE_SETUP.md).
+name = "khu-edge"
+main = "worker.js"
+compatibility_date = "2025-01-01"
+
+[vars]
+BACKEND_URL = "https://khu-backend.onrender.com"
+ALLOWED_ORIGINS = "https://khu-live-app.vercel.app"
+
+# Retry store for M-Pesa payment reports Render could not take at that moment.
+# Create it once:  npx wrangler kv namespace create RETRY   and paste the id below.
+[[kv_namespaces]]
+binding = "RETRY"
+id = "PASTE_KV_NAMESPACE_ID_HERE"
+
+# Every minute: deliver any saved payment reports.
+[triggers]
+crons = ["* * * * *"]
+
+# Flood limits per visitor address (Cloudflare Rate Limiting). period is 10 or 60 seconds.
+[[unsafe.bindings]]
+name = "RL_LOGIN"
+type = "ratelimit"
+namespace_id = "1001"
+simple = { limit = 5, period = 60 }
+
+[[unsafe.bindings]]
+name = "RL_ORDER"
+type = "ratelimit"
+namespace_id = "1002"
+simple = { limit = 5, period = 60 }
+
+[[unsafe.bindings]]
+name = "RL_API"
+type = "ratelimit"
+namespace_id = "1003"
+simple = { limit = 120, period = 60 }

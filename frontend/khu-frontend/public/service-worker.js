@@ -28,7 +28,7 @@
  * cleaned up even when the strategy itself was supposed to do so.
  */
 
-const CACHE_VERSION = "v7"; // bump this string whenever service-worker.js changes meaningfully
+const CACHE_VERSION = "v8"; // bump this string whenever service-worker.js changes meaningfully
 const CACHE_NAME = `khu-app-shell-${CACHE_VERSION}`;
 const DATA_CACHE_NAME = `khu-app-data-${CACHE_VERSION}`;
 
@@ -77,7 +77,7 @@ self.addEventListener("activate", (event) => {
 // Only GET requests are cached (the Cache API rejects everything else).
 // Admin/agent calls, manual refresh and share-card logo data are never
 // cached: they're private, one-off, or large.
-const NEVER_CACHE = ["/api/admin/", "/api/agent/", "/api/push/", "/api/refresh", "/api/logo-data", "/api/live"];
+const NEVER_CACHE = ["/api/admin/", "/api/agent/", "/api/push/", "/api/refresh", "/api/logo-data", "/api/live", "/api/shop/orders"];
 
 function offlineFallback(request) {
   return caches.match(request).then((hit) => hit || Response.error());

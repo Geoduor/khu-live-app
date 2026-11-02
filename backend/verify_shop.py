@@ -152,6 +152,35 @@ check("a phone with a payment waiting cannot get a second prompt", r1.status_cod
 codes = [ORD_RAW(items=[{"product_id": pq, "qty": 1}], phone=f"07670000{i:02d}").status_code for i in range(4)]
 check("one visitor cannot hold more than 2 unpaid orders (rotating phone numbers)", codes[:2] == [200, 200] and codes[2:] == [429, 429], str(codes))
 
+print("7c. Lost callbacks are recovered by the background check")
+import datetime as _dt
+def _mk(phone):
+    (main._rate_hits.clear(), main._shop_open_orders.clear())
+    return ORD_RAW(items=[{"product_id": pq, "qty": 1}], phone=phone).json()["order_id"]
+def _age(oid, secs):
+    cn = db.get_connection(); cn.execute("UPDATE shop_orders SET created_at = ? WHERE order_id = ?", ((_dt.datetime.now() - _dt.timedelta(seconds=secs)).isoformat(), oid)); cn.commit(); cn.close()
+def _status(oid, phone): return c.get(f"/api/shop/orders/{oid}?phone={phone}").json()
+def _boom(cid): raise RuntimeError("Safaricom busy")
+a, b, d, e = _mk("0777000001"), _mk("0777000002"), _mk("0777000003"), _mk("0777000004")
+shop.reconcile(lambda cid: {"state": "paid", "receipt": "ZZ1", "reason": ""})
+check("a brand-new order is left alone", _status(a, "0777000001")["status"] == "pending_payment")
+for o_ in (a, b, d): _age(o_, 90)
+_age(e, 20 * 60)
+byc = {}
+cn = db.get_connection()
+for r_ in cn.execute("SELECT order_id, checkout_request_id FROM shop_orders").fetchall(): byc[r_["order_id"]] = r_["checkout_request_id"]
+cn.close()
+def q(cid):
+    if cid == byc[a] or cid == byc[e]: return {"state": "paid", "receipt": "ZZ" + cid[-3:], "reason": ""}
+    if cid == byc[b]: return {"state": "pending"}
+    raise RuntimeError("Safaricom busy")
+res = shop.reconcile(q)
+check("a lost 'paid' report is recovered", _status(a, "0777000001")["status"] == "paid" and res["paid"] >= 1, str(res))
+check("an order Safaricom says is still waiting stays waiting", _status(b, "0777000002")["status"] == "pending_payment")
+check("a Safaricom error leaves the order alone and is counted", _status(d, "0777000003")["status"] == "pending_payment" and res["errors"] >= 1, str(res))
+check("a payment that arrived after the hold ran out is still caught", _status(e, "0777000004")["status"] == "paid")
+check("running it again changes nothing (idempotent)", shop.reconcile(q)["paid"] == 0)
+
 print("8. Admin: fulfilment, refunds, money per store")
 check("order list needs the admin login", c.get("/api/admin/shop/orders").status_code == 401)
 orders = c.get("/api/admin/shop/orders", headers=H).json()["orders"]
@@ -166,7 +195,7 @@ check("cancelling a paid order flags the refund and returns stock", c.post(f"/ap
       and {p["product_id"]: p["stock"] for p in c.get(f"/api/admin/shop/stores/{sid}/products", headers=H).json()["products"]}[p2] == b4 + 1)
 ov = c.get("/api/admin/shop/overview", headers=H).json()
 row = [x for x in ov["settlement"] if x["store_id"] == sid][0]
-check("money per store counts paid, not cancelled/failed", row["amount_paid"] == 8400 + 1900 and row["refunds_due"] == 1, str(row))
+check("money per store counts paid, not cancelled/failed", row["amount_paid"] == 8400 + 1900 + 2 * 800 and row["refunds_due"] == 1, str(row))
 check("overview says payments are ready", ov["payments_ready"] is True)
 
 print("9. Backup and restore")

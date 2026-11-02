@@ -80,3 +80,11 @@ Keep `ALLOWED_ORIGINS` set to your Vercel address(es) only.
 | 4 | Existing: fresh Postgres could lose the match-notice tables | Low | Committed on creation |
 
 Still your decision: a determined attacker with many phone numbers and IP addresses could still tie up a small catalogue for short periods. Keep stock counts honest, watch the *Waiting for payment* count on the Shop tab, and rotate `MPESA_CALLBACK_SECRET` if the logs were ever shared.
+
+## Edge layer (optional Cloudflare Worker)
+
+- Flood and password-guess limits run on Cloudflare before traffic reaches Render; logins and shop orders can require a Turnstile human check.
+- With `EDGE_KEY` set on Render, requests lacking the Worker's secret key get 403 (except `/api/health`, browser preflight and Safaricom's secret-URL callback). The visitor address is taken from the Worker only when that key matches, so nobody can fake it.
+- The M-Pesa callback goes through the Worker, which saves a report if Render is down and re-sends it every minute (up to 24 hours). The API also checks waiting orders with Safaricom every minute, so a missed report cannot leave a paid order stuck.
+- The secret keys (`EDGE_KEY`, Turnstile secret, callback secret) live only in Cloudflare and Render settings. The Turnstile *site key* in `edge-config.js` is public by design.
+- Orders status lookups are no longer stored in the phone's offline cache.

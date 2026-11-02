@@ -12,10 +12,12 @@ Strategy (matches how ESPN/SofaScore/FotMob handle unreliable upstream sources):
 
 from fastapi import FastAPI, HTTPException, UploadFile, File, Header, Response, Request, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from typing import Optional, List
 from apscheduler.schedulers.background import BackgroundScheduler
 from datetime import datetime, timedelta, timezone
+import ipaddress
 import logging
 import os
 import json
@@ -128,7 +130,20 @@ _login_failures: dict = {}
 TRUSTED_PROXY_HOPS = int(os.environ.get("TRUSTED_PROXY_HOPS", "1"))
 
 
+EDGE_KEY = os.environ.get("EDGE_KEY", "")
+
+
+def _from_edge(request: Request) -> bool:
+    """True when the request carries our Cloudflare Worker's secret key (only the Worker knows it)."""
+    return bool(EDGE_KEY) and secrets.compare_digest((request.headers.get("x-edge-key", "")).encode("utf-8"), EDGE_KEY.encode("utf-8"))
+
+
 def _client_ip(request: Request) -> str:
+    if _from_edge(request):  # the Worker saw the real visitor address; nobody else can set this header
+        try:
+            return str(ipaddress.ip_address(request.headers.get("x-edge-client-ip", "").strip()))
+        except ValueError:
+            pass
     fwd = request.headers.get("x-forwarded-for", "")
     if fwd:
         parts = [p.strip() for p in fwd.split(",") if p.strip()]
@@ -330,6 +345,12 @@ app = FastAPI(
 
 @app.middleware("http")
 async def _security_headers(request: Request, call_next):
+    # When the Cloudflare Worker is switched on (EDGE_KEY set), only it may reach the API: this stops anyone
+    # bypassing its flood and password-guessing protection by calling the Render address directly. Safaricom's
+    # secret-URL callback and the health check stay open as a fallback.
+    if EDGE_KEY and request.url.path.startswith("/api/") and request.method != "OPTIONS" \
+            and not request.url.path.startswith("/api/shop/mpesa/callback/") and request.url.path != "/api/health" and not _from_edge(request):
+        return JSONResponse(status_code=403, content={"detail": "Use the official app address."}, headers={"X-Content-Type-Options": "nosniff"})
     resp = await call_next(request)
     resp.headers.setdefault("X-Content-Type-Options", "nosniff")
     resp.headers.setdefault("Referrer-Policy", "no-referrer")
@@ -361,7 +382,7 @@ app.add_middleware(
     allow_origins=allowed_origins,
     allow_credentials=False,  # auth uses headers, never cookies
     allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
-    allow_headers=["Content-Type", "x-admin-token", "x-agent-token"],
+    allow_headers=["Content-Type", "x-admin-token", "x-agent-token", "x-turnstile-token"],
 )
 
 # ── In-memory mirror of the DB cache, for fast reads ──
@@ -3827,6 +3848,19 @@ def history_honours():
 import backup as _backup
 
 # 02:00 East Africa Time = 23:00 UTC. Does nothing unless BACKUP_S3_* is set.
+def _reconcile_shop_payments():
+    """Every minute: settle orders whose M-Pesa result never reached us. Does nothing until M-Pesa is set up."""
+    if not _mpesa.configured():
+        return
+    try:
+        res = _shop.reconcile(_mpesa.stk_query)
+        if res["paid"] or res["failed"]:
+            logger.info("Shop reconcile: %s", res)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("Shop reconcile failed: %s", type(e).__name__)
+
+
+scheduler.add_job(_reconcile_shop_payments, "interval", minutes=1, id="shop_reconcile", replace_existing=True, max_instances=1, coalesce=True)
 scheduler.add_job(_backup.run_scheduled_backup, "cron", hour=23, minute=0, id="nightly_backup", replace_existing=True)
 
 
