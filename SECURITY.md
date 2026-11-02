@@ -69,3 +69,14 @@ Keep `ALLOWED_ORIGINS` set to your Vercel address(es) only.
 - Rate limits: 6 orders per 10 minutes per IP and 4 per hour per phone number; order status needs the order code and the phone number.
 - Customer name, phone and address are personal data: shown only on the admin page, included in the nightly backup, and covered by the privacy notice. M-Pesa keys live only in Render environment variables.
 - Admin store/product text is shown with `textContent`, never HTML; product pictures are checked by their bytes (no SVG).
+
+### Shop review findings (attacker view) and fixes
+
+| # | Weakness | Severity | Fix |
+|---|---|---|---|
+| 1 | Anyone could place unpaid orders (typing any phone number) to lock stock for 15 minutes each, or to flood a stranger's phone with M-Pesa prompts | Medium | A phone with a payment waiting cannot get another; 3 orders per phone per hour; one visitor can hold at most 2 unpaid orders at once |
+| 2 | A "payment succeeded" callback with no amount would have been accepted as paid | Medium (needs the callback secret) | Callbacks without an amount are never marked paid; the admin is told to check M-Pesa |
+| 3 | The secret callback URL appeared in the server's request log | Low | The secret is masked in logs |
+| 4 | Existing: fresh Postgres could lose the match-notice tables | Low | Committed on creation |
+
+Still your decision: a determined attacker with many phone numbers and IP addresses could still tie up a small catalogue for short periods. Keep stock counts honest, watch the *Waiting for payment* count on the Shop tab, and rotate `MPESA_CALLBACK_SECRET` if the logs were ever shared.

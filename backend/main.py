@@ -3069,12 +3069,33 @@ def shop_product(product_id: str, request: Request):
     return p
 
 
+class _HideCallbackSecret(logging.Filter):
+    """The M-Pesa callback URL contains a secret; never let it reach the request log."""
+    def filter(self, record):
+        try:
+            if isinstance(record.args, tuple):
+                record.args = tuple(re.sub(r"(/api/shop/mpesa/callback/)[^\s?\"]+", r"\1***", a) if isinstance(a, str) else a for a in record.args)
+        except Exception:  # noqa: BLE001
+            pass
+        return True
+
+
+logging.getLogger("uvicorn.access").addFilter(_HideCallbackSecret())
+
+
+_shop_open_orders: dict = {}  # ip -> recent order ids (memory only)
+
+
 @app.post("/api/shop/orders")
 def shop_create_order(payload: ShopOrderIn, request: Request):
     """Create an order and send the M-Pesa PIN request to the customer's phone."""
     _rate_limit(request, "shoporder", 6, 600)
     if not _mpesa.configured():
         raise HTTPException(status_code=503, detail="Payments are not switched on yet. Please try again later.")
+    # One visitor cannot tie up the stock with unpaid orders (they hold items for 15 minutes each).
+    ip = _client_ip(request)
+    if _shop.count_open(_shop_open_orders.get(ip, [])) >= 2:
+        raise HTTPException(status_code=429, detail="You already have payments waiting. Finish or wait for them to time out first.")
     try:
         order = _shop.create_order(_safe_id(payload.store_id), [i.model_dump() for i in payload.items], payload.customer_name,
                                    payload.phone, payload.town, payload.address, payload.note)
@@ -3087,6 +3108,9 @@ def shop_create_order(payload: ShopOrderIn, request: Request):
         logger.warning("STK push failed for %s: %s", order["order_id"], type(e).__name__)
         _shop.fail_order(order["order_id"], "We could not send the M-Pesa request.")
         raise HTTPException(status_code=502, detail="We could not send the M-Pesa request to your phone. Please try again.")
+    _shop_open_orders[ip] = (_shop_open_orders.get(ip, []) + [order["order_id"]])[-10:]
+    if len(_shop_open_orders) > 20000:
+        _shop_open_orders.pop(next(iter(_shop_open_orders)))
     return {"order_id": order["order_id"], "total": order["total"], "status": "pending_payment",
             "message": "Check your phone and enter your M-Pesa PIN to pay."}
 
@@ -3122,7 +3146,7 @@ async def shop_mpesa_callback(secret: str, request: Request):
     except Exception:  # noqa: BLE001
         parsed = None
     if parsed:
-        result = _shop.apply_payment_result(parsed["checkout_request_id"], parsed["ok"], parsed["reason"], parsed["receipt"], parsed["amount"])
+        result = _shop.apply_payment_result(parsed["checkout_request_id"], parsed["ok"], parsed["reason"], parsed["receipt"], parsed["amount"], require_amount=True)
         logger.info("M-Pesa callback %s -> %s", parsed["checkout_request_id"][:12], result)
     return {"ResultCode": 0, "ResultDesc": "Accepted"}
 

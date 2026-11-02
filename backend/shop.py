@@ -356,7 +356,9 @@ def create_order(store_id, items, customer_name, phone, town, address, note) -> 
             raise ValueError("That store is not available.")
         # Anyone can type any number, so cap how often one phone can be sent payment requests.
         hour_ago = (datetime.now() - timedelta(hours=1)).isoformat()
-        if conn.execute("SELECT COUNT(*) AS n FROM shop_orders WHERE phone = ? AND created_at > ?", (phone, hour_ago)).fetchone()["n"] >= 4:
+        if conn.execute("SELECT COUNT(*) AS n FROM shop_orders WHERE phone = ? AND status = 'pending_payment'", (phone,)).fetchone()["n"] >= 1:
+            raise ValueError("This number already has a payment waiting. Finish it on your phone, or wait a few minutes and try again.")
+        if conn.execute("SELECT COUNT(*) AS n FROM shop_orders WHERE phone = ? AND created_at > ?", (phone, hour_ago)).fetchone()["n"] >= 3:
             raise ValueError("Too many payment requests for this number. Please wait an hour and try again.")
         lines, subtotal = [], 0
         for pid, qty in merged.items():
@@ -412,7 +414,7 @@ def fail_order(order_id: str, reason: str):
         conn.close()
 
 
-def apply_payment_result(checkout_request_id: str, ok: bool, reason: str = "", receipt: str = "", amount=None) -> str:
+def apply_payment_result(checkout_request_id: str, ok: bool, reason: str = "", receipt: str = "", amount=None, require_amount: bool = False) -> str:
     """Record Safaricom's verdict. Idempotent. Returns paid / failed / ignored / amount_mismatch."""
     if not checkout_request_id:
         return "ignored"
@@ -423,6 +425,12 @@ def apply_payment_result(checkout_request_id: str, ok: bool, reason: str = "", r
         if not r or r["status"] not in ("pending_payment", "expired", "failed"):
             return "ignored"
         if ok:
+            if amount is None and require_amount:
+                # A success report with no amount cannot be checked: never mark it paid on its word alone.
+                conn.execute("UPDATE shop_orders SET admin_note = ?, updated_at = ? WHERE order_id = ?",
+                             ("A payment report arrived without an amount: check M-Pesa before sending the goods.", _now(), r["order_id"]))
+                conn.commit()
+                return "amount_mismatch"
             if amount is not None and int(round(float(amount))) != int(r["total"]):
                 conn.execute("UPDATE shop_orders SET admin_note = ?, updated_at = ? WHERE order_id = ?",
                              (f"Payment of {amount} received but the order total is {r['total']}: check M-Pesa {receipt}.", _now(), r["order_id"]))
@@ -577,3 +585,18 @@ def import_all(data) -> dict:
     finally:
         conn.close()
     return out
+
+
+def count_open(order_ids) -> int:
+    """How many of these orders are still waiting for payment (used to cap unpaid orders per visitor)."""
+    ids = [str(i)[:12] for i in (order_ids or [])][:20]
+    if not ids:
+        return 0
+    conn = db.get_connection()
+    try:
+        _ensure(conn)
+        expire_stale(conn)
+        q = ",".join("?" for _ in ids)
+        return conn.execute(f"SELECT COUNT(*) AS n FROM shop_orders WHERE status = 'pending_payment' AND order_id IN ({q})", tuple(ids)).fetchone()["n"]
+    finally:
+        conn.close()
