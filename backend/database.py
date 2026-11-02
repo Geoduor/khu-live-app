@@ -1101,6 +1101,7 @@ def _ensure_archive_tables_once(conn):
             by         TEXT DEFAULT ''
         )
     """)
+    conn.commit()  # on Postgres the tables vanish with a connection that closes without committing
 
 
 _HAS_SCORE = lambda m: m.get("home_score") is not None and m.get("away_score") is not None

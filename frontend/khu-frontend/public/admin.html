@@ -121,6 +121,7 @@
     <button class="admin-tab" data-tab="cups" role="tab" onclick="showAdminTab('cups')">Tournaments</button>
     <button class="admin-tab" data-tab="stats" role="tab" onclick="showAdminTab('stats')">Stats</button>
     <button class="admin-tab" data-tab="people" role="tab" onclick="showAdminTab('people')">Agents</button>
+    <button class="admin-tab" data-tab="shop" role="tab" onclick="showAdminTab('shop')">Shop</button>
     <button class="admin-tab" data-tab="growth" role="tab" onclick="showAdminTab('growth')">Visitors &amp; sponsors</button>
     <button class="admin-tab" data-tab="data" role="tab" onclick="showAdminTab('data')">Data &amp; backups</button>
   </div>
@@ -480,6 +481,83 @@
   <div id="agentMsg" class="msg"></div>
 
   <div id="agentsList" style="margin-top: 16px;"></div>
+</div>
+  </div>
+  <div class="admin-panel" id="apanel-shop">
+<div class="card">
+  <div class="section-title">Shop: payments and money per store</div>
+  <div class="subtitle">Fans pay through M-Pesa on their phone. All payments go to the one paybill or till set on the server, so what each store is owed is shown here for you to pay out. Payments only switch on once the M-Pesa settings are added on Render.</div>
+  <div id="shPayStatus" class="empty-note">Loading...</div>
+  <div id="shSettle"></div>
+</div>
+<div class="card">
+  <div class="section-title">Stores</div>
+  <div class="subtitle">Each store has its own logo, products and delivery fee. A store with orders can only be hidden, not deleted.</div>
+  <div id="shStores"></div>
+  <label>Store name</label>
+  <input id="shStName" maxlength="60" placeholder="e.g. Stick Masters Kisumu" />
+  <label>Short line under the name (optional)</label>
+  <input id="shStTag" maxlength="120" placeholder="e.g. Hockey sticks, balls and protective gear" />
+  <div class="row">
+    <div><label>Delivery fee (KES)</label><input id="shStFee" type="number" min="0" max="20000" value="0" /></div>
+    <div><label>Order of display</label><input id="shStSort" type="number" min="0" max="1000" value="0" /></div>
+  </div>
+  <label>Delivery note (optional)</label>
+  <input id="shStNote" maxlength="200" placeholder="e.g. Kisumu town same day, other towns 2-3 days" />
+  <label>Store WhatsApp for fan questions (optional)</label>
+  <input id="shStWa" maxlength="20" placeholder="0712345678" />
+  <label>Logo (PNG, JPEG or WebP)</label>
+  <input id="shStLogo" type="file" accept="image/png,image/jpeg,image/webp" />
+  <label style="display:flex; gap:8px; align-items:center; margin-top:12px;"><input id="shStActive" type="checkbox" style="width:auto;" checked /> Show this store to fans</label>
+  <label style="display:flex; gap:8px; align-items:center; margin-top:12px;"><input id="shStRemoveLogo" type="checkbox" style="width:auto;" /> Remove the current logo</label>
+  <button style="margin-top: 10px;" onclick="shSaveStore()">Save store</button>
+  <button style="margin-top: 8px; background: transparent; color: inherit; border: 1px solid currentColor;" onclick="shClearStoreForm()">New store (clear the form)</button>
+  <div id="shStMsg" class="msg"></div>
+</div>
+<div class="card">
+  <div class="section-title">Products</div>
+  <label>Store</label>
+  <select id="shPrStore" onchange="shLoadProducts()"><option value="">Choose a store...</option></select>
+  <div id="shProducts"></div>
+  <label>Product name</label>
+  <input id="shPrName" maxlength="100" placeholder="e.g. GX3000 composite stick 36.5in" />
+  <div class="row">
+    <div><label>Brand</label><input id="shPrBrand" maxlength="40" placeholder="e.g. Grays" /></div>
+    <div><label>Type</label><input id="shPrCat" maxlength="40" placeholder="e.g. Sticks" /></div>
+  </div>
+  <label>Description (optional)</label>
+  <input id="shPrDesc" maxlength="600" placeholder="Size, material, colour..." />
+  <div class="row">
+    <div><label>Price (KES)</label><input id="shPrPrice" type="number" min="1" max="1000000" /></div>
+    <div><label>In stock</label><input id="shPrStock" type="number" min="0" max="100000" value="1" /></div>
+  </div>
+  <label style="display:flex; gap:8px; align-items:center; margin-top:12px;"><input id="shPrActive" type="checkbox" style="width:auto;" checked /> Show this product to fans</label>
+  <button style="margin-top: 10px;" onclick="shSaveProduct()">Save product</button>
+  <button style="margin-top: 8px; background: transparent; color: inherit; border: 1px solid currentColor;" onclick="shClearProductForm()">New product (clear the form)</button>
+  <label>Pictures for the product above (save it first; up to 4)</label>
+  <input id="shPrImg" type="file" accept="image/png,image/jpeg,image/webp" />
+  <button style="margin-top: 8px;" onclick="shAddImage()">Add this picture</button>
+  <div id="shPrImgs" style="display:flex; gap:8px; flex-wrap:wrap; margin-top:10px;"></div>
+  <div id="shPrMsg" class="msg"></div>
+</div>
+<div class="card">
+  <div class="section-title">Orders</div>
+  <div class="subtitle">Customer names, phones and addresses are private: use them only to deliver and support the order.</div>
+  <label>Show</label>
+  <select id="shOrdFilter" onchange="shLoadOrders()">
+    <option value="">All orders</option>
+    <option value="paid">Paid, to prepare</option>
+    <option value="processing">Being prepared</option>
+    <option value="shipped">On the way</option>
+    <option value="delivered">Delivered</option>
+    <option value="pending_payment">Waiting for payment</option>
+    <option value="failed">Payment failed</option>
+    <option value="expired">Expired</option>
+    <option value="cancelled">Cancelled</option>
+  </select>
+  <button style="margin-top: 10px;" onclick="shLoadOrders()">Refresh orders</button>
+  <div id="shOrders"></div>
+  <div id="shOrdMsg" class="msg"></div>
 </div>
   </div>
   <div class="admin-panel" id="apanel-growth">
@@ -1275,12 +1353,177 @@
 
 
   // ── Admin sections (tabs keep the page short) ──
+
+  // ── Shop (all dynamic text through textContent / text nodes) ──
+  let shStores = [], shProducts = [], shEditStore = '', shEditProduct = '';
+  const kes = (n) => 'KES ' + Number(n || 0).toLocaleString('en-KE');
+  function shFetch(path, opts) {
+    return fetch(`${apiBase()}/api/admin/shop/${path}`, Object.assign({ headers: adminHeaders() }, opts || {}))
+      .then(async (res) => { const d = await res.json().catch(() => ({})); if (!res.ok) throw new Error(typeof d.detail === 'string' ? d.detail : 'Something went wrong (' + res.status + ').'); return d; });
+  }
+  // Read a chosen picture as a data URL (blob: is blocked here) and shrink it so it stays under the 300 KB limit.
+  function shShrink(file, maxSide) {
+    return new Promise((resolve, reject) => {
+      const rd = new FileReader();
+      rd.onerror = () => reject(new Error('That picture could not be read. Use a PNG, JPEG or WebP image.'));
+      rd.onload = () => {
+        const img = new Image();
+        img.onerror = () => reject(new Error('That picture could not be read. Use a PNG, JPEG or WebP image.'));
+        img.onload = () => {
+          const k = Math.min(1, maxSide / Math.max(img.width, img.height));
+          const c = document.createElement('canvas');
+          c.width = Math.max(1, Math.round(img.width * k)); c.height = Math.max(1, Math.round(img.height * k));
+          const ctx = c.getContext('2d'); ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, c.width, c.height); ctx.drawImage(img, 0, 0, c.width, c.height);
+          let q = 0.85, out = c.toDataURL('image/jpeg', q);
+          while (out.length > 380000 && q > 0.4) { q -= 0.1; out = c.toDataURL('image/jpeg', q); }
+          resolve(out);
+        };
+        img.src = rd.result;
+      };
+      rd.readAsDataURL(file);
+    });
+  }
+  async function loadShop() {
+    try {
+      const d = await shFetch('overview');
+      shStores = d.stores || [];
+      setKids($('shPayStatus'), h('div', { class: d.payments_ready ? '' : 'empty-note' },
+        d.payments_ready ? `M-Pesa is switched on (${d.mpesa_env}).` : 'M-Pesa is NOT set up yet, so fans cannot pay. Add the MPESA_ settings on Render (see docs/SHOP_SETUP.md).'));
+      setKids($('shSettle'), (d.settlement || []).length
+        ? d.settlement.map((x) => rowOf(h('div', {}, h('b', {}, x.name), h('div', { class: 'empty-note' },
+            `${x.orders_paid} paid order(s) · ${kes(x.amount_paid)} collected · ${x.to_fulfil} to prepare · ${x.pending} waiting for payment · ${x.refunds_due} cancelled (check refunds)`))))
+        : note('No stores yet.'));
+      setKids($('shStores'), shStores.length ? shStores.map((s) => rowOf(
+        h('div', {}, h('b', {}, s.name), h('div', { class: 'empty-note' }, `${s.active ? 'Showing' : 'Hidden'} · ${s.product_count} product(s) · delivery ${kes(s.delivery_fee)}`)),
+        h('button', { class: 'del-btn', style: 'background:transparent;color:inherit;border:1px solid currentColor;', onclick: () => shEditStoreForm(s) }, 'Edit'),
+        delBtn('Remove', () => shDeleteStore(s)))) : note('No stores yet. Add the first one below.'));
+      const cur = $('shPrStore').value;
+      setKids($('shPrStore'), opt('', 'Choose a store...'), shStores.map((s) => opt(s.store_id, s.name)));
+      if (cur && shStores.some((s) => s.store_id === cur)) $('shPrStore').value = cur;
+      shLoadProducts(); shLoadOrders();
+    } catch (e) { setKids($('shPayStatus'), note(e.message)); }
+  }
+  function shEditStoreForm(s) {
+    shEditStore = s.store_id;
+    $('shStName').value = s.name; $('shStTag').value = s.tagline || ''; $('shStFee').value = s.delivery_fee || 0; $('shStSort').value = s.sort || 0;
+    $('shStNote').value = s.delivery_note || ''; $('shStWa').value = s.whatsapp ? '0' + s.whatsapp.slice(3) : ''; $('shStActive').checked = !!s.active;
+    $('shStLogo').value = ''; $('shStRemoveLogo').checked = false; $('shStName').scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
+  function shClearStoreForm() {
+    shEditStore = ''; ['shStName', 'shStTag', 'shStNote', 'shStWa'].forEach((i) => { $(i).value = ''; });
+    $('shStFee').value = 0; $('shStSort').value = 0; $('shStActive').checked = true; $('shStLogo').value = ''; $('shStRemoveLogo').checked = false;
+  }
+  async function shSaveStore() {
+    const msg = $('shStMsg');
+    if (!$('shStName').value.trim()) { say(msg, 'Type the store name first.'); return; }
+    try {
+      const f = $('shStLogo').files[0];
+      const logo = f ? await shShrink(f, 400) : '';
+      const d = await shFetch('stores', { method: 'POST', body: JSON.stringify({
+        store_id: shEditStore, name: $('shStName').value.trim(), tagline: $('shStTag').value, whatsapp: $('shStWa').value,
+        delivery_fee: parseInt($('shStFee').value || '0', 10), delivery_note: $('shStNote').value, active: $('shStActive').checked,
+        sort: parseInt($('shStSort').value || '0', 10), logo_data_url: logo, remove_logo: $('shStRemoveLogo').checked }) });
+      say(msg, d.message); shClearStoreForm(); loadShop();
+    } catch (e) { say(msg, e.message); }
+  }
+  async function shDeleteStore(s) {
+    if (!confirm(`Remove ${s.name}? Its products go too. A store that has orders is only hidden.`)) return;
+    try { const d = await shFetch('stores/' + encodeURIComponent(s.store_id), { method: 'DELETE' }); say($('shStMsg'), d.message); loadShop(); }
+    catch (e) { say($('shStMsg'), e.message); }
+  }
+  async function shLoadProducts() {
+    const sid = $('shPrStore').value;
+    if (!sid) { setKids($('shProducts'), note('Choose a store to see its products.')); shProducts = []; return; }
+    try {
+      const d = await shFetch(`stores/${encodeURIComponent(sid)}/products`);
+      shProducts = d.products || [];
+      setKids($('shProducts'), shProducts.length ? shProducts.map((p) => rowOf(
+        h('div', {}, h('b', {}, p.name), h('div', { class: 'empty-note' }, `${[p.brand, p.category].filter(Boolean).join(' · ') || 'No brand/type'} · ${kes(p.price)} · ${p.stock} in stock · ${p.images.length} picture(s)${p.active ? '' : ' · hidden'}`)),
+        h('button', { class: 'del-btn', style: 'background:transparent;color:inherit;border:1px solid currentColor;', onclick: () => shEditProductForm(p) }, 'Edit'),
+        delBtn('Remove', () => shDeleteProduct(p)))) : note('No products yet in this store.'));
+    } catch (e) { setKids($('shProducts'), note(e.message)); }
+  }
+  function shShowImages(p) {
+    setKids($('shPrImgs'), (p ? p.images : []).map((iid) => h('div', { style: 'position:relative;' },
+      h('img', { src: `${apiBase()}/api/shop/images/${encodeURIComponent(iid)}`, alt: 'Product picture', style: 'width:72px;height:72px;object-fit:cover;border-radius:8px;display:block;' }),
+      h('button', { class: 'del-btn', style: 'position:absolute;top:2px;right:2px;padding:0 6px;', onclick: () => shDeleteImage(iid) }, '✕'))));
+  }
+  function shEditProductForm(p) {
+    shEditProduct = p.product_id;
+    $('shPrName').value = p.name; $('shPrBrand').value = p.brand || ''; $('shPrCat').value = p.category || ''; $('shPrDesc').value = p.description || '';
+    $('shPrPrice').value = p.price; $('shPrStock').value = p.stock; $('shPrActive').checked = !!p.active; shShowImages(p);
+    $('shPrName').scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
+  function shClearProductForm() {
+    shEditProduct = ''; ['shPrName', 'shPrBrand', 'shPrCat', 'shPrDesc', 'shPrPrice'].forEach((i) => { $(i).value = ''; });
+    $('shPrStock').value = 1; $('shPrActive').checked = true; $('shPrImg').value = ''; shShowImages(null);
+  }
+  async function shSaveProduct() {
+    const msg = $('shPrMsg');
+    if (!$('shPrStore').value) { say(msg, 'Choose the store first.'); return; }
+    if (!$('shPrName').value.trim() || !$('shPrPrice').value) { say(msg, 'Type the product name and price first.'); return; }
+    try {
+      const d = await shFetch('products', { method: 'POST', body: JSON.stringify({
+        product_id: shEditProduct, store_id: $('shPrStore').value, name: $('shPrName').value.trim(), brand: $('shPrBrand').value, category: $('shPrCat').value,
+        description: $('shPrDesc').value, price: parseInt($('shPrPrice').value, 10), stock: parseInt($('shPrStock').value || '0', 10), active: $('shPrActive').checked }) });
+      shEditProduct = d.product_id;
+      say(msg, d.message + ' You can now add pictures below.'); await shLoadProducts();
+      shShowImages(shProducts.find((p) => p.product_id === shEditProduct));
+    } catch (e) { say(msg, e.message); }
+  }
+  async function shDeleteProduct(p) {
+    if (!confirm(`Remove ${p.name}?`)) return;
+    try { const d = await shFetch('products/' + encodeURIComponent(p.product_id), { method: 'DELETE' }); say($('shPrMsg'), d.message); if (shEditProduct === p.product_id) shClearProductForm(); shLoadProducts(); }
+    catch (e) { say($('shPrMsg'), e.message); }
+  }
+  async function shAddImage() {
+    const msg = $('shPrMsg'), f = $('shPrImg').files[0];
+    if (!shEditProduct) { say(msg, 'Save the product first, then add pictures.'); return; }
+    if (!f) { say(msg, 'Choose a picture first.'); return; }
+    try {
+      const url = await shShrink(f, 900);
+      const d = await shFetch(`products/${encodeURIComponent(shEditProduct)}/images`, { method: 'POST', body: JSON.stringify({ image_data_url: url }) });
+      say(msg, d.message); $('shPrImg').value = ''; await shLoadProducts(); shShowImages(shProducts.find((p) => p.product_id === shEditProduct));
+    } catch (e) { say(msg, e.message); }
+  }
+  async function shDeleteImage(iid) {
+    try { await shFetch('images/' + encodeURIComponent(iid), { method: 'DELETE' }); await shLoadProducts(); shShowImages(shProducts.find((p) => p.product_id === shEditProduct)); }
+    catch (e) { say($('shPrMsg'), e.message); }
+  }
+  const SH_LABEL = { pending_payment: 'Waiting for payment', paid: 'Paid: to prepare', processing: 'Being prepared', shipped: 'On the way', delivered: 'Delivered', failed: 'Payment failed', expired: 'Expired', cancelled: 'Cancelled' };
+  const SH_NEXT = { paid: ['processing', 'shipped', 'delivered', 'cancelled'], processing: ['shipped', 'delivered', 'cancelled'], shipped: ['delivered', 'cancelled'] };
+  const SH_BTN = { processing: 'Preparing', shipped: 'Shipped', delivered: 'Delivered', cancelled: 'Cancel + refund' };
+  function shOrderRow(o) {
+    const actions = (SH_NEXT[o.status] || []).map((st) =>
+      h('button', { class: 'del-btn', style: 'background:transparent;color:inherit;border:1px solid currentColor;', onclick: () => shSetStatus(o, st) }, SH_BTN[st]));
+    const items = o.items.map((i) => `${i.qty} × ${i.name}${i.brand ? ' (' + i.brand + ')' : ''}`).join(', ') + (o.mpesa_receipt ? ' · M-Pesa ' + o.mpesa_receipt : '');
+    return h('div', { class: 'result-row', style: 'display:block;' },
+      h('div', {}, h('b', {}, o.order_id), ' · ', SH_LABEL[o.status] || o.status, ' · ', kes(o.total), ' · ', o.store_name),
+      h('div', { class: 'empty-note' }, `${o.customer_name} · ${o.phone} · ${o.town}, ${o.address}${o.note ? ' · Note: ' + o.note : ''}`),
+      h('div', { class: 'empty-note' }, items),
+      o.admin_note ? h('div', { class: 'empty-note', style: 'font-weight:700;' }, o.admin_note) : null,
+      h('div', { style: 'margin-top:6px; display:flex; gap:6px; flex-wrap:wrap;' }, actions));
+  }
+  async function shLoadOrders() {
+    const box = $('shOrders');
+    try {
+      const d = await shFetch('orders' + ($('shOrdFilter').value ? '?status=' + encodeURIComponent($('shOrdFilter').value) : ''));
+      setKids(box, (d.orders || []).length ? d.orders.map(shOrderRow) : note('No orders here yet.'));
+    } catch (e) { setKids(box, note(e.message)); }
+  }
+  async function shSetStatus(o, st) {
+    if (st === 'cancelled' && !confirm('Cancel this order? Stock is returned and you must refund the customer yourself in M-Pesa.')) return;
+    try { const d = await shFetch(`orders/${encodeURIComponent(o.order_id)}/status`, { method: 'POST', body: JSON.stringify({ status: st }) }); say($('shOrdMsg'), d.message); loadShop(); }
+    catch (e) { say($('shOrdMsg'), e.message); }
+  }
+
   function showAdminTab(name) {
     document.querySelectorAll('.admin-panel').forEach((p) => p.classList.toggle('active', p.id === 'apanel-' + name));
     document.querySelectorAll('.admin-tab').forEach((b) => b.classList.toggle('active', b.dataset.tab === name));
     try { sessionStorage.setItem('khu_admin_tab', name); } catch (e) { /* storage may be blocked */ }
     window.scrollTo({ top: 0 });
     if (name === 'growth') { loadAnalytics(); loadSponsors(); }
+    if (name === 'shop') { loadShop(); }
   }
   (function initAdminTabs() {
     let t = 'results';

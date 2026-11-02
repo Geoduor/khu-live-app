@@ -46,6 +46,23 @@ services:
         sync: false
       - key: BACKUP_S3_SECRET
         sync: false
+      # Optional shop payments (Safaricom Daraja / M-Pesa). Secrets. See docs/SHOP_SETUP.md.
+      - key: MPESA_ENV
+        value: sandbox
+      - key: MPESA_CONSUMER_KEY
+        sync: false
+      - key: MPESA_CONSUMER_SECRET
+        sync: false
+      - key: MPESA_SHORTCODE
+        sync: false
+      - key: MPESA_PASSKEY
+        sync: false
+      - key: MPESA_TRANSACTION_TYPE
+        value: CustomerPayBillOnline
+      - key: MPESA_CALLBACK_SECRET
+        sync: false
+      - key: PUBLIC_API_URL
+        value: https://khu-backend.onrender.com
       - key: KHU_REQUEST_DELAY_SECONDS
         value: "1.0"
       - key: KHU_CHALLENGE_BACKOFF_MULTIPLIER

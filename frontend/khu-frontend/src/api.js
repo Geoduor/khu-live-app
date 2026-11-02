@@ -78,6 +78,14 @@ export const getPlayer = (id) => api.get(`/api/players/${encodeURIComponent(id)}
 export const playerPhotoUrl = (id, version = "") => `${API_BASE}/api/players/${encodeURIComponent(id)}/photo${version ? `?v=${encodeURIComponent(version)}` : ""}`;
 
 // ── Health check ──
+// ── Shop ──
+export const getShopStores = () => api.get("/api/shop/stores").then(r => r.data);
+export const getShopStore = (id) => api.get(`/api/shop/stores/${encodeURIComponent(id)}`).then(r => r.data);
+export const shopImageUrl = (id) => `${API_BASE}/api/shop/images/${encodeURIComponent(id)}`;
+export const shopLogoUrl = (id) => `${API_BASE}/api/shop/stores/${encodeURIComponent(id)}/logo`;
+export const createShopOrder = (payload) => api.post("/api/shop/orders", payload).then(r => r.data);
+export const getShopOrder = (id, phone) => api.get(`/api/shop/orders/${encodeURIComponent(id)}`, { params: { phone } }).then(r => r.data);
+
 export const getHealth = () => api.get("/api/health").then(r => r.data);
 
 // ── Manual refresh trigger ──
