@@ -5,7 +5,8 @@ Settings (environment, all secrets live on Render, never in git):
   MPESA_ENV              "sandbox" (default) or "production"
   MPESA_CONSUMER_KEY     from the Daraja app
   MPESA_CONSUMER_SECRET  from the Daraja app
-  MPESA_SHORTCODE        paybill or till number that receives the money
+  MPESA_SHORTCODE        paybill number, or for a till the "store/head office" number Safaricom gives (used for the password)
+  MPESA_PARTY_B          only for a till (Buy Goods): the till number that receives the money. Defaults to MPESA_SHORTCODE
   MPESA_PASSKEY          Lipa Na M-Pesa online passkey
   MPESA_TRANSACTION_TYPE "CustomerPayBillOnline" (default, paybill) or "CustomerBuyGoodsOnline" (till)
   MPESA_CALLBACK_SECRET  long random string; becomes part of the callback URL so only Safaricom's
@@ -86,7 +87,7 @@ def stk_push(phone: str, amount: int, account_ref: str, description: str) -> dic
     body = {
         "BusinessShortCode": _env("MPESA_SHORTCODE"), "Password": _password(ts), "Timestamp": ts,
         "TransactionType": _env("MPESA_TRANSACTION_TYPE", "CustomerPayBillOnline"),
-        "Amount": int(amount), "PartyA": phone, "PartyB": _env("MPESA_SHORTCODE"), "PhoneNumber": phone,
+        "Amount": int(amount), "PartyA": phone, "PartyB": _env("MPESA_PARTY_B") or _env("MPESA_SHORTCODE"), "PhoneNumber": phone,
         "CallBackURL": callback_url(), "AccountReference": account_ref[:12], "TransactionDesc": description[:13] or "Order",
     }
     r = requests.post(f"{base_url()}/mpesa/stkpush/v1/processrequest", json=body,
