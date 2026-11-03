@@ -11,7 +11,7 @@ ALLOWED_ORIGINS = "https://khu-live-app.vercel.app"
 # Create it once:  npx wrangler kv namespace create RETRY   and paste the id below.
 [[kv_namespaces]]
 binding = "RETRY"
-id = "PASTE_KV_NAMESPACE_ID_HERE"
+id = "910d386571d74643b9e6660d88952687"
 
 # Every minute: deliver any saved payment reports.
 [triggers]
