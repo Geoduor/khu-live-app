@@ -21,7 +21,8 @@ The shop is built but stays dormant ("Ordering opens soon") until you add M-Pesa
 |---|---|
 | `MPESA_ENV` | `sandbox` (later `production`) |
 | `MPESA_CONSUMER_KEY` / `MPESA_CONSUMER_SECRET` | from Daraja |
-| `MPESA_SHORTCODE` | `174379` in sandbox; your paybill/till in production |
+| `MPESA_SHORTCODE` | `174379` in sandbox; production: your paybill, or for a till the *store/head-office number* Safaricom gives you at Go Live |
+| `MPESA_PARTY_B` | **Tills only:** your till number. Leave out for a paybill |
 | `MPESA_PASSKEY` | from Daraja |
 | `MPESA_TRANSACTION_TYPE` | `CustomerPayBillOnline` for a paybill; `CustomerBuyGoodsOnline` for a till |
 | `MPESA_CALLBACK_SECRET` | a long random string you invent (30+ characters). Keep it private |
