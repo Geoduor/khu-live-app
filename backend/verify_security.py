@@ -139,10 +139,10 @@ main._rate_hits.clear()
 big = {"league_short": "PLM", "home_team": "A" * 500, "away_team": "B", "home_score": 1, "away_score": 0, "date": "2026-10-17 10:00"}
 check("oversized team name rejected (422)", c.post("/api/admin/results/add", headers=H, json=big).status_code == 422)
 check("absurd score rejected (422)", c.post("/api/admin/results/add", headers=H, json=dict(big, home_team="A", home_score=99999)).status_code == 422)
-check("50 push favourites > cap rejected", c.post("/api/push/subscribe", json={"endpoint": "https://fcm.googleapis.com/x", "keys": {"p256dh": "k", "auth": "a"}, "favoriteTeams": ["t"] * 61}).status_code == 422)
+check("50 push favourites > cap rejected", c.post("/api/push/subscribe", json={"endpoint": "https://fcm.googleapis.com/x", "keys": {"p256dh": "BHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHg", "auth": "YWFhYWFhYWFhYWFhYWFhYQ"}, "favoriteTeams": ["t"] * 61}).status_code == 422)
 main._rate_hits.clear()
 old = push.MAX_SUBSCRIPTIONS; push.MAX_SUBSCRIPTIONS = 1
-sub = lambda n: {"endpoint": f"https://fcm.googleapis.com/fcm/send/{n}", "keys": {"p256dh": "k", "auth": "a"}}
+sub = lambda n: {"endpoint": f"https://fcm.googleapis.com/fcm/send/{n}", "keys": {"p256dh": "BHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHg", "auth": "YWFhYWFhYWFhYWFhYWFhYQ"}}
 c.post("/api/push/subscribe", json=sub("one"))
 check("subscription table is capped", c.post("/api/push/subscribe", json=sub("two")).status_code == 503)
 check("existing subscriber can still update", c.post("/api/push/subscribe", json=sub("one")).status_code == 200)
@@ -166,6 +166,31 @@ check("raw session token is not stored in the database", _tok not in _stored and
 check("hashed session still verifies", (_db.verify_agent_session(_tok) or {}).get("username") == "sec_agent")
 check("wrong token rejected", _db.verify_agent_session("0" * 64) is None)
 check("unknown user login returns None", _db.verify_agent_login("nobody_here", "whatever-pass") is None)
+
+
+print("Oversize request bodies (memory-exhaustion attack)")
+def _chunks(n_mb):
+    for _ in range(n_mb):
+        yield b"A" * (1024 * 1024)
+main._rate_hits.clear()
+r = c.post("/api/shop/orders", content=b'{"x":"' + b"A" * (3 * 1024 * 1024) + b'"}', headers={"content-type": "application/json"})
+check("a 3 MB body to a public address is refused up front (413)", r.status_code == 413, str(r.status_code))
+r = c.post("/api/push/unsubscribe", content=_chunks(3), headers={"content-type": "application/json"})
+check("a chunked upload with no declared size is cut off too (413)", r.status_code == 413, str(r.status_code))
+r = c.post("/api/analytics/hit", json={"view": "home"})
+check("normal small requests still work", r.status_code == 204, str(r.status_code))
+r = c.post("/api/admin/restore", content=b"{" + b'"a":"' + b"A" * (3 * 1024 * 1024) + b'"}', headers={**H, "content-type": "application/json"})
+check("admin backups bigger than 1 MB are still accepted", r.status_code != 413, str(r.status_code))
+r = c.post("/api/admin/restore", content=_chunks(31), headers={**H, "content-type": "application/json"})
+check("but even admin uploads stop at 30 MB", r.status_code == 413, str(r.status_code))
+
+
+print("Sponsor numbers cannot be inflated")
+main._rate_hits.clear()
+sp = c.post("/api/admin/sponsors", headers=H, json={"name": "Test Sponsor", "link_url": "https://example.com", "active": True}).json()
+sid_ = sp.get("sponsor_id") or sp.get("id") or ""
+codes = [c.post(f"/api/sponsors/{sid_ or 'x'}/click").status_code for _ in range(6)]
+check("one visitor gets at most 3 counted clicks per sponsor per hour", codes[:3] == [204, 204, 204] and codes[3:] == [429, 429, 429], str(codes))
 
 print("\nRESULT:", "all checks passed" if not fails else f"{len(fails)} FAILURE(S): {fails}")
 sys.exit(1 if fails else 0)

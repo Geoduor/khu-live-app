@@ -360,6 +360,65 @@ async def _security_headers(request: Request, call_next):
         resp.headers["Cache-Control"] = "no-store"
     return resp
 
+# ── Request size limits (before anything is read into memory) ──
+# Without these, anyone could POST a gigabyte to a public address and exhaust the server's memory or CPU.
+PUBLIC_BODY_LIMIT = 1 * 1024 * 1024        # fans: orders, push sign-ups, analytics
+ADMIN_BODY_LIMIT = 30 * 1024 * 1024        # admin/agent: backups, PDFs, photos
+
+
+class _BodyLimitMiddleware:
+    """Pure ASGI wrapper: refuses oversize bodies by Content-Length, and also counts bytes for chunked uploads
+    (reading stops the moment the limit is passed, so memory stays bounded; the visitor gets a clean 413)."""
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http" or scope["method"] in ("GET", "HEAD", "OPTIONS"):
+            return await self.app(scope, receive, send)
+        path = scope.get("path", "")
+        limit = ADMIN_BODY_LIMIT if path.startswith("/api/admin") else PUBLIC_BODY_LIMIT
+
+        async def refuse():
+            body = b'{"detail":"That request is too large."}'
+            await send({"type": "http.response.start", "status": 413, "headers": [(b"content-type", b"application/json"), (b"content-length", str(len(body)).encode()), (b"x-content-type-options", b"nosniff")]})
+            await send({"type": "http.response.body", "body": body})
+
+        for k, v in scope.get("headers", []):
+            if k == b"content-length":
+                try:
+                    if int(v) > limit:
+                        return await refuse()
+                except ValueError:
+                    return await refuse()
+        state = {"seen": 0, "over": False}
+
+        async def limited_receive():
+            if state["over"]:
+                return {"type": "http.disconnect"}
+            msg = await receive()
+            if msg["type"] == "http.request":
+                state["seen"] += len(msg.get("body", b""))
+                if state["seen"] > limit:
+                    state["over"] = True
+                    return {"type": "http.disconnect"}
+            return msg
+
+        async def guarded_send(msg):
+            if not state["over"]:  # once over the limit, whatever the app says is replaced by our 413
+                await send(msg)
+
+        try:
+            await self.app(scope, limited_receive, guarded_send)
+        except Exception:
+            if not state["over"]:
+                raise  # a genuine error: leave it to the normal handlers
+        finally:
+            if state["over"]:
+                await refuse()
+
+
+app.add_middleware(_BodyLimitMiddleware)
+
 # CORS origins: locally we allow everything for convenience. In production
 # (Render), set ALLOWED_ORIGINS to your real Vercel URL(s), comma-separated,
 # e.g. "https://khu-live-app.vercel.app,https://your-custom-domain.com"
@@ -3818,6 +3877,8 @@ def sponsor_event(sponsor_id: str, event: str, request: Request, background: Bac
     if event not in ("impression", "click"):
         raise HTTPException(status_code=404, detail="Not found.")
     _rate_limit(request, "sponsor-" + event, 60, 60)
+    # Per visitor AND per sponsor over an hour, so nobody can inflate a sponsor's numbers (clicks are what sponsors judge).
+    _rate_limit(request, f"sponsor-{event}-{sponsor_id[:20]}", 3 if event == "click" else 40, 3600)
     if _tracking_refused(request) or not _insights.sponsor_is_live(sponsor_id[:20]):
         return Response(status_code=204)
     background.add_task(_insights.record_event, ("sponsor_imp:" if event == "impression" else "sponsor_click:") + sponsor_id[:20])
@@ -4006,6 +4067,19 @@ def _valid_push_endpoint(endpoint: str) -> bool:
         return False
 
 
+def _valid_push_keys(keys) -> bool:
+    """Real browsers always send a 65-byte P-256 public key and a 16-byte auth secret. Refusing anything else makes
+    stuffing the subscriber list with junk much harder."""
+    import base64
+    def raw(s):
+        return base64.urlsafe_b64decode(s + "=" * (-len(s) % 4))
+    try:
+        p, a = raw(keys.p256dh), raw(keys.auth)
+        return len(p) == 65 and p[0] == 4 and len(a) == 16
+    except Exception:  # noqa: BLE001
+        return False
+
+
 @app.post("/api/push/subscribe")
 def subscribe_to_push(subscription: PushSubscriptionPayload, request: Request):
     """
@@ -4017,6 +4091,8 @@ def subscribe_to_push(subscription: PushSubscriptionPayload, request: Request):
     _rate_limit(request, "push-sub", 10, 600)
     if not _valid_push_endpoint(subscription.endpoint):
         raise HTTPException(status_code=400, detail="Unsupported push service endpoint.")
+    if not _valid_push_keys(subscription.keys):
+        raise HTTPException(status_code=400, detail="Invalid push keys.")
     if any(len(t) > 500 for t in (subscription.favoriteTeams or [])):
         raise HTTPException(status_code=400, detail="Invalid favorite team.")
     if not push.has_subscription(subscription.endpoint) and push.count_subscriptions() >= push.MAX_SUBSCRIPTIONS:

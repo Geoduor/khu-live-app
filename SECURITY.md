@@ -88,3 +88,18 @@ Still your decision: a determined attacker with many phone numbers and IP addres
 - The M-Pesa callback goes through the Worker, which saves a report if Render is down and re-sends it every minute (up to 24 hours). The API also checks waiting orders with Safaricom every minute, so a missed report cannot leave a paid order stuck.
 - The secret keys (`EDGE_KEY`, Turnstile secret, callback secret) live only in Cloudflare and Render settings. The Turnstile *site key* in `edge-config.js` is public by design.
 - Orders status lookups are no longer stored in the phone's offline cache.
+
+## Full audit (November 2026) — findings and fixes
+
+Method: every one of the 101 API routes checked for an authorisation call in its handler (the only admin path without one is the login itself; agents can reach only the match-day routes); every database query checked for safe parameters; the pages checked for HTML injection (none: no `innerHTML`); Python libraries checked with `pip-audit` (no known flaws) and the packages shipped to browsers with `npm audit` (none flagged; the remaining warnings are build tooling that never reaches fans).
+
+| # | Weakness | Severity | Fix |
+|---|---|---|---|
+| 1 | Anyone could send a huge request (60 MB tested) to a public address; the server read and parsed all of it before any check, a cheap way to exhaust memory and CPU | Medium | Body limits before anything is read: 1 MB for fans, 30 MB for admin/agent, also for chunked uploads with no declared size (413) |
+| 2 | Anyone could stuff the push-notification list with junk subscriptions (fake keys), crowding out real fans | Low | Subscription keys must have the real browser format (65-byte public key, 16-byte secret) |
+| 3 | Anyone could inflate a sponsor's views and clicks (60 a minute from one connection) | Low | Per visitor and sponsor: at most 3 clicks and 40 views counted per hour |
+
+Accepted risks, your decision:
+- `POST /api/refresh` is public by design (pull-to-refresh). It is limited to one real scrape every 5 minutes for everyone, but a determined visitor can use up that slot. Impact: at worst slightly staler data. Make it admin-only if this ever matters.
+- Agent logins lock an account for 15 minutes after 10 failed tries, so someone who knows an agent's username could keep that agent locked out. The Worker's per-visitor limit softens this.
+- Push unsubscribe and favourites are keyed by the subscription address, which works like a password held only by that phone.
