@@ -113,8 +113,9 @@ ts=c.get("/api/players/top-scorers").json()["players"]
 check("manual stat line wins over derived (no double count)", ts[0]["goals"]==7 and sum(1 for p in ts if p["player_name"]=="Ann Otieno")==1, str(ts))
 
 print("8. Push validation, admin-only test push, refresh lock, EAT date filter")
-sub={"endpoint":"https://fcm.googleapis.com/fcm/send/abc","keys":{"p256dh":"k","auth":"a"}}
+sub={"endpoint":"https://fcm.googleapis.com/fcm/send/abc","keys":{"p256dh":"BHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHg","auth":"YWFhYWFhYWFhYWFhYWFhYQ"}}
 check("push subscribe accepts known push host", c.post("/api/push/subscribe",json=sub).status_code==200)
+check("push subscribe rejects junk keys (list stuffing)", c.post("/api/push/subscribe",json=dict(sub,keys={"p256dh":"k","auth":"a"})).status_code==400)
 bad=dict(sub,endpoint="http://169.254.169.254/latest")
 check("push subscribe rejects internal/unknown host", c.post("/api/push/subscribe",json=bad).status_code==400)
 bad2=dict(sub,endpoint="https://evil.com/?x=googleapis.com")
