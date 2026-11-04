@@ -39,6 +39,7 @@ from scraper import (
     _parse_match_date,
     _group_and_sort_matches,
     match_calendar_date_key,
+    team_loose_key,
     polite_delay,
     get_last_challenge_info,
     safe_get,
@@ -839,6 +840,9 @@ def fuzzy_match_logo(team_name: str, fuzzy_records: list):
 
     matches = []
     for rec in fuzzy_records:
+        if _same_team_other_spelling(team_name, rec["name"]):
+            matches.append(rec)
+            continue
         if rec["gender"] != gender or rec["squad"] != squad:
             continue
         if not rec["tokens"] or not tokens:
@@ -892,11 +896,28 @@ def _team_matches_fixture_side(team_name: str, team_url: str, side_name: str, si
     tokens_b = raw_b - _NOISE_TOKENS
     if not tokens_a or not tokens_b:
         return False
+    if _same_team_other_spelling(team_name, side_name):
+        return True
     if _gender_bucket(raw_a) != _gender_bucket(raw_b):
         return False
     if _squad_qualifier(raw_a) != _squad_qualifier(raw_b):
         return False
     return tokens_b.issubset(tokens_a) or tokens_a.issubset(tokens_b)
+
+
+def _same_team_other_spelling(a: str, b: str) -> bool:
+    """The same team spelled differently by different KHU sources: the PDF calendar says "Kisii Uni Men", the live
+    site "Kisii University". Compared with the scraper's spelling-insensitive key (drops university/uni/men/ladies),
+    but only when the gender and any Dev/Reserve marker agree; a team with no gender word counts as the men's team
+    (KHU's convention), so "Kisii Uni Men" == "Kisii University" but never "Kisii University Ladies". Teams whose
+    names differ in any real word (Kisii Falcons vs Kisii University) are never the same."""
+    ka, kb = team_loose_key(a), team_loose_key(b)
+    if not ka or ka != kb:
+        return False
+    ra, rb = _team_token_set(a), _team_token_set(b)
+    ga = "men" if _gender_bucket(ra) == "unspecified" else _gender_bucket(ra)
+    gb = "men" if _gender_bucket(rb) == "unspecified" else _gender_bucket(rb)
+    return ga == gb and _squad_qualifier(ra) == _squad_qualifier(rb)
 
 
 def _leagues_in_scope(league_short: str = ""):
@@ -944,7 +965,12 @@ def _find_standings_entry_for_team(team_name: str, team_url: str = "", league_sh
         for team in league_data.get("standings", []):
             raw_b = _team_token_set(team.get("team", ""))
             tokens_b = raw_b - _NOISE_TOKENS
-            if not tokens_b or _gender_bucket(raw_b) != gender_a or _squad_qualifier(raw_b) != squad_a:
+            if not tokens_b:
+                continue
+            if _same_team_other_spelling(team_name, team.get("team", "")):
+                fuzzy_matches.append(team)
+                continue
+            if _gender_bucket(raw_b) != gender_a or _squad_qualifier(raw_b) != squad_a:
                 continue
             if tokens_b.issubset(tokens_a) or tokens_a.issubset(tokens_b):
                 fuzzy_matches.append(team)

@@ -483,5 +483,20 @@ check("initials alone never match", _ppx._same_person("K.O", "Kevin Okoth") is F
 check("photo downloads are limited to KHU's own host", __import__("scraper").is_allowed_khu_url("https://evil.example/x.jpg") is False)
 main.cache["standings"].clear(); main.cache["standings"].update(_old_std13)
 
+
+print("9. Same team, different spelling (Kisii Uni Men / Kisii University) — never merged with a different team")
+B_ = "https://www.kenyahockeyunion.org/joomsport_team/"
+_rows = [{"team": n, "team_url": B_ + n.lower().replace(" ", "-") + "/?sid=1", "team_logo_url": "L-" + n} for n in
+         ["Kisii Falcons", "Kisii University", "Kabianga University", "Bay Club"]]
+main.cache["standings"] = {"nlm_sz": {"league": "NLM-SZ", "short": "NLM-SZ", "standings": _rows}}
+check("PDF spelling 'Kisii Uni Men' is the live 'Kisii University'", main._team_matches_fixture_side("Kisii University", "", "Kisii Uni Men", ""))
+check("'Kisii Uni' and 'Kisii University Men' too", main._team_matches_fixture_side("Kisii University", "", "Kisii Uni", "") and main._team_matches_fixture_side("Kisii University", "", "Kisii University Men", ""))
+check("Kisii Falcons is never Kisii University (any spelling)", not any(main._team_matches_fixture_side("Kisii Falcons", "", n, "") for n in ["Kisii University", "Kisii Uni Men", "Kisii Uni", "Kisii University Men"]))
+check("the ladies' team is never the men's team", not main._team_matches_fixture_side("Kisii University", "", "Kisii Uni Ladies", ""))
+check("a Dev squad is never the senior team", not main._team_matches_fixture_side("Western Jaguars", "", "Western Jaguars Dev", ""))
+check("two different team links are never merged", not main._team_matches_fixture_side("Kisii University", B_ + "a/", "Kisii Uni Men", B_ + "b/"))
+check("'Kisii Uni Men' resolves to the University standings row only", (main._find_standings_entry_for_team("Kisii Uni Men", "", "NLM-SZ") or {}).get("team") == "Kisii University")
+check("and takes the University logo, not the Falcons one", main.fuzzy_match_logo("Kisii Uni Men", main.build_fuzzy_team_records()) == "L-Kisii University")
+
 print("\nRESULT:", "all checks passed" if not fails else f"{len(fails)} FAILURE(S): {fails}")
 sys.exit(1 if fails else 0)
