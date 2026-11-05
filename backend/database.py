@@ -97,6 +97,20 @@ def init_db():
         )
     """)
 
+    # ── Match corrections ──
+    # KHU's own site sometimes attaches a match to the wrong team (or shows
+    # a wrong score). We cannot edit their site, so a correction says "the
+    # match KHU shows as <home> v <away> on <date> is really <this>". It
+    # applies to what fans see in this app only, and stops applying by
+    # itself once KHU's page no longer matches the description.
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS match_corrections_store (
+            corr_key    TEXT PRIMARY KEY,
+            data_json   TEXT NOT NULL,
+            entered_at  TEXT NOT NULL
+        )
+    """)
+
     # ── Manual player-stat entries ──
     # KHU's site doesn't publish individual player statistics at all —
     # this isn't a scraper gap to fill, it's tracking something that
@@ -424,6 +438,65 @@ def load_team_stats() -> list:
         r["stat_key"] = row["stat_key"]
         out.append(r)
     return out
+
+
+def save_match_correction(corr_key: str, data: dict) -> str:
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute("""
+        INSERT INTO match_corrections_store (corr_key, data_json, entered_at)
+        VALUES (?, ?, ?)
+        ON CONFLICT(corr_key) DO UPDATE SET
+            data_json = excluded.data_json,
+            entered_at = excluded.entered_at
+    """, (corr_key, json.dumps(data, ensure_ascii=False), datetime.now().isoformat()))
+    conn.commit()
+    conn.close()
+    return corr_key
+
+
+def load_match_corrections() -> list:
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute("SELECT corr_key, data_json, entered_at FROM match_corrections_store ORDER BY entered_at")
+    rows = cur.fetchall()
+    conn.close()
+    out = []
+    for row in rows:
+        r = json.loads(row["data_json"])
+        r["corr_key"] = row["corr_key"]
+        r["entered_at"] = row["entered_at"]
+        out.append(r)
+    return out
+
+
+def delete_match_correction(corr_key: str) -> bool:
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute("DELETE FROM match_corrections_store WHERE corr_key = ?", (corr_key,))
+    deleted = cur.rowcount > 0
+    conn.commit()
+    conn.close()
+    return deleted
+
+
+def delete_archive_matches(keys: list) -> int:
+    """Remove archive records by key. Used only when a correction proves the
+    record was filed under the wrong teams (it would otherwise stay in the
+    permanent archive and keep showing the wrong match in History)."""
+    if not keys:
+        return 0
+    conn = get_connection()
+    try:
+        _ensure_archive_tables(conn)
+        n = 0
+        for k in keys:
+            cur = conn.execute("DELETE FROM match_archive WHERE match_key = ?", (k,))
+            n += cur.rowcount if cur.rowcount and cur.rowcount > 0 else 0
+        conn.commit()
+        return n
+    finally:
+        conn.close()
 
 
 def set_manual_result_table_applied(match_key: str, applied: bool) -> bool:
