@@ -1455,6 +1455,139 @@ def refresh_standings_for(league_key: str):
         return False
 
 
+# ══════════════════════════════════════════════════════
+# MATCH CORRECTIONS — fix KHU's mistakes for our fans only
+# ══════════════════════════════════════════════════════
+# Sometimes KHU's own site lists a match under the wrong team, or shows a
+# wrong score. We cannot change their site, so an admin records "the match
+# KHU shows as <home> v <away> on <date> is really <this>". It is applied to
+# the freshly scraped matches on EVERY refresh (so the next scrape cannot
+# undo it), before anything else is merged. The description of the match is
+# written the way KHU shows it TODAY: once KHU fixes its page the
+# description no longer matches anything and the correction goes quiet on
+# its own (the admin list then says "not needed any more").
+
+_corrections_applied: set = set()   # corr_keys that matched a match in the last refresh
+
+
+def _correction_key(league_short: str, home: str, away: str, date: str) -> str:
+    return "|".join([
+        (league_short or "").strip().upper(),
+        _normalize_team_name(home),
+        _normalize_team_name(away),
+        match_calendar_date_key(date or ""),
+    ])
+
+
+def _resolve_league_team(league_short: str, name: str):
+    """The standings row for exactly this team name in this league, or None.
+    Exact (dash/case/space tolerant) only — a correction must never guess
+    which team was meant."""
+    league = LEAGUES_BY_SHORT.get((league_short or "").strip().upper())
+    if not league:
+        return None
+    rows = (cache["standings"].get(league["key"]) or {}).get("standings", [])
+    want = _normalize_team_name(name)
+    found = [r for r in rows if _normalize_team_name(r.get("team", "")) == want]
+    return found[0] if len(found) == 1 else None
+
+
+def _format_like_scrape(date_input: str, old_date: str) -> str:
+    """'2026-10-17' or '2026-10-17 11:00' -> the scraper's 'DD-MM-YYYY HH:MM',
+    keeping the old kickoff time when none is given."""
+    d = (date_input or "").strip()
+    if not d:
+        return old_date
+    parsed = _parse_match_date(d)
+    if parsed == datetime.min:
+        return old_date
+    has_time = bool(re.search(r"\d{1,2}:\d{2}", d))
+    if has_time:
+        return parsed.strftime("%d-%m-%Y %H:%M")
+    old_time = re.search(r"(\d{1,2}:\d{2})", old_date or "")
+    return parsed.strftime("%d-%m-%Y") + (" " + old_time.group(1) if old_time else "")
+
+
+def apply_match_corrections(data: dict) -> int:
+    """Apply stored corrections to data['fixtures'/'results'/'live'] in
+    place. Returns how many matches were changed or hidden."""
+    global _corrections_applied
+    try:
+        corrs = db.load_match_corrections()
+    except Exception as e:  # noqa: BLE001 — a broken table must not stop a refresh
+        logger.error(f"Could not load match corrections: {type(e).__name__}")
+        return 0
+    if not corrs:
+        _corrections_applied = set()
+        return 0
+    by_key = {c["corr_key"]: c for c in corrs}
+
+    applied, purge, out = set(), [], []
+    for bucket in ("fixtures", "results", "live"):
+        for m in data.get(bucket, []) or []:
+            k = _correction_key(m.get("league_short", ""), m.get("home_team", ""),
+                                m.get("away_team", ""), m.get("date", ""))
+            c = by_key.get(k)
+            if not c or m.get("source") in ("manual",):
+                out.append(m)
+                continue
+            applied.add(k)
+            purge.append(_match_key(m))           # the record filed under the wrong teams
+            if c.get("hide"):
+                continue
+            m = dict(m)
+            league_short = m.get("league_short", "")
+            for side in ("home", "away"):
+                new_name = (c.get(f"new_{side}_team") or "").strip()
+                if not new_name:
+                    continue
+                row = _resolve_league_team(league_short, new_name)
+                m[f"{side}_team"] = row.get("team") if row else new_name
+                m[f"{side}_team_url"] = (row or {}).get("team_url", "")
+                m[f"{side}_logo_url"] = (row or {}).get("team_logo_url", "")
+            if c.get("new_home_score") is not None and c.get("new_away_score") is not None:
+                m["home_score"], m["away_score"] = int(c["new_home_score"]), int(c["new_away_score"])
+                if m.get("state") == "NS":
+                    m["state"] = "FT"
+            if c.get("new_date"):
+                m["date"] = _format_like_scrape(c["new_date"], m.get("date", ""))
+            if c.get("new_venue"):
+                m["venue"] = c["new_venue"]
+            m["corrected"] = True
+            out.append(m)
+
+    _corrections_applied = applied
+    if not applied:
+        return 0
+
+    # A partial scrape carries over last cycle's (already corrected) copy of a
+    # match next to the fresh, still-wrong one. After correcting, keep one.
+    corrected_keys = {_match_key(m) for m in out if m.get("corrected")}
+    keep, seen_corrected = [], set()
+    for m in out:
+        k = _match_key(m)
+        if k in corrected_keys:
+            if not m.get("corrected") or k in seen_corrected:
+                continue
+            seen_corrected.add(k)
+        keep.append(m)
+    data["fixtures"] = _group_and_sort_matches([m for m in keep if m.get("state") == "NS"])
+    data["results"] = _group_and_sort_matches([m for m in keep if m.get("state") == "FT"])
+    data["live"] = _group_and_sort_matches([m for m in keep if m.get("state") == "LIVE"])
+    data["total_fixtures"], data["total_results"], data["total_live"] = (
+        len(data["fixtures"]), len(data["results"]), len(data["live"]))
+
+    # The permanent archive keeps every match it ever saw. Drop the copy filed
+    # under the wrong teams, or History would keep showing the mistake.
+    try:
+        new_keys = {_match_key(m) for m in keep}
+        db.delete_archive_matches([k for k in set(purge) if k not in new_keys])
+    except Exception as e:  # noqa: BLE001
+        logger.error(f"Archive cleanup after correction failed: {type(e).__name__}")
+    logger.info(f"Match corrections: {len(applied)} applied")
+    return len(applied)
+
+
 def refresh_fixtures_results():
     """
     Scrape fixtures/results/live for every league by visiting each
@@ -1528,6 +1661,10 @@ def refresh_fixtures_results():
             "leagues_with_errors": errors,
             "scraped_at": datetime.now().isoformat(),
         }
+
+        # ── Fix KHU's own mistakes (admin-entered corrections) ──
+        # Before PDF/manual merging so those dedupe against the CORRECT teams.
+        apply_match_corrections(data)
 
         # ── Re-apply any PDF-sourced fixtures on EVERY refresh ──
         # Without this, a scheduled scrape (every 15 min) would overwrite
@@ -2740,6 +2877,108 @@ def export_team_stats_seed(x_admin_token: str = Header(default="")):
 
 
 # ══════════════════════════════════════════════════════
+# MATCH CORRECTIONS — fix a match KHU's site has wrong (our app only)
+# ══════════════════════════════════════════════════════
+
+class MatchCorrectionInput(BaseModel):
+    """Describe the match EXACTLY as KHU's site shows it today (league, date,
+    home, away), then say what is wrong. Send only what changes."""
+    league_short: str = Field(max_length=20)
+    date: str = Field(max_length=30)             # the date KHU shows, e.g. 2026-10-17 or 17-10-2026
+    home_team: str = Field(max_length=120)       # home team as KHU shows it
+    away_team: str = Field(max_length=120)       # away team as KHU shows it
+    hide: bool = False                           # the match should not exist at all
+    new_home_team: Optional[str] = Field(default=None, max_length=120)
+    new_away_team: Optional[str] = Field(default=None, max_length=120)
+    new_home_score: Optional[int] = Field(default=None, ge=0, le=99)
+    new_away_score: Optional[int] = Field(default=None, ge=0, le=99)
+    new_date: Optional[str] = Field(default=None, max_length=30)   # YYYY-MM-DD or YYYY-MM-DD HH:MM
+    new_venue: Optional[str] = Field(default=None, max_length=120)
+    note: str = Field(default="", max_length=300)  # why (shown to admins only)
+
+
+def _correction_view(c: dict) -> dict:
+    out = {k: v for k, v in c.items()}
+    out["applied_now"] = c.get("corr_key") in _corrections_applied
+    return out
+
+
+@app.post("/api/admin/match-corrections/set")
+def set_match_correction(payload: MatchCorrectionInput, x_admin_token: str = Header(default="")):
+    """Add or replace one correction and apply it straight away."""
+    if not _is_admin(x_admin_token):
+        raise HTTPException(status_code=401, detail="Missing or invalid admin token.")
+    league = LEAGUES_BY_SHORT.get(payload.league_short.strip().upper())
+    if not league:
+        valid = ", ".join(sorted(LEAGUES_BY_SHORT.keys()))
+        raise HTTPException(status_code=400, detail=f"Unknown league_short '{payload.league_short}'. Must be one of: {valid}")
+    if _parse_match_date(payload.date) == datetime.min:
+        raise HTTPException(status_code=400, detail="date must look like 2026-10-17 or 17-10-2026.")
+    changes = [payload.new_home_team, payload.new_away_team, payload.new_home_score,
+               payload.new_away_score, payload.new_date, payload.new_venue]
+    if not payload.hide and all(c in (None, "") for c in changes):
+        raise HTTPException(status_code=400, detail="Say what to change: a team, a score, the date, the venue, or hide the match.")
+    if (payload.new_home_score is None) != (payload.new_away_score is None):
+        raise HTTPException(status_code=400, detail="Give both scores, or neither.")
+    if payload.new_date and _parse_match_date(payload.new_date) == datetime.min:
+        raise HTTPException(status_code=400, detail="new_date must look like 2026-10-17 or 2026-10-17 11:00.")
+    for label, nm in (("new_home_team", payload.new_home_team), ("new_away_team", payload.new_away_team)):
+        if nm and not _resolve_league_team(league["short"], nm):
+            raise HTTPException(status_code=400, detail=(
+                f"{label} '{nm}' is not a team in {league['name']}. Use the team's name exactly as the league table shows it."))
+
+    corr_key = _correction_key(league["short"], payload.home_team, payload.away_team, payload.date)
+    data = {
+        "league_short": league["short"],
+        "date": match_calendar_date_key(payload.date),
+        "home_team": payload.home_team.strip(),
+        "away_team": payload.away_team.strip(),
+        "hide": bool(payload.hide),
+        "note": payload.note.strip(),
+    }
+    for k in ("new_home_team", "new_away_team", "new_home_score", "new_away_score", "new_date", "new_venue"):
+        v = getattr(payload, k)
+        if v not in (None, ""):
+            data[k] = v.strip() if isinstance(v, str) else v
+    db.save_match_correction(corr_key, data)
+
+    fr = cache.get("fixtures_results")
+    changed = apply_match_corrections(fr) if fr else 0
+    msg = ("Applied. Fans see the corrected match now." if changed else
+           "Saved, but no match on KHU's site looks like that right now (check the date and team names as KHU shows them). "
+           "It will apply by itself if that match appears.")
+    return {"message": msg, "corr_key": corr_key, "applied_now": bool(changed)}
+
+
+@app.get("/api/admin/match-corrections/list")
+def list_match_corrections(x_admin_token: str = Header(default="")):
+    if not _is_admin(x_admin_token):
+        raise HTTPException(status_code=401, detail="Missing or invalid admin token.")
+    items = [_correction_view(c) for c in db.load_match_corrections()]
+    return {"corrections": items, "count": len(items)}
+
+
+@app.delete("/api/admin/match-corrections/{corr_key:path}")
+def remove_match_correction(corr_key: str, x_admin_token: str = Header(default="")):
+    """Remove a correction. The match goes back to what KHU shows after the
+    refresh we start right now (a minute or so)."""
+    if not _is_admin(x_admin_token):
+        raise HTTPException(status_code=401, detail="Missing or invalid admin token.")
+    if not db.delete_match_correction(corr_key):
+        raise HTTPException(status_code=404, detail="No correction with that key.")
+    threading.Thread(target=refresh_fixtures_results, daemon=True).start()
+    return {"message": "Removed. The match returns to KHU's version after the refresh that just started.", "corr_key": corr_key}
+
+
+@app.get("/api/admin/match-corrections/export-seed")
+def export_match_corrections_seed(x_admin_token: str = Header(default="")):
+    if not _is_admin(x_admin_token):
+        raise HTTPException(status_code=401, detail="Missing or invalid admin token.")
+    items = db.load_match_corrections()
+    return {"corrections": items, "exported_at": datetime.now().isoformat(), "count": len(items)}
+
+
+# ══════════════════════════════════════════════════════
 # PLAYER STATS — season totals KHU's site doesn't publish
 # ══════════════════════════════════════════════════════
 
@@ -3660,6 +3899,8 @@ async def admin_restore_backup(request: Request, x_admin_token: str = Header(def
     run("results", data.get("results"), db.save_manual_result)
     run("team_stats", data.get("stats"), lambda s: db.save_team_stats(
         s["league_short"], s["team_name"], {k: v for k, v in s.items() if k not in ("league_short", "team_name", "stat_key")}))
+    run("match_corrections", data.get("match_corrections"), lambda c: db.save_match_correction(
+        c["corr_key"], {k: v for k, v in c.items() if k not in ("corr_key", "entered_at")}))
     run("player_stats", data.get("players"), lambda p: db.save_player_stats(
         p["league_short"], p["team_name"], p["player_name"],
         {k: v for k, v in p.items() if k not in ("league_short", "team_name", "player_name", "stat_key")}))

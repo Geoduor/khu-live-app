@@ -360,6 +360,53 @@
 </div>
 
 <div class="card">
+  <div class="section-title">Fix a match KHU has wrong</div>
+  <div class="subtitle" style="margin-bottom: 12px;">Use this when KHU's website lists a match under the wrong team or with a wrong score. Describe the match <strong>exactly as KHU shows it now</strong>, then fill in only what is wrong. Fans of this app see the fixed version; KHU's site is not changed. When KHU fixes their page, this stops applying by itself.</div>
+
+  <label>League</label>
+  <select id="mcLeague">
+    <option value="PLM">Premier League Men</option>
+    <option value="PLW">Premier League Women</option>
+    <option value="SLM">Super League Men</option>
+    <option value="SLW">Super League Women</option>
+    <option value="NLM-EZ">National League Men — Eastern Zone</option>
+    <option value="NLM-CZ">National League Men — Central Zone</option>
+    <option value="NLM-WZ">National League Men — Western Zone</option>
+    <option value="NLM-SZ" selected>National League Men — Southern Zone</option>
+  </select>
+
+  <div class="row">
+    <div><label>Date KHU shows (e.g. 2026-10-17)</label><input id="mcDate" placeholder="2026-10-17" /></div>
+    <div></div>
+  </div>
+  <div class="row">
+    <div><label>Home team as KHU shows it</label><input id="mcHome" placeholder="Kisii Falcons" /></div>
+    <div><label>Away team as KHU shows it</label><input id="mcAway" placeholder="Bay Club" /></div>
+  </div>
+
+  <div class="subtitle" style="margin: 12px 0 4px;">What is wrong? (leave blank what is already right)</div>
+  <div class="row">
+    <div><label>Real home team</label><input id="mcNewHome" placeholder="Kisii University" /></div>
+    <div><label>Real away team</label><input id="mcNewAway" /></div>
+  </div>
+  <div class="row">
+    <div><label>Real home score</label><input id="mcNewHomeScore" type="number" min="0" /></div>
+    <div><label>Real away score</label><input id="mcNewAwayScore" type="number" min="0" /></div>
+  </div>
+  <div class="row">
+    <div><label>Real date / time (e.g. 2026-10-17 11:00)</label><input id="mcNewDate" /></div>
+    <div><label>Real venue</label><input id="mcNewVenue" /></div>
+  </div>
+  <label><input id="mcHide" type="checkbox" style="width:auto" /> This match should not be listed at all</label>
+  <label>Note for admins (why)</label>
+  <input id="mcNote" maxlength="300" />
+
+  <button id="mcSubmitBtn" onclick="submitMatchCorrection()">Save correction</button>
+  <div id="mcMsg" class="msg"></div>
+  <div id="matchCorrectionsList" style="margin-top: 16px;"></div>
+</div>
+
+<div class="card">
   <div class="section-title">Player profiles</div>
   <div class="subtitle" style="margin-bottom: 12px;">Add a player's shirt number, position, short bio and photo. These show on the team's Squad list and on the player's own page. A shirt number belongs to one player in a team. To rename a player, pick them from the list and change the name. Only add a photo with the player's permission (a parent or guardian's for anyone under 18). Do not enter dates of birth, addresses or phone numbers.</div>
   <div class="row">
@@ -807,6 +854,7 @@
       loadAgents();
       loadTournaments();
       loadTeamStats();
+      loadMatchCorrections();
       loadPlayerStats();
       loadSponsors();
     } else {
@@ -1684,12 +1732,12 @@
         if (!res.ok) throw new Error(d.detail || ('Could not read ' + path));
         return d;
       };
-      const [ag, rs, ts, ps, tn, sn, mh, pp] = await Promise.all([
+      const [ag, rs, ts, ps, tn, sn, mh, pp, mc] = await Promise.all([
         get('agents/export-seed'), get('results/export-seed'), get('team-stats/export-seed'),
         get('player-stats/export-seed'), get('tournaments/export-seed'), get('seasons/export'),
-        get('matches/export'), get('players/profiles/export'),
+        get('matches/export'), get('players/profiles/export'), get('match-corrections/export-seed'),
       ]);
-      const out = { agents: ag.agents, results: rs.results, stats: ts.stats, players: ps.players,
+      const out = { agents: ag.agents, results: rs.results, stats: ts.stats, match_corrections: mc.corrections, players: ps.players,
                     tournaments: tn.tournaments, matches: tn.matches, player_profiles: pp.player_profiles, seasons: sn.seasons,
                     match_archive: mh.match_archive, match_statuses: mh.match_statuses,
                     analytics_daily: mh.analytics_daily, sponsors: mh.sponsors, exported_at: new Date().toISOString() };
@@ -1842,6 +1890,75 @@
       btn.disabled = false;
       btn.textContent = 'Apply Correction';
     }
+  }
+
+  async function submitMatchCorrection() {
+    const btn = $('mcSubmitBtn');
+    const msg = $('mcMsg');
+    msg.className = 'msg';
+    if (!apiBase() || !token()) { showMsg(msg, 'Enter your backend URL and admin token first.', true); return; }
+    const payload = {
+      league_short: $('mcLeague').value, date: $('mcDate').value.trim(),
+      home_team: $('mcHome').value.trim(), away_team: $('mcAway').value.trim(),
+      hide: $('mcHide').checked, note: $('mcNote').value.trim(),
+    };
+    if (!payload.date || !payload.home_team || !payload.away_team) {
+      showMsg(msg, 'Fill in the date and both team names as KHU shows them.', true); return;
+    }
+    const text = { new_home_team: 'mcNewHome', new_away_team: 'mcNewAway', new_date: 'mcNewDate', new_venue: 'mcNewVenue' };
+    Object.entries(text).forEach(([k, id]) => { const v = $(id).value.trim(); if (v) payload[k] = v; });
+    const nums = { new_home_score: 'mcNewHomeScore', new_away_score: 'mcNewAwayScore' };
+    Object.entries(nums).forEach(([k, id]) => { const v = $(id).value; if (v !== '') payload[k] = parseInt(v, 10); });
+    btn.disabled = true; btn.textContent = 'Saving...';
+    try {
+      const res = await fetch(`${apiBase()}/api/admin/match-corrections/set`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json', 'x-admin-token': token() },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || 'Could not save.');
+      showMsg(msg, data.message, false);
+      ['mcNewHome', 'mcNewAway', 'mcNewHomeScore', 'mcNewAwayScore', 'mcNewDate', 'mcNewVenue', 'mcNote'].forEach((id) => { $(id).value = ''; });
+      $('mcHide').checked = false;
+      loadMatchCorrections();
+    } catch (e) { showMsg(msg, e.message, true); }
+    finally { btn.disabled = false; btn.textContent = 'Save correction'; }
+  }
+
+  async function loadMatchCorrections() {
+    const container = $('matchCorrectionsList');
+    if (!container || !apiBase() || !token()) return;
+    try {
+      const res = await fetch(`${apiBase()}/api/admin/match-corrections/list`, { headers: { 'x-admin-token': token() } });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || 'Could not load.');
+      if (!data.corrections.length) { setKids(container, note('No match corrections yet.')); return; }
+      setKids(container, data.corrections.map((c) => {
+        const what = [];
+        if (c.hide) what.push('hidden');
+        if (c.new_home_team) what.push('home → ' + c.new_home_team);
+        if (c.new_away_team) what.push('away → ' + c.new_away_team);
+        if (c.new_home_score != null) what.push('score → ' + c.new_home_score + '-' + c.new_away_score);
+        if (c.new_date) what.push('date → ' + c.new_date);
+        if (c.new_venue) what.push('venue → ' + c.new_venue);
+        const status = c.applied_now ? 'Applied' : 'Not needed now (KHU page no longer matches)';
+        return rowOf(
+          h('div', {}, h('div', {}, h('strong', {}, c.home_team + ' v ' + c.away_team), ` (${c.league_short}, ${c.date})`),
+            h('div', { class: 'result-meta' }, what.join(', ') + ' · ' + status + (c.note ? ' · ' + c.note : ''))),
+          delBtn('Delete', () => deleteMatchCorrection(c.corr_key)),
+        );
+      }));
+    } catch (e) { setKids(container, note(e.message)); }
+  }
+
+  async function deleteMatchCorrection(key) {
+    if (!confirm('Remove this correction? The match goes back to what KHU shows.')) return;
+    try {
+      const res = await fetch(`${apiBase()}/api/admin/match-corrections/${encodeURIComponent(key)}`, { method: 'DELETE', headers: { 'x-admin-token': token() } });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || 'Could not delete.');
+      loadMatchCorrections();
+    } catch (e) { alert(e.message); }
   }
 
   async function loadTeamStats() {

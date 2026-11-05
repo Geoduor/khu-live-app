@@ -39,6 +39,7 @@ def build_backup() -> dict:
         "agents": db.export_agents_raw(),
         "results": db.load_manual_results(),
         "stats": db.load_team_stats(),
+        "match_corrections": db.load_match_corrections(),
         "players": db.load_player_stats(),
         "tournaments": db.load_tournaments(),
         "matches": db.load_tournament_matches(),
