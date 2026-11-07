@@ -2,7 +2,10 @@
 // device. The server only adds 1 to a per-day counter for the screen name.
 // Browsers that ask not to be tracked (Do Not Track / Global Privacy Control)
 // are never counted.
-const BASE = process.env.REACT_APP_API_URL || "http://localhost:8000";
+// Same address the rest of the app uses (the Cloudflare Worker when set up, see public/edge-config.js).
+// Posting straight to Render is refused once Render is locked to the Worker, which silently stopped all counting.
+const EDGE = (typeof window !== "undefined" && window.KHU_EDGE) || {};
+const BASE = EDGE.apiBase || process.env.REACT_APP_API_URL || "http://localhost:8000";
 
 function refused() {
   try {
