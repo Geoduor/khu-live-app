@@ -1295,6 +1295,77 @@ def _apply_manual_results_to_rows(rows: list, uncaptured: list) -> tuple:
     return applied, unmatched
 
 
+def _final_score(side_match: dict):
+    """(home, away) ints when this is a finished match with real scores, else None."""
+    if (side_match or {}).get("state") != "FT":
+        return None
+    try:
+        return int(side_match.get("home_score")), int(side_match.get("away_score"))
+    except (TypeError, ValueError):
+        return None
+
+
+def _shift_row(row: dict, mine: int, theirs: int, sign: int) -> None:
+    outcome, pts = _outcome_and_points(mine, theirs)
+    row["played"] = max(0, _to_int(row.get("played")) + sign)
+    row["won"] = max(0, _to_int(row.get("won")) + sign * (1 if outcome == "W" else 0))
+    row["drawn"] = max(0, _to_int(row.get("drawn")) + sign * (1 if outcome == "D" else 0))
+    row["lost"] = max(0, _to_int(row.get("lost")) + sign * (1 if outcome == "L" else 0))
+    row["goals_for"] = max(0, _to_int(row.get("goals_for")) + sign * mine)
+    row["goals_against"] = max(0, _to_int(row.get("goals_against")) + sign * theirs)
+    row["goal_diff"] = _to_int(row.get("goals_for")) - _to_int(row.get("goals_against"))
+    row["points"] = max(0, _to_int(row.get("points")) + sign * pts)
+    row.pop("is_placeholder", None)
+
+
+def _form_from_results(row: dict, results: list) -> list:
+    """Last five W/D/L for this team, oldest first (the table's own order)."""
+    mine = []
+    for m in results:
+        sc = _final_score(m)
+        if not sc:
+            continue
+        for side, (a, b) in (("home", sc), ("away", (sc[1], sc[0]))):
+            if _team_matches_fixture_side(row.get("team", ""), row.get("team_url", ""),
+                                          m.get(f"{side}_team", ""), m.get(f"{side}_team_url", "")):
+                mine.append((_parse_match_date(m.get("date", "")), _outcome_and_points(a, b)[0]))
+    mine.sort(key=lambda t: t[0])
+    return [o for _, o in mine][-5:]
+
+
+def _apply_match_correction_effects(league: dict, rows: list) -> int:
+    """Move the table by the difference between the match as KHU shows it
+    (which KHU's own table counted) and the match as corrected: the wrong
+    teams lose it, the right teams gain it. Both teams' rows move together.
+    Returns how many corrections changed at least one row."""
+    effects = [e for e in _correction_effects if (e.get("league_short") or "").upper() == league["short"]]
+    touched, changed = set(), 0
+    for e in effects:
+        orig, corr = e["original"], e.get("corrected")
+        moved = False
+        old_sc = _final_score(orig)
+        if old_sc:
+            for side, (a, b) in (("home", old_sc), ("away", (old_sc[1], old_sc[0]))):
+                i = _find_row_index_for_team(rows, orig.get(f"{side}_team", ""), orig.get(f"{side}_team_url", ""))
+                if i is not None:
+                    _shift_row(rows[i], a, b, -1); touched.add(i); moved = True
+        new_sc = _final_score(corr) if corr else None
+        if new_sc:
+            for side, (a, b) in (("home", new_sc), ("away", (new_sc[1], new_sc[0]))):
+                i = _find_row_index_for_team(rows, corr.get(f"{side}_team", ""), corr.get(f"{side}_team_url", ""))
+                if i is not None:
+                    _shift_row(rows[i], a, b, +1); touched.add(i); moved = True
+        changed += 1 if moved else 0
+    if touched:
+        results = (cache.get("fixtures_results") or {}).get("results", [])
+        league_results = [r for r in results if (r.get("league_short") or "").upper() == league["short"]]
+        for i in touched:
+            form = _form_from_results(rows[i], league_results)
+            if form:
+                rows[i]["form"] = form
+    return changed
+
+
 def _apply_team_stat_corrections(league: dict, rows: list) -> tuple:
     """Overlay explicit admin corrections onto rows. Corrections are
     absolute field overrides (the admin states the real number), so they
@@ -1389,9 +1460,10 @@ def recompute_league_standings(league_key: str) -> dict:
     uncaptured = _uncaptured_manual_results(league, published)
 
     results_applied, unmatched = _apply_manual_results_to_rows(rows, uncaptured)
+    match_fixes = _apply_match_correction_effects(league, rows)
     corrections_applied, matched_keys = _apply_team_stat_corrections(league, rows)
 
-    if results_applied or corrections_applied:
+    if results_applied or corrections_applied or match_fixes:
         _resort_rows_by_league_order(rows)
 
     # The scraper emits every stat as text; the overlay writes ints for
@@ -1406,6 +1478,7 @@ def recompute_league_standings(league_key: str) -> dict:
     standings_data["standings"] = rows
     standings_data["total_teams"] = len(rows)
 
+    summary["match_corrections_in_table"] = match_fixes
     summary["manual_results_applied"] = results_applied
     summary["corrections_applied"] = corrections_applied
     summary["unmatched_teams"] = sorted(set(unmatched))
@@ -1468,6 +1541,7 @@ def refresh_standings_for(league_key: str):
 # its own (the admin list then says "not needed any more").
 
 _corrections_applied: set = set()   # corr_keys that matched a match in the last refresh
+_correction_effects: list = []      # {"league_short", "original", "corrected"|None} — what the table must move by
 
 
 def _correction_key(league_short: str, home: str, away: str, date: str) -> str:
@@ -1521,7 +1595,8 @@ def clean_correction(raw) -> Optional[dict]:
     league = LEAGUES_BY_SHORT.get(str(raw.get("league_short", "")).strip().upper())
     if not league:
         return None
-    out = {"league_short": league["short"], "hide": raw.get("hide") is True}
+    out = {"league_short": league["short"], "hide": raw.get("hide") is True,
+           "adjust_table": raw.get("adjust_table") is not False}
     for k, limit in (("home_team", 120), ("away_team", 120)):
         v = raw.get(k)
         if not isinstance(v, str) or not v.strip() or len(v) > limit:
@@ -1553,8 +1628,15 @@ def clean_correction(raw) -> Optional[dict]:
     return out
 
 
+_ORIGINAL_FIELDS = ("home_team", "home_team_url", "away_team", "away_team_url", "home_score", "away_score", "state")
+
+
 def _apply_one_correction(m: dict, c: dict) -> dict:
     league_short = m.get("league_short", "")
+    # What KHU's own site showed, so the league table can be moved by the
+    # difference (KHU's table counted the match the way KHU shows it).
+    m["original"] = {k: m.get(k) for k in _ORIGINAL_FIELDS}
+    m["adjust_table"] = c.get("adjust_table", True) is not False
     for side in ("home", "away"):
         new_name = (c.get(f"new_{side}_team") or "").strip()
         if not new_name:
@@ -1578,7 +1660,7 @@ def _apply_one_correction(m: dict, c: dict) -> dict:
 def apply_match_corrections(data: dict) -> int:
     """Apply stored corrections to data['fixtures'/'results'/'live'] in
     place. Returns how many matches were changed or hidden."""
-    global _corrections_applied
+    global _corrections_applied, _correction_effects
     try:
         corrs = db.load_match_corrections()
     except Exception as e:  # noqa: BLE001 — a broken table must not stop a refresh
@@ -1586,10 +1668,11 @@ def apply_match_corrections(data: dict) -> int:
         return 0
     if not corrs:
         _corrections_applied = set()
+        _correction_effects = []
         return 0
     by_key = {c["corr_key"]: c for c in corrs}
 
-    applied, purge, out = set(), [], []
+    applied, purge, out, hidden_effects = set(), [], [], []
     for bucket in ("fixtures", "results", "live"):
         for m in data.get(bucket, []) or []:
             k = _correction_key(m.get("league_short", ""), m.get("home_team", ""),
@@ -1609,8 +1692,17 @@ def apply_match_corrections(data: dict) -> int:
             purge.append(wrong_key)
             if fixed is not None:
                 out.append(fixed)
+            elif c.get("adjust_table", True) is not False:
+                hidden_effects.append({"league_short": m.get("league_short", ""),
+                                       "original": {kk: m.get(kk) for kk in _ORIGINAL_FIELDS}, "corrected": None})
 
     _corrections_applied = applied
+    # What the league table must move by. Built from every corrected match in
+    # this pass, including copies carried over from the previous cycle.
+    _correction_effects = hidden_effects + [
+        {"league_short": m.get("league_short", ""), "original": m["original"], "corrected": m}
+        for m in out if m.get("corrected") and m.get("adjust_table", True) is not False and isinstance(m.get("original"), dict)
+    ]
     if not applied:
         return 0
 
@@ -2949,6 +3041,7 @@ class MatchCorrectionInput(BaseModel):
     new_date: Optional[str] = Field(default=None, max_length=30)   # YYYY-MM-DD or YYYY-MM-DD HH:MM
     new_venue: Optional[str] = Field(default=None, max_length=120)
     note: str = Field(default="", max_length=300)  # why (shown to admins only)
+    adjust_table: bool = True                    # also move the league table (KHU's table counted this match the wrong way)
 
 
 def _correction_view(c: dict) -> dict:
@@ -2988,19 +3081,29 @@ def set_match_correction(payload: MatchCorrectionInput, x_admin_token: str = Hea
         "home_team": payload.home_team.strip(),
         "away_team": payload.away_team.strip(),
         "hide": bool(payload.hide),
+        "adjust_table": bool(payload.adjust_table),
         "note": payload.note.strip(),
     }
     for k in ("new_home_team", "new_away_team", "new_home_score", "new_away_score", "new_date", "new_venue"):
         v = getattr(payload, k)
         if v not in (None, ""):
             data[k] = v.strip() if isinstance(v, str) else v
+    replacing = corr_key in {c["corr_key"] for c in db.load_match_corrections()}
     db.save_match_correction(corr_key, data)
 
     fr = cache.get("fixtures_results")
     changed = apply_match_corrections(fr) if fr else 0
-    msg = ("Applied. Fans see the corrected match now." if changed else
-           "Saved, but no match on KHU's site looks like that right now (check the date and team names as KHU shows them). "
-           "It will apply by itself if that match appears.")
+    recompute_league_standings(league["key"])   # the table follows straight away
+    if replacing:
+        # The cached copy is already corrected the OLD way; rebuild from KHU's page so an edit takes effect fully.
+        threading.Thread(target=refresh_fixtures_results, daemon=True).start()
+    if replacing:
+        msg = "Saved. Rebuilding from KHU's site now; give it a minute."
+    elif changed:
+        msg = "Applied. Fans see the corrected match, both teams' pages and the table now."
+    else:
+        msg = ("Saved, but no match on KHU's site looks like that right now (check the date and team names as KHU shows them). "
+               "It will apply by itself if that match appears.")
     return {"message": msg, "corr_key": corr_key, "applied_now": bool(changed)}
 
 

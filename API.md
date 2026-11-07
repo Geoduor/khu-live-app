@@ -103,13 +103,12 @@ scrape cannot undo it; it stops applying by itself once KHU fixes its page.
 
 | Method | Path | Auth | Purpose |
 |---|---|---|---|
-| POST | `/api/admin/match-corrections/set` | admin | `league_short`, `date`, `home_team`, `away_team` (as KHU shows) + any of `new_home_team`, `new_away_team`, `new_home_score`+`new_away_score`, `new_date`, `new_venue`, or `hide: true`. Replacement teams must exist in that league's table (exact name). |
+| POST | `/api/admin/match-corrections/set` | admin | `league_short`, `date`, `home_team`, `away_team` (as KHU shows) + any of `new_home_team`, `new_away_team`, `new_home_score`+`new_away_score`, `new_date`, `new_venue`, or `hide: true`. Replacement teams must exist in that league's table (exact name). `adjust_table` (default true) also moves the league table: the match is taken off the teams KHU's table counted it for and given to the right ones (played, W/D/L, goals, points, form), then positions are renumbered. Numbers typed in the team-stats form still win over everything. |
 | GET | `/api/admin/match-corrections/list` | admin | Stored corrections, each with `applied_now` |
 | DELETE | `/api/admin/match-corrections/{corr_key}` | admin | Remove; the match returns to KHU's version after a refresh |
 | GET | `/api/admin/match-corrections/export-seed` | admin | Export (also inside the backup file and restorable) |
 
-The league table is separate: if KHU's table also counts the match for the wrong team, fix those rows with
-`/api/admin/team-stats/set`.
+The league table follows the correction by default (see `adjust_table`). Untick it if KHU's table is already right for that match.
 
 ## Admin & agents — match status notices
 

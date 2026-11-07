@@ -38,6 +38,7 @@ def scraped():
         m("Kisii Falcons", "kisii-falcons", "Kisii University", "kisii-university", "18-10-2026 10:00", 3, 1, "u3"),
     ]}
 
+main.refresh_fixtures_results = lambda: None   # never start a real scrape from a test
 c = TestClient(main.app)
 H = {"x-admin-token": "tok-123"}
 
@@ -182,6 +183,80 @@ check("a stored correction with bad values never crashes a refresh", not crashed
 check("and the match is left exactly as KHU shows it", any(x["match_url"] == "u2" and x["home_team"] == "Kisii Falcons" for x in d["results"]))
 check("and its archive record is kept (not purged for a correction that failed)",
       any(a["match_key"].startswith("NLM-SZ|kisii falcons|bay club") for a in db.load_match_archive()))
+
+print("9. The league table follows the correction (both teams move together)")
+KEY = main.LEAGUES_BY_SHORT["NLM-SZ"]["key"]
+def row(n, slug, p, w, d, l, gf, ga, pts, form):
+    return {"team": n, "team_url": U + slug + "/", "team_logo_url": "logo-" + slug, "position": "0", "played": str(p), "won": str(w),
+            "drawn": str(d), "lost": str(l), "goals_for": str(gf), "goals_against": str(ga), "goal_diff": str(gf - ga),
+            "points": str(pts), "form": form}
+import copy as _c
+# KHU's table counts the matches the wrong way round: Falcons played all three, University only u3
+khu_table = [row("Kisii Falcons", "kisii-falcons", 3, 2, 0, 1, 5, 3, 6, ["W", "L", "W"]),
+             row("Bay Club", "bay-club", 1, 1, 0, 0, 2, 0, 3, ["W"]),
+             row("Kisii University", "kisii-university", 1, 0, 0, 1, 1, 3, 0, ["L"]),
+             row("Kabianga University", "kabianga-university", 1, 0, 0, 1, 0, 2, 0, ["L"])]
+def load_table():
+    main._pristine_standings[KEY] = _c.deepcopy(khu_table)
+    main.cache["standings"][KEY] = {"short": "NLM-SZ", "standings": _c.deepcopy(khu_table)}
+def table():
+    return {r["team"]: r for r in main.cache["standings"][KEY]["standings"]}
+for k in [x["corr_key"] for x in db.load_match_corrections()]: db.delete_match_correction(k)
+load_table(); main.cache["fixtures_results"] = scraped(); main.apply_match_corrections(main.cache["fixtures_results"])
+main.recompute_league_standings(KEY)
+check("no corrections: the table is exactly KHU's", table()["Kisii Falcons"]["played"] == "3" and table()["Kisii University"]["played"] == "1")
+for body in ({"league_short": "NLM-SZ", "date": "2026-09-27", "home_team": "Kisii Falcons", "away_team": "Kabianga University", "new_home_team": "Kisii University"},
+             {"league_short": "NLM-SZ", "date": "2026-10-17", "home_team": "Kisii Falcons", "away_team": "Bay Club", "new_home_team": "Kisii University"}):
+    r = c.post("/api/admin/match-corrections/set", headers=H, json=body)
+    check("saved", r.status_code == 200 and "table" in r.json()["message"], r.text[:90])
+t = table()
+fal, uni, kab, bay = t["Kisii Falcons"], t["Kisii University"], t["Kabianga University"], t["Bay Club"]
+check("Falcons lose the two matches (3 -> 1 played, 1 win, 3 points)",
+      (fal["played"], fal["won"], fal["drawn"], fal["lost"], fal["goals_for"], fal["goals_against"], fal["goal_diff"], fal["points"]) == ("1", "1", "0", "0", "3", "1", "2", "3"), str(fal))
+check("University gain them (1 -> 3 played: W 2-0, L 0-2, L 1-3; 3 points)",
+      (uni["played"], uni["won"], uni["drawn"], uni["lost"], uni["goals_for"], uni["goals_against"], uni["goal_diff"], uni["points"]) == ("3", "1", "0", "2", "3", "5", "-2", "3"), str(uni))
+check("the opponents' rows are untouched", kab["played"] == "1" and kab["points"] == "0" and bay["points"] == "3" and bay["goals_for"] == "2")
+check("both teams' form follows their real results (oldest first)", uni["form"] == ["W", "L", "L"] and fal["form"] == ["W"], f"{uni['form']} {fal['form']}")
+check("points still add up to wins and draws (3-1-0) on every row", all(int(r["points"]) == 3 * int(r["won"]) + int(r["drawn"]) for r in t.values()))
+check("games played = W + D + L on every row", all(int(r["played"]) == int(r["won"]) + int(r["drawn"]) + int(r["lost"]) for r in t.values()))
+check("positions are renumbered and the table is in order", [int(r["position"]) for r in main.cache["standings"][KEY]["standings"]] == [1, 2, 3, 4]
+      and [r["team"] for r in main.cache["standings"][KEY]["standings"]][0] == "Kisii Falcons")
+main.recompute_league_standings(KEY); main.recompute_league_standings(KEY)
+check("recomputing again changes nothing (no double counting)", table()["Kisii University"]["played"] == "3" and table()["Kisii Falcons"]["played"] == "1")
+# a later scrape rebuilds from KHU's wrong data and must give the same answer
+main.cache["fixtures_results"] = scraped(); main.apply_match_corrections(main.cache["fixtures_results"]); load_table(); main.recompute_league_standings(KEY)
+check("a fresh scrape of KHU's wrong data gives the same corrected table", table()["Kisii University"]["points"] == "3" and table()["Kisii Falcons"]["points"] == "3")
+# KHU fixes its own page and table: the correction must stop moving the table
+fixed_matches = {"fixtures": [], "live": [], "results": [
+    m("Kisii University", "kisii-university", "Kabianga University", "kabianga-university", "27-09-2026 10:00", 2, 0, "u1"),
+    m("Kisii University", "kisii-university", "Bay Club", "bay-club", "17-10-2026 11:00", 0, 2, "u2"),
+    m("Kisii Falcons", "kisii-falcons", "Kisii University", "kisii-university", "18-10-2026 10:00", 3, 1, "u3")]}
+main.apply_match_corrections(fixed_matches)
+khu_table[0] = row("Kisii Falcons", "kisii-falcons", 1, 1, 0, 0, 3, 1, 3, ["W"])
+khu_table[2] = row("Kisii University", "kisii-university", 3, 1, 0, 2, 3, 5, 3, ["W", "L", "L"])
+load_table(); main.recompute_league_standings(KEY)
+check("once KHU fixes its page the table is not adjusted again", table()["Kisii University"]["played"] == "3" and table()["Kisii Falcons"]["played"] == "1")
+
+print("10. Opt out, hide, and the admin's own table numbers")
+for k in [x["corr_key"] for x in db.load_match_corrections()]: db.delete_match_correction(k)
+khu_table[0] = row("Kisii Falcons", "kisii-falcons", 3, 2, 0, 1, 5, 3, 6, ["W", "L", "W"])
+khu_table[2] = row("Kisii University", "kisii-university", 1, 0, 0, 1, 1, 3, 0, ["L"])
+main.cache["fixtures_results"] = scraped(); load_table()
+c.post("/api/admin/match-corrections/set", headers=H, json={"league_short": "NLM-SZ", "date": "2026-09-27", "home_team": "Kisii Falcons",
+       "away_team": "Kabianga University", "new_home_team": "Kisii University", "adjust_table": False})
+check("with 'also fix the table' switched off the table is left alone",
+      table()["Kisii Falcons"]["played"] == "3" and table()["Kisii University"]["played"] == "1")
+check("but the match itself moved", any(x["match_url"] == "u1" and x["home_team"] == "Kisii University" for x in main.cache["fixtures_results"]["results"]))
+for k in [x["corr_key"] for x in db.load_match_corrections()]: db.delete_match_correction(k)
+main.cache["fixtures_results"] = scraped(); load_table()
+c.post("/api/admin/match-corrections/set", headers=H, json={"league_short": "NLM-SZ", "date": "2026-10-18", "home_team": "Kisii Falcons",
+       "away_team": "Kisii University", "hide": True})
+check("hiding a match takes it out of BOTH teams' table rows",
+      table()["Kisii Falcons"]["played"] == "2" and table()["Kisii University"]["played"] == "0" and table()["Kisii University"]["points"] == "0", str(table()["Kisii University"]))
+db.save_team_stats("NLM-SZ", "Kisii Falcons", {"points": 99})
+main.recompute_league_standings(KEY)
+check("a number the admin set by hand still wins over everything", table()["Kisii Falcons"]["points"] == "99")
+conn = db.get_connection(); conn.execute("DELETE FROM manual_team_stats_store") if hasattr(conn, "execute") else None; conn.commit(); conn.close()
 
 print()
 print("ALL PASSED" if not fails else f"{len(fails)} FAILED: {fails}")

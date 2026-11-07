@@ -398,6 +398,7 @@
     <div><label>Real venue</label><input id="mcNewVenue" /></div>
   </div>
   <label><input id="mcHide" type="checkbox" style="width:auto" /> This match should not be listed at all</label>
+  <label><input id="mcTable" type="checkbox" style="width:auto" checked /> Also fix the league table (leave ticked when KHU's table counts this match the wrong way; both teams' rows move together)</label>
   <label>Note for admins (why)</label>
   <input id="mcNote" maxlength="300" />
 
@@ -1900,7 +1901,7 @@
     const payload = {
       league_short: $('mcLeague').value, date: $('mcDate').value.trim(),
       home_team: $('mcHome').value.trim(), away_team: $('mcAway').value.trim(),
-      hide: $('mcHide').checked, note: $('mcNote').value.trim(),
+      hide: $('mcHide').checked, adjust_table: $('mcTable').checked, note: $('mcNote').value.trim(),
     };
     if (!payload.date || !payload.home_team || !payload.away_team) {
       showMsg(msg, 'Fill in the date and both team names as KHU shows them.', true); return;
@@ -1919,7 +1920,7 @@
       if (!res.ok) throw new Error(data.detail || 'Could not save.');
       showMsg(msg, data.message, false);
       ['mcNewHome', 'mcNewAway', 'mcNewHomeScore', 'mcNewAwayScore', 'mcNewDate', 'mcNewVenue', 'mcNote'].forEach((id) => { $(id).value = ''; });
-      $('mcHide').checked = false;
+      $('mcHide').checked = false; $('mcTable').checked = true;
       loadMatchCorrections();
     } catch (e) { showMsg(msg, e.message, true); }
     finally { btn.disabled = false; btn.textContent = 'Save correction'; }
@@ -1941,6 +1942,7 @@
         if (c.new_home_score != null) what.push('score → ' + c.new_home_score + '-' + c.new_away_score);
         if (c.new_date) what.push('date → ' + c.new_date);
         if (c.new_venue) what.push('venue → ' + c.new_venue);
+        what.push(c.adjust_table === false ? 'table not changed' : 'table follows');
         const status = c.applied_now ? 'Applied' : 'Not needed now (KHU page no longer matches)';
         return rowOf(
           h('div', {}, h('div', {}, h('strong', {}, c.home_team + ' v ' + c.away_team), ` (${c.league_short}, ${c.date})`),
