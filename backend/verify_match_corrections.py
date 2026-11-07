@@ -150,6 +150,39 @@ r = c.post("/api/admin/restore", headers=H, content=__import__("json").dumps({"m
 check("restore brings it back", r.status_code == 200 and r.json()["restored"].get("match_corrections") == 1, r.text[:120])
 check("restored correction is stored", len(db.load_match_corrections()) == 1)
 
+print("8. Damaged or hostile backup / stored data cannot break refreshes")
+import json as _j
+for k in [x["corr_key"] for x in db.load_match_corrections()]: db.delete_match_correction(k)
+good = {"league_short": "NLM-SZ", "date": "2026-10-17", "home_team": "Kisii Falcons", "away_team": "Bay Club", "new_home_team": "Kisii University"}
+bad_list = [
+    {**good, "new_home_score": "abc", "new_away_score": "x"},          # scores that are not numbers
+    {**good, "new_home_score": 3},                                       # one score only
+    {**good, "new_home_score": 500, "new_away_score": 1},                # absurd score
+    {**good, "league_short": "ZZ"}, {**good, "date": "never"}, {**good, "home_team": ""},
+    {**good, "new_venue": "x" * 5000}, {"league_short": "NLM-SZ"}, "not a dict", 42,
+    {k: v for k, v in good.items() if k != "new_home_team"},             # changes nothing
+]
+r = c.post("/api/admin/restore", headers=H, content=_j.dumps({"match_corrections": bad_list}))
+check("restore accepts the request but stores none of the damaged entries", r.status_code == 200 and not db.load_match_corrections(), r.text[:140])
+r = c.post("/api/admin/restore", headers=H, content=_j.dumps({"match_corrections": [{**good, "corr_key": "../../evil", "entered_at": "x", "extra": "<script>"}]}))
+stored = db.load_match_corrections()
+check("a good entry is stored under a key we compute, with unknown fields dropped",
+      len(stored) == 1 and stored[0]["corr_key"] == main._correction_key("NLM-SZ", "Kisii Falcons", "Bay Club", "2026-10-17") and "extra" not in stored[0], str(stored)[:160])
+# even if bad data got into the table some other way, a refresh must carry on
+for k in [x["corr_key"] for x in db.load_match_corrections()]: db.delete_match_correction(k)
+db.save_match_correction(main._correction_key("NLM-SZ", "Kisii Falcons", "Bay Club", "2026-10-17"), {**good, "new_home_score": "abc", "new_away_score": "x"})
+db.save_match_correction("junk", {"league_short": "NLM-SZ"})
+main.cache["fixtures_results"] = scraped(); main.archive_current_matches()
+d = scraped()
+try:
+    n = main.apply_match_corrections(d); crashed = False
+except Exception:
+    crashed = True
+check("a stored correction with bad values never crashes a refresh", not crashed and n == 0)
+check("and the match is left exactly as KHU shows it", any(x["match_url"] == "u2" and x["home_team"] == "Kisii Falcons" for x in d["results"]))
+check("and its archive record is kept (not purged for a correction that failed)",
+      any(a["match_key"].startswith("NLM-SZ|kisii falcons|bay club") for a in db.load_match_archive()))
+
 print()
 print("ALL PASSED" if not fails else f"{len(fails)} FAILED: {fails}")
 sys.exit(1 if fails else 0)

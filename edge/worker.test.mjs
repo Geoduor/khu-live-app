@@ -176,6 +176,7 @@ check("a refused admin attempt does not throw the cache away", state(await get("
 
 delete globalThis.caches; Date.now = realNow;
 const { freshSeconds } = await import("./worker.js");
+check("live match detail is kept only 15 seconds", freshSeconds(new Request("https://x/api/match?url=a"), new URL("https://x/api/match?url=a")) === 15);
 check("rules: only public read pages have a lifetime", freshSeconds(new Request("https://x/api/shop/orders/1"), new URL("https://x/api/shop/orders/1")) === 0
   && freshSeconds(new Request("https://x/api/live"), new URL("https://x/api/live")) === 15);
 

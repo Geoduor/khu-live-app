@@ -114,7 +114,8 @@ async function retryPending(env) {
 // If the API errors or is unreachable, a copy up to ERROR_OK_S old is served instead of an error.
 const CACHE_RULES = [
   [/^\/api\/live$/, 15],
-  [/^\/api\/(fixtures|results|match-notices|match|team|matches\/history|teams\/all|standings\/all|leagues|playoffs\/nlm)$/, 60],
+  [/^\/api\/match$/, 15],
+  [/^\/api\/(fixtures|results|match-notices|team|matches\/history|teams\/all|standings\/all|leagues|playoffs\/nlm)$/, 60],
   [/^\/api\/standings\/[A-Za-z0-9_-]+$/, 60],
   [/^\/api\/(tournaments|tournaments\/[A-Za-z0-9_-]+|seasons|seasons\/[^/]+|history\/honours|sponsors\/active|players\/top-scorers)$/, 120],
 ];
