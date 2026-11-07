@@ -1508,6 +1508,73 @@ def _format_like_scrape(date_input: str, old_date: str) -> str:
     return parsed.strftime("%d-%m-%Y") + (" " + old_time.group(1) if old_time else "")
 
 
+_CORRECTION_TEXT_LIMITS = {"home_team": 120, "away_team": 120, "new_home_team": 120, "new_away_team": 120,
+                           "new_date": 30, "new_venue": 120, "note": 300}
+
+
+def clean_correction(raw) -> Optional[dict]:
+    """A correction that is safe to store and apply, or None. Used when
+    restoring a backup, so a damaged or tampered file can never put a value
+    in the database that would later break every refresh."""
+    if not isinstance(raw, dict):
+        return None
+    league = LEAGUES_BY_SHORT.get(str(raw.get("league_short", "")).strip().upper())
+    if not league:
+        return None
+    out = {"league_short": league["short"], "hide": raw.get("hide") is True}
+    for k, limit in (("home_team", 120), ("away_team", 120)):
+        v = raw.get(k)
+        if not isinstance(v, str) or not v.strip() or len(v) > limit:
+            return None
+        out[k] = v.strip()
+    date = raw.get("date")
+    if not isinstance(date, str) or _parse_match_date(date) == datetime.min:
+        return None
+    out["date"] = match_calendar_date_key(date)
+    for k in ("new_home_team", "new_away_team", "new_date", "new_venue", "note"):
+        v = raw.get(k)
+        if v in (None, ""):
+            continue
+        if not isinstance(v, str) or len(v) > _CORRECTION_TEXT_LIMITS[k]:
+            return None
+        out[k] = v.strip()
+    if out.get("new_date") and _parse_match_date(out["new_date"]) == datetime.min:
+        return None
+    hs, as_ = raw.get("new_home_score"), raw.get("new_away_score")
+    if (hs is None) != (as_ is None):
+        return None
+    if hs is not None:
+        if isinstance(hs, bool) or isinstance(as_, bool) or not isinstance(hs, int) or not isinstance(as_, int) \
+                or not (0 <= hs <= 99 and 0 <= as_ <= 99):
+            return None
+        out["new_home_score"], out["new_away_score"] = hs, as_
+    if not out["hide"] and not any(k in out for k in ("new_home_team", "new_away_team", "new_home_score", "new_date", "new_venue")):
+        return None
+    return out
+
+
+def _apply_one_correction(m: dict, c: dict) -> dict:
+    league_short = m.get("league_short", "")
+    for side in ("home", "away"):
+        new_name = (c.get(f"new_{side}_team") or "").strip()
+        if not new_name:
+            continue
+        row = _resolve_league_team(league_short, new_name)
+        m[f"{side}_team"] = row.get("team") if row else new_name
+        m[f"{side}_team_url"] = (row or {}).get("team_url", "")
+        m[f"{side}_logo_url"] = (row or {}).get("team_logo_url", "")
+    if c.get("new_home_score") is not None and c.get("new_away_score") is not None:
+        m["home_score"], m["away_score"] = int(c["new_home_score"]), int(c["new_away_score"])
+        if m.get("state") == "NS":
+            m["state"] = "FT"
+    if c.get("new_date"):
+        m["date"] = _format_like_scrape(c["new_date"], m.get("date", ""))
+    if c.get("new_venue"):
+        m["venue"] = c["new_venue"]
+    m["corrected"] = True
+    return m
+
+
 def apply_match_corrections(data: dict) -> int:
     """Apply stored corrections to data['fixtures'/'results'/'live'] in
     place. Returns how many matches were changed or hidden."""
@@ -1531,30 +1598,17 @@ def apply_match_corrections(data: dict) -> int:
             if not c or m.get("source") in ("manual",):
                 out.append(m)
                 continue
-            applied.add(k)
-            purge.append(_match_key(m))           # the record filed under the wrong teams
-            if c.get("hide"):
+            wrong_key = _match_key(m)                  # the archive record filed under the wrong teams
+            try:
+                fixed = None if c.get("hide") else _apply_one_correction(dict(m), c)
+            except Exception as e:  # noqa: BLE001 — one bad correction must never stop a refresh
+                logger.error(f"Match correction skipped ({type(e).__name__})")
+                out.append(m)
                 continue
-            m = dict(m)
-            league_short = m.get("league_short", "")
-            for side in ("home", "away"):
-                new_name = (c.get(f"new_{side}_team") or "").strip()
-                if not new_name:
-                    continue
-                row = _resolve_league_team(league_short, new_name)
-                m[f"{side}_team"] = row.get("team") if row else new_name
-                m[f"{side}_team_url"] = (row or {}).get("team_url", "")
-                m[f"{side}_logo_url"] = (row or {}).get("team_logo_url", "")
-            if c.get("new_home_score") is not None and c.get("new_away_score") is not None:
-                m["home_score"], m["away_score"] = int(c["new_home_score"]), int(c["new_away_score"])
-                if m.get("state") == "NS":
-                    m["state"] = "FT"
-            if c.get("new_date"):
-                m["date"] = _format_like_scrape(c["new_date"], m.get("date", ""))
-            if c.get("new_venue"):
-                m["venue"] = c["new_venue"]
-            m["corrected"] = True
-            out.append(m)
+            applied.add(k)
+            purge.append(wrong_key)
+            if fixed is not None:
+                out.append(fixed)
 
     _corrections_applied = applied
     if not applied:
@@ -3899,8 +3953,13 @@ async def admin_restore_backup(request: Request, x_admin_token: str = Header(def
     run("results", data.get("results"), db.save_manual_result)
     run("team_stats", data.get("stats"), lambda s: db.save_team_stats(
         s["league_short"], s["team_name"], {k: v for k, v in s.items() if k not in ("league_short", "team_name", "stat_key")}))
-    run("match_corrections", data.get("match_corrections"), lambda c: db.save_match_correction(
-        c["corr_key"], {k: v for k, v in c.items() if k not in ("corr_key", "entered_at")}))
+    def _restore_correction(c):
+        cleaned = clean_correction(c)   # a damaged or edited backup must not store something that breaks refreshes
+        if cleaned is None:
+            raise ValueError("invalid correction")
+        db.save_match_correction(
+            _correction_key(cleaned["league_short"], cleaned["home_team"], cleaned["away_team"], cleaned["date"]), cleaned)
+    run("match_corrections", data.get("match_corrections"), _restore_correction)
     run("player_stats", data.get("players"), lambda p: db.save_player_stats(
         p["league_short"], p["team_name"], p["player_name"],
         {k: v for k, v in p.items() if k not in ("league_short", "team_name", "player_name", "stat_key")}))

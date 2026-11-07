@@ -103,3 +103,23 @@ Accepted risks, your decision:
 - `POST /api/refresh` is public by design (pull-to-refresh). It is limited to one real scrape every 5 minutes for everyone, but a determined visitor can use up that slot. Impact: at worst slightly staler data. Make it admin-only if this ever matters.
 - Agent logins lock an account for 15 minutes after 10 failed tries, so someone who knows an agent's username could keep that agent locked out. The Worker's per-visitor limit softens this.
 - Push unsubscribe and favourites are keyed by the subscription address, which works like a password held only by that phone.
+
+## Audit 3 (November 2026) — new code since audit 2: match corrections and the page cache
+
+Method: attacker's-eye review of everything added since the last audit, plus a re-run of the full checks (all 6 test suites, `pip-audit` clean, `npm audit` for shipped packages clean, secrets scan of the repository clean, no `innerHTML`/`eval` anywhere in the pages, server-side fetches still limited to kenyahockeyunion.org images and pages the app already knows).
+
+| # | Weakness | Severity | Fix |
+|---|---|---|---|
+| 1 | A damaged or hand-edited backup file could put a correction with nonsense values (for example a score of "abc") into the database. Every refresh would then fail on it, freezing fixtures and results at their last values until someone found and removed it. Needs the admin token to restore, so it is a safety net more than an attack, but one bad file would stop the live data. | Medium | Restore now checks every correction (league, date, names, lengths, scores 0-99 and both-or-neither, at least one real change), computes the storage key itself, and drops unknown fields. Invalid entries are skipped and counted. |
+| 2 | Even with clean input, one failing correction could abort the whole refresh. | Medium | Each correction is applied on its own; a failing one is logged and skipped, the match stays as KHU shows it, and its archive record is kept. |
+| 3 | The page cache kept live match details for 60 seconds, longer than the app's own 15-second rule for live matches. | Low | Match details are cached for 15 seconds, the same as live scores. |
+
+Checked and found safe (attacker view):
+- **Cache poisoning:** the cache key is the full address with options sorted, so two different questions never share an answer. None of the cached pages changes with who is asking (none reads a login token, cookie or header). Requests carrying a token, cookie or Authorization header are never cached or served from the cache. Only successful JSON answers are stored; 404s, errors and anything marked `no-store` are not.
+- **Cross-site reads of cached copies:** the stored copy carries no CORS permission; permission is added per request, only for our own sites.
+- **Forging the "someone saved a change" signal:** it is only set after a successful admin or agent write through the Worker, and its storage address is not reachable by any visitor request.
+- **Match corrections:** admin-only (401 without the token, tested on set, list, delete and export); agents cannot use them; replacement teams must exist in the league table; text is shown with `textContent` only.
+
+Accepted risks, your decision:
+- A visitor can add random options (`?x=1`, `?x=2`, ...) to a cached address to skip the cache. That costs no more than having no cache, and the per-visitor rate limits still apply. I did not restrict which options are allowed, because forgetting one real option would show fans the wrong data.
+- Cached pages can be up to 2 minutes old for fans (15 seconds for live data), and up to an hour old if Render is failing.
