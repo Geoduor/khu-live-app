@@ -76,6 +76,18 @@ If something goes wrong, **delete `EDGE_KEY` on Render** and Render accepts dire
 - **Security → WAF → Rate limiting rules**, Cloudflare's own firewall in front of everything: for example 20 requests per 10 seconds per visitor on `/api/*`.
 - **Security → Bots → Bot Fight Mode**: on.
 
+## The page cache (already in the Worker; nothing to set up)
+
+After you redeploy the Worker (`cd edge && wrangler deploy`) it keeps a short-lived copy of the PUBLIC read pages
+(table, fixtures, results, team pages, history, tournaments, sponsors, notices) so busy match days and slow moments on
+Render do not reach fans.
+
+- Lifetimes: live scores 15 seconds; everything else 1 to 2 minutes. A slightly older copy is shown at once while a new one is fetched behind the scenes. If Render errors or is down, a copy up to an hour old is shown instead of an error.
+- Never cached: admin, agent, shop, push, health, any request carrying a login token, any non-GET request, any answer that is not a successful JSON page, anything Render marks `no-store`.
+- When an admin or agent saves something through the Worker, copies made before that are ignored in that Cloudflare location, so you see your own change straight away. Fans in another location may see the old copy for up to the lifetime above.
+- Each answer carries an `X-Edge-Cache` header: `HIT`, `MISS`, `STALE`, `STALE-ERROR` or `BYPASS`. Check it in the browser's Network tab. To turn the cache off, remove the `cachedGet` branch in `edge/worker.js` and redeploy.
+- Cloudflare's cache is per location, so a fan in Nairobi and one in London keep separate copies.
+
 ## What this does not do
 
 It does not decide prices, stock or who is logged in. That stays on the API. If Render is down, fans still can't load data, but payments are never lost.
