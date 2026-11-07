@@ -32,6 +32,8 @@ check("a normal request reaches the API", r.status === 200);
 check("the API is told the real visitor address and the secret key", log.at(-1).ip === "1.2.3.4" && log.at(-1).key === "edge-key");
 r = await call(mkEnv(), "/api/leagues", { headers: { "x-edge-key": "forged", "x-edge-client-ip": "6.6.6.6", "x-forwarded-for": "7.7.7.7", "x-edge-fake": "1" } });
 check("a visitor cannot forge the Worker's headers", log.at(-1).key === "edge-key" && log.at(-1).ip === "1.2.3.4" && log.at(-1).fwd === null && log.at(-1).spoof === null);
+await call(mkEnv(), "/api/analytics/hit", { method: "POST", body: JSON.stringify({ view: "home" }), headers: { "Content-Type": "application/json" } });
+check("visitor counting (POST /api/analytics/hit) reaches the API through the Worker", log.at(-1).path === "/api/analytics/hit" && log.at(-1).key === "edge-key" && log.at(-1).ip === "1.2.3.4");
 check("anything outside /api is refused", (await call(mkEnv(), "/secret")).status === 404);
 check("odd methods are refused", (await call(mkEnv(), "/api/leagues", { method: "PUT" })).status === 405);
 
