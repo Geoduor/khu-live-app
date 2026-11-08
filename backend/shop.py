@@ -431,7 +431,11 @@ def apply_payment_result(checkout_request_id: str, ok: bool, reason: str = "", r
                              ("A payment report arrived without an amount: check M-Pesa before sending the goods.", _now(), r["order_id"]))
                 conn.commit()
                 return "amount_mismatch"
-            if amount is not None and int(round(float(amount))) != int(r["total"]):
+            try:
+                amount_int = None if amount is None else int(round(float(amount)))   # "abc", NaN, infinity, lists all land here
+            except (TypeError, ValueError, OverflowError):
+                amount_int = -1
+            if amount_int is not None and amount_int != int(r["total"]):
                 conn.execute("UPDATE shop_orders SET admin_note = ?, updated_at = ? WHERE order_id = ?",
                              (f"Payment of {amount} received but the order total is {r['total']}: check M-Pesa {receipt}.", _now(), r["order_id"]))
                 conn.commit()
