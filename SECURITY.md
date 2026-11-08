@@ -123,3 +123,25 @@ Checked and found safe (attacker view):
 Accepted risks, your decision:
 - A visitor can add random options (`?x=1`, `?x=2`, ...) to a cached address to skip the cache. That costs no more than having no cache, and the per-visitor rate limits still apply. I did not restrict which options are allowed, because forgetting one real option would show fans the wrong data.
 - Cached pages can be up to 2 minutes old for fans (15 seconds for live data), and up to an hour old if Render is failing.
+
+## Audit 4 (November 2026) — shop attacked as a buyer, a forger and a snooper
+
+Method: a dedicated attacker script (`backend/verify_redteam.py`, 120 checks, passes on SQLite and Postgres) run against a full local copy of the shop, plus a re-read of the ordering and payment code. The live site, the Worker and Render could not be reached from the build environment, so everything below was tested locally; the "Check these on the live site" list at the end covers the part only you can test.
+
+| # | Weakness | Severity | Fix |
+|---|---|---|---|
+| 1 | A payment report with an amount that is not a number ("abc", NaN, infinity) crashed the handler with a server error instead of being ignored. Only the sender of a report to the secret callback address could trigger it, but a crash on every retry is noise at best and a nuisance at worst. | Low | The amount is now converted safely; anything that is not a clean number counts as a mismatch, the order stays unpaid and is flagged for a human check. |
+
+Attacks tried that were stopped (all passing): negative, zero, fractional, text and huge quantities; the same item split across lines to beat the per-item limit; a bad line late in an order keeping earlier stock; buyer-supplied price, total, status and delivery fee (ignored); another store's product, hidden products, closed stores; SQL injection and script text in every field and in the order lookup; path tricks and over-long ids on every public shop address; Arabic-Indic digits and letters in phone numbers; wrong, near-miss, empty and over-long callback secrets; forged payment reports with wrong, missing, negative, huge, text, NaN, null and list amounts, malformed bodies and oversized bodies; replays of a genuine report and of a failure after payment; twelve buyers grabbing the last item at once (exactly one wins, stock never below zero); visitors and guessed tokens against every admin shop address; customer details leaking in public or customer views; broken JSON, form posts, other HTTP methods, cross-site permission requests.
+
+Accepted risks (your decision):
+- Anyone can type any phone number at checkout, so a stranger can make that person's phone show an M-Pesa prompt. This is limited by the human check, one waiting payment per number, three per number per hour, a couple of unpaid orders per visitor and the Worker's flood limits. It cannot be removed completely without making buyers log in.
+- A payment that arrives after the 15-minute hold is still honoured (the customer really paid). If the stock was sold meanwhile, the order is flagged "refund or fulfil by hand" in the admin page.
+
+### Check these on the live site (5 minutes, no tools needed)
+1. Open `https://khu-backend.onrender.com/api/standings/all` in a browser. Expected: an error page or "forbidden", NOT table data. If you see data, `EDGE_KEY` is not set on Render and the Worker's protection can be walked around.
+2. Open `https://khu-backend.onrender.com/docs` and `/openapi.json`. Expected: not found.
+3. Open `https://khu-edge.geoduor.workers.dev/api/admin/shop/overview`. Expected: "Missing or invalid admin token".
+4. Open `https://khu-live-app.vercel.app/admin.html` without logging in. Expected: only a login box, no data.
+5. At checkout the "I am not a robot" box must appear and the order must be refused if you skip it.
+6. After Daraja go-live: place one small real order, confirm it turns "paid" in the admin page, then refund it.
