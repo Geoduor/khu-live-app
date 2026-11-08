@@ -1943,7 +1943,7 @@
         if (c.new_date) what.push('date → ' + c.new_date);
         if (c.new_venue) what.push('venue → ' + c.new_venue);
         what.push(c.adjust_table === false ? 'table not changed' : 'table follows');
-        const status = c.applied_now ? 'Applied' : 'Not needed now (KHU page no longer matches)';
+        const status = c.khu_matches ? 'KHU now shows the same as this — you can delete it' : (c.applied_now ? 'Applied (stays until KHU matches)' : 'Waiting: no match like this on KHU right now');
         return rowOf(
           h('div', {}, h('div', {}, h('strong', {}, c.home_team + ' v ' + c.away_team), ` (${c.league_short}, ${c.date})`),
             h('div', { class: 'result-meta' }, what.join(', ') + ' · ' + status + (c.note ? ' · ' + c.note : ''))),

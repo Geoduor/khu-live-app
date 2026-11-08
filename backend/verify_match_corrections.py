@@ -95,15 +95,30 @@ check("a match nobody corrected is untouched", any(x["match_url"] == "u3" and x[
 n = main.apply_match_corrections(d)
 check("applying twice is harmless", n == 0 and len(d["results"]) == 3)
 
-print("4. Goes quiet when KHU fixes its own page")
+print("4. Keeps applying until KHU's page matches ours, then says so")
 fixed_by_khu = {"fixtures": [], "live": [], "results": [
     m("Kisii University", "kisii-university", "Kabianga University", "kabianga-university", "27-09-2026 10:00", 2, 0, "u1"),
     m("Kisii University", "kisii-university", "Bay Club", "bay-club", "17-10-2026 11:00", 0, 2, "u2")]}
-snap = copy.deepcopy(fixed_by_khu)
+before = [(x["home_team"], x["away_team"], x["home_score"], x["away_score"], x["date"]) for x in fixed_by_khu["results"]]
 n = main.apply_match_corrections(fixed_by_khu)
-check("nothing changed once KHU is right", n == 0 and fixed_by_khu == snap)
+after = [(x["home_team"], x["away_team"], x["home_score"], x["away_score"], x["date"]) for x in fixed_by_khu["results"]]
+check("once KHU shows the same, nothing visible changes", sorted(before) == sorted(after) and len(fixed_by_khu["results"]) == 2, f"{before} -> {after}")
 lst = c.get("/api/admin/match-corrections/list", headers=H).json()
-check("admin list says 'not needed now'", lst["count"] == 2 and not any(x["applied_now"] for x in lst["corrections"]))
+check("admin list says 'KHU now shows the same'", lst["count"] == 2 and all(x["khu_matches"] for x in lst["corrections"]), str(lst)[:200])
+
+# KHU moves the teams but still has a different score: OUR score stays until KHU matches ours
+for body in ({"league_short": "NLM-SZ", "date": "2026-09-27", "home_team": "Kisii Falcons", "away_team": "Kabianga University", "new_home_team": "Kisii University", "new_home_score": 2, "new_away_score": 0},):
+    c.post("/api/admin/match-corrections/set", headers=H, json=body)
+half = {"fixtures": [], "live": [], "results": [m("Kisii University", "kisii-university", "Kabianga University", "kabianga-university", "27-09-2026 10:00", 3, 0, "u1")]}
+main.apply_match_corrections(half)
+check("KHU fixed the teams but not the score: our score still shows", (half["results"][0]["home_score"], half["results"][0]["away_score"]) == (2, 0), str(half["results"][0]["home_score"]))
+lst = c.get("/api/admin/match-corrections/list", headers=H).json()
+mine = next(x for x in lst["corrections"] if x["date"] == "2026-09-27")
+check("and it is still marked as doing work (not 'KHU matches')", mine["applied_now"] and not mine["khu_matches"])
+# KHU changes it to something unrelated: no guess is made
+other = {"fixtures": [], "live": [], "results": [m("Rongo University", "rongo-university", "Kabianga University", "kabianga-university", "27-09-2026 10:00", 3, 0, "u1")]}
+main.apply_match_corrections(other)
+check("a match that is neither the wrong version nor ours is left alone", other["results"][0]["home_team"] == "Rongo University")
 
 print("5. Other fixes: score, hide, date")
 main.cache["fixtures_results"] = scraped()

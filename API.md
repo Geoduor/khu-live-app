@@ -108,6 +108,8 @@ scrape cannot undo it; it stops applying by itself once KHU fixes its page.
 | DELETE | `/api/admin/match-corrections/{corr_key}` | admin | Remove; the match returns to KHU's version after a refresh |
 | GET | `/api/admin/match-corrections/export-seed` | admin | Export (also inside the backup file and restorable) |
 
+A correction keeps applying until KHU's page shows the same as the correction says (the list then reports `khu_matches: true` and it can be deleted). If KHU fixes only some of it (say the teams but not the score), the rest of the correction still applies.
+
 The league table follows the correction by default (see `adjust_table`). Untick it if KHU's table is already right for that match.
 
 ## Admin & agents — match status notices

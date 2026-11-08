@@ -1541,6 +1541,7 @@ def refresh_standings_for(league_key: str):
 # its own (the admin list then says "not needed any more").
 
 _corrections_applied: set = set()   # corr_keys that matched a match in the last refresh
+_corrections_khu_matches: set = set()   # of those: KHU's page already shows exactly what we say
 _correction_effects: list = []      # {"league_short", "original", "corrected"|None} — what the table must move by
 
 
@@ -1628,6 +1629,19 @@ def clean_correction(raw) -> Optional[dict]:
     return out
 
 
+def _correction_target_key(c: dict) -> str:
+    """The identity of the match as the correction says it SHOULD be (teams and
+    day). When KHU's page already shows that, the correction keeps applying any
+    other fixes it carries (score, venue, time) until KHU matches ours fully."""
+    league = (c.get("league_short") or "").strip().upper()
+    def team(side):
+        name = (c.get(f"new_{side}_team") or c.get(f"{side}_team") or "").strip()
+        row = _resolve_league_team(league, name)
+        return row.get("team") if row else name
+    day = (c.get("new_date") or "").strip() or c.get("date", "")
+    return _correction_key(league, team("home"), team("away"), day)
+
+
 _ORIGINAL_FIELDS = ("home_team", "home_team_url", "away_team", "away_team_url", "home_score", "away_score", "state")
 
 
@@ -1660,7 +1674,7 @@ def _apply_one_correction(m: dict, c: dict) -> dict:
 def apply_match_corrections(data: dict) -> int:
     """Apply stored corrections to data['fixtures'/'results'/'live'] in
     place. Returns how many matches were changed or hidden."""
-    global _corrections_applied, _correction_effects
+    global _corrections_applied, _correction_effects, _corrections_khu_matches
     try:
         corrs = db.load_match_corrections()
     except Exception as e:  # noqa: BLE001 — a broken table must not stop a refresh
@@ -1668,18 +1682,29 @@ def apply_match_corrections(data: dict) -> int:
         return 0
     if not corrs:
         _corrections_applied = set()
+        _corrections_khu_matches = set()
         _correction_effects = []
         return 0
     by_key = {c["corr_key"]: c for c in corrs}
+    by_target = {}
+    for c in corrs:
+        if c.get("hide"):
+            continue
+        try:
+            t = _correction_target_key(c)
+        except Exception:  # noqa: BLE001
+            continue
+        if t != c["corr_key"] and t not in by_key:
+            by_target[t] = c
 
-    applied, purge, out, hidden_effects = set(), [], [], []
+    applied, purge, out, hidden_effects, khu_matches, fresh = set(), [], [], [], set(), set()
     for bucket in ("fixtures", "results", "live"):
         for m in data.get(bucket, []) or []:
             k = _correction_key(m.get("league_short", ""), m.get("home_team", ""),
                                 m.get("away_team", ""), m.get("date", ""))
-            c = by_key.get(k)
-            if not c or m.get("source") in ("manual",):
-                out.append(m)
+            c = by_key.get(k) or by_target.get(k)
+            if m.get("corrected") or not c or m.get("source") in ("manual",):
+                out.append(m)       # a carried-over copy is already corrected; never correct it twice
                 continue
             wrong_key = _match_key(m)                  # the archive record filed under the wrong teams
             try:
@@ -1688,35 +1713,39 @@ def apply_match_corrections(data: dict) -> int:
                 logger.error(f"Match correction skipped ({type(e).__name__})")
                 out.append(m)
                 continue
-            applied.add(k)
+            applied.add(c["corr_key"])
             purge.append(wrong_key)
             if fixed is not None:
+                if all(fixed.get(f) == m.get(f) for f in _ORIGINAL_FIELDS + ("date", "venue")):
+                    khu_matches.add(c["corr_key"])
+                fresh.add(id(fixed))
                 out.append(fixed)
             elif c.get("adjust_table", True) is not False:
                 hidden_effects.append({"league_short": m.get("league_short", ""),
                                        "original": {kk: m.get(kk) for kk in _ORIGINAL_FIELDS}, "corrected": None})
 
     _corrections_applied = applied
-    # What the league table must move by. Built from every corrected match in
-    # this pass, including copies carried over from the previous cycle.
+    _corrections_khu_matches = khu_matches
+    # A partial scrape carries over last cycle's (already corrected) copy of a
+    # match next to the fresh, still-wrong one. After correcting, keep one.
+    # Prefer the copy corrected in THIS pass: its "original" is what KHU shows now.
+    corrected_keys = {_match_key(m) for m in out if m.get("corrected")}
+    chosen = {}
+    for m in out:
+        if m.get("corrected"):
+            k = _match_key(m)
+            if k not in chosen or (id(m) in fresh and id(chosen[k]) not in fresh):
+                chosen[k] = m
+    keep = [m for m in out if _match_key(m) not in corrected_keys or chosen.get(_match_key(m)) is m]
+    # What the league table must move by: every corrected match kept in this pass
+    # (including copies carried over from the previous cycle) plus hidden ones.
     _correction_effects = hidden_effects + [
         {"league_short": m.get("league_short", ""), "original": m["original"], "corrected": m}
-        for m in out if m.get("corrected") and m.get("adjust_table", True) is not False and isinstance(m.get("original"), dict)
+        for m in keep if m.get("corrected") and m.get("adjust_table", True) is not False and isinstance(m.get("original"), dict)
     ]
     if not applied:
         return 0
 
-    # A partial scrape carries over last cycle's (already corrected) copy of a
-    # match next to the fresh, still-wrong one. After correcting, keep one.
-    corrected_keys = {_match_key(m) for m in out if m.get("corrected")}
-    keep, seen_corrected = [], set()
-    for m in out:
-        k = _match_key(m)
-        if k in corrected_keys:
-            if not m.get("corrected") or k in seen_corrected:
-                continue
-            seen_corrected.add(k)
-        keep.append(m)
     data["fixtures"] = _group_and_sort_matches([m for m in keep if m.get("state") == "NS"])
     data["results"] = _group_and_sort_matches([m for m in keep if m.get("state") == "FT"])
     data["live"] = _group_and_sort_matches([m for m in keep if m.get("state") == "LIVE"])
@@ -3047,6 +3076,7 @@ class MatchCorrectionInput(BaseModel):
 def _correction_view(c: dict) -> dict:
     out = {k: v for k, v in c.items()}
     out["applied_now"] = c.get("corr_key") in _corrections_applied
+    out["khu_matches"] = c.get("corr_key") in _corrections_khu_matches
     return out
 
 
