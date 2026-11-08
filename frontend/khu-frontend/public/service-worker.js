@@ -28,7 +28,7 @@
  * cleaned up even when the strategy itself was supposed to do so.
  */
 
-const CACHE_VERSION = "v8"; // bump this string whenever service-worker.js changes meaningfully
+const CACHE_VERSION = "v9"; // bump this string whenever service-worker.js changes meaningfully
 const CACHE_NAME = `khu-app-shell-${CACHE_VERSION}`;
 const DATA_CACHE_NAME = `khu-app-data-${CACHE_VERSION}`;
 
@@ -88,6 +88,11 @@ self.addEventListener("fetch", (event) => {
   if (request.method !== "GET") return; // let the browser handle POST/DELETE untouched
 
   const url = new URL(request.url);
+
+  // Other websites' files (for example the Cloudflare "are you human" box) are none of our business.
+  // Fetching them from here is blocked by our own security rules, which silently broke that box.
+  // Only the API (on another address) is handled below, for the offline fallback.
+  if (url.origin !== self.location.origin && !url.pathname.startsWith("/api/")) return;
 
   // API calls to the backend — network-first, cache as fallback
   if (url.pathname.startsWith("/api/")) {
