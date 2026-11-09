@@ -1763,7 +1763,7 @@ def apply_match_corrections(data: dict) -> int:
     return len(applied)
 
 
-def refresh_fixtures_results():
+def refresh_fixtures_results(only_team_names=None):
     """
     Scrape fixtures/results/live for every league by visiting each
     team's own page (filtered to the current season), NOT via the
@@ -1793,7 +1793,21 @@ def refresh_fixtures_results():
             if not teams:
                 errors.append({"league": league_key, "error": "No standings cached yet for this league — can't determine its team list."})
                 continue
-            result = scrape_league_results_via_teams(league_key, teams)
+            if only_team_names is not None:
+                # Live-watch pass: fetch ONLY the teams playing today; every
+                # other match in the league is carried over from the last
+                # full scrape by the "incomplete" branch below.
+                teams = [t for t in teams
+                         if _normalize_team_name(t.get("team", "")) in only_team_names]
+                if not teams:
+                    result = {"matches": [], "incomplete": True, "teams_failed": 0, "teams_fetched": 0}
+                else:
+                    result = scrape_league_results_via_teams(league_key, teams)
+                    result["incomplete"] = True  # never authoritative for the whole league
+                    if result.get("matches"):
+                        fresh_scraped += len(result["matches"])
+            else:
+                result = scrape_league_results_via_teams(league_key, teams)
             if result.get("error"):
                 errors.append({"league": league_key, "error": result["error"]})
             league_matches = result.get("matches", [])
@@ -1815,9 +1829,10 @@ def refresh_fixtures_results():
                 league_matches = league_matches + [
                     m for m in prev_league if _result_signature(m) not in fresh_keys
                 ]
-                stale_leagues.append(league_key)
-                errors.append({"league": league_key,
-                               "error": f"Partial scrape ({result.get('teams_failed', 0)} team page(s) failed) — kept previous data."})
+                if only_team_names is None:
+                    stale_leagues.append(league_key)
+                    errors.append({"league": league_key,
+                                   "error": f"Partial scrape ({result.get('teams_failed', 0)} team page(s) failed) — kept previous data."})
             else:
                 fresh_scraped += len(league_matches)
             all_matches.extend(league_matches)
@@ -1954,6 +1969,52 @@ def refresh_fixtures_results():
 
 _refresh_lock = threading.Lock()
 
+LIVE_WATCH_MINUTES = int(os.environ.get("KHU_LIVE_WATCH_MINUTES", "2"))
+_LIVE_WATCH_MAX_TEAMS = 12
+
+
+def _teams_playing_today(now=None) -> set:
+    """Normalized names of teams in a match today (Kenya time) or LIVE now,
+    from the last full scrape (+PDF/manual) — the only matches whose score
+    can change in the next few minutes."""
+    fr = cache.get("fixtures_results") or {}
+    now = now or (datetime.utcnow() + timedelta(hours=3))
+    today = now.strftime("%Y-%m-%d")
+    names = set()
+    for bucket in ("fixtures", "live", "results"):
+        for m in fr.get(bucket, []):
+            if bucket != "live" and match_calendar_date_key(m.get("date", "")) != today:
+                continue
+            for k in ("home_team", "away_team"):
+                n = _normalize_team_name(m.get(k, ""))
+                if n:
+                    names.add(n)
+    return names
+
+
+def refresh_live_watch():
+    """Cheap, frequent scrape of ONLY today's teams (a handful of pages)
+    so live scores/finals show within minutes, instead of waiting for the
+    15-minute full scrape that visits every team in every league. Does
+    nothing on days without matches, while a full refresh is running, or
+    while the circuit breaker is open."""
+    if LIVE_WATCH_MINUTES <= 0:
+        return False
+    names = _teams_playing_today()
+    if not names or len(names) > _LIVE_WATCH_MAX_TEAMS:
+        return False  # nothing today (or a huge match day: leave it to the full scrape)
+    if not db.should_attempt_scrape(cooldown_seconds=300):
+        return False
+    if not _refresh_lock.acquire(blocking=False):
+        return False
+    try:
+        ok = refresh_fixtures_results(only_team_names=names)
+        if ok:
+            cache["last_live_watch"] = datetime.now().isoformat()
+        return ok
+    finally:
+        _refresh_lock.release()
+
 
 def refresh_all_data(force: bool = False):
     """
@@ -2061,6 +2122,9 @@ def load_from_cache_on_boot():
 # ── Scheduler: refresh every 15 minutes ──
 scheduler = BackgroundScheduler()
 scheduler.add_job(refresh_all_data, "interval", minutes=REFRESH_INTERVAL_MINUTES)
+if LIVE_WATCH_MINUTES > 0:
+    scheduler.add_job(refresh_live_watch, "interval", minutes=LIVE_WATCH_MINUTES,
+                      id="live_watch", max_instances=1, coalesce=True, replace_existing=True)
 scheduler.start()
 
 
@@ -2126,6 +2190,7 @@ def health():
         "status": cache["status"],
         "last_refresh_attempt": cache["last_refresh_attempt"],
         "last_refresh_success": cache["last_refresh_success"],
+        "last_live_watch": cache.get("last_live_watch"),
         "leagues_cached": len(cache["standings"]),
         "fixtures_results_cached": cache["fixtures_results"] is not None,
         "circuit_breaker": {
