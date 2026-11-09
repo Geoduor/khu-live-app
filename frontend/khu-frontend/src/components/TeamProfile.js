@@ -5,13 +5,24 @@ import ErrorState from "./ErrorState";
 import TeamLogo from "./TeamLogo";
 import { PlayerAvatar } from "./PlayerProfile";
 
+// "2026-11-28 16:00" -> { day: "2026-11-28", time: "16:00" }. Anything that
+// doesn't look like that is shown untouched (day only).
+function splitDateTime(s) {
+  const str = String(s || "");
+  const m = str.match(/^(.*?)[\sT]+(\d{1,2}:\d{2})$/);
+  return m ? { day: m[1], time: m[2] } : { day: str, time: "" };
+}
+
+// Everything below renders API text as React text nodes only (never HTML).
 export default function TeamProfile({ teamUrl, teamName, league, onBack, onOpenTeam, onOpenPlayer, isFavorite, toggleFavorite }) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [tab, setTab] = useState("matches");
 
   useEffect(() => {
     setLoading(true);
     setData(null);
+    setTab("matches");
     let alive = true;
     getTeamProfile(teamUrl, teamName, league)
       .then((d) => alive && setData(d))
@@ -20,8 +31,17 @@ export default function TeamProfile({ teamUrl, teamName, league, onBack, onOpenT
     return () => { alive = false; };
   }, [teamUrl, teamName, league]);
 
+  const squad = data?.squad || [];
+  const upcoming = data?.upcoming_fixtures || [];
+  const results = data?.recent_results || [];
+  const form = data?.form || [];
+  const summary = data?.season_summary;
+  const hasMatches = upcoming.length > 0 || results.length > 0;
+  // A team with a squad but no matches yet opens straight on the squad.
+  const activeTab = tab === "matches" && !hasMatches && squad.length > 0 ? "squad" : tab;
+
   return (
-    <div className="section">
+    <div className="section tp">
       <button className="back-btn" onClick={onBack}>← Back</button>
 
       {loading ? (
@@ -30,120 +50,167 @@ export default function TeamProfile({ teamUrl, teamName, league, onBack, onOpenT
         <ErrorState title="Could not load team" message={data.error} />
       ) : (
         <>
-          <div className="team-profile-header">
-            <TeamLogo src={data.logo_url} name={data.team_name} className="team-profile-badge-img" />
-            <div style={{ flex: 1 }}>
-              <div className="team-profile-name">{data.team_name || "Unknown Team"}</div>
-              {data.position && (
-                <div className="team-profile-position">League Position: #{data.position}</div>
+          <header className="tp-hero">
+            <div className="tp-hero-top">
+              <TeamLogo src={data.logo_url} name={data.team_name} className="team-profile-badge-img tp-badge" />
+              <div className="tp-hero-text">
+                <h2 className="tp-name">{data.team_name || "Unknown Team"}</h2>
+                {data.position && <span className="tp-pos">#{data.position} in league</span>}
+              </div>
+              {toggleFavorite && (
+                <button
+                  type="button"
+                  className={`tp-fav ${isFavorite?.(teamUrl) ? "active" : ""}`}
+                  onClick={() => toggleFavorite(teamUrl, data.team_name)}
+                  aria-label={isFavorite?.(teamUrl) ? "Remove from Your Teams" : "Add to Your Teams"}
+                  title={isFavorite?.(teamUrl) ? "Remove from Your Teams" : "Add to Your Teams"}
+                >
+                  {isFavorite?.(teamUrl) ? "★" : "☆"}
+                </button>
               )}
             </div>
-            {toggleFavorite && (
-              <span
-                className={`fav-star fav-star-lg ${isFavorite?.(teamUrl) ? "active" : ""}`}
-                onClick={() => toggleFavorite(teamUrl, data.team_name)}
-                title={isFavorite?.(teamUrl) ? "Remove from Your Teams" : "Add to Your Teams"}
-              >
-                {isFavorite?.(teamUrl) ? "★" : "☆"}
-              </span>
+
+            {(summary || form.length > 0) && (
+              <div className="tp-hero-stats">
+                {summary && (
+                  <dl className="tp-stats">
+                    <div><dd>{summary.won}</dd><dt>W</dt></div>
+                    <div><dd>{summary.drawn}</dd><dt>D</dt></div>
+                    <div><dd>{summary.lost}</dd><dt>L</dt></div>
+                    <div><dd>{summary.goals_for}</dd><dt>GF</dt></div>
+                    <div><dd>{summary.goals_against}</dd><dt>GA</dt></div>
+                  </dl>
+                )}
+                {form.length > 0 && (
+                  <div className="tp-form">
+                    <span className="tp-form-label">Form</span>
+                    <div className="form-dots">
+                      {form.map((f, i) => (
+                        <div key={i} className={`form-dot tp-form-dot form-${f === "?" ? "unknown" : f}`}>{f}</div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
             )}
+          </header>
+
+          <div className="tp-tabs" role="tablist">
+            <button
+              role="tab"
+              aria-selected={activeTab === "matches"}
+              className={activeTab === "matches" ? "active" : ""}
+              onClick={() => setTab("matches")}
+            >
+              Matches
+            </button>
+            <button
+              role="tab"
+              aria-selected={activeTab === "squad"}
+              className={activeTab === "squad" ? "active" : ""}
+              onClick={() => setTab("squad")}
+            >
+              Squad{squad.length > 0 ? ` (${squad.length})` : ""}
+            </button>
           </div>
 
-          {data.squad && data.squad.length > 0 && (
-            <div className="profile-block">
-              <div className="profile-block-title">Squad ({data.squad.length})</div>
-              <div className="squad-list">
-                {data.squad.map((p) => (
-                  <button key={p.player_id} className="squad-row" onClick={() => onOpenPlayer && onOpenPlayer(p.player_id)} disabled={!onOpenPlayer}>
-                    <PlayerAvatar id={p.player_id} name={p.player_name} hasPhoto={p.has_photo} size={40} />
-                    <span className="squad-main">
-                      <span className="squad-name">{p.player_name}{p.captain && <span className="pl-captain" title="Captain">C</span>}</span>
-                      <span className="squad-sub">{[p.position, p.jersey != null ? `#${p.jersey}` : ""].filter(Boolean).join(" · ") || "Player"}</span>
-                    </span>
-                    {p.goals > 0 && <span className="squad-goals">{p.goals}<small>goals</small></span>}
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {data.form && data.form.length > 0 && (
-            <div className="profile-block">
-              <div className="profile-block-title">Current Form</div>
-              <div className="form-dots" style={{ justifyContent: "flex-start" }}>
-                {data.form.map((f, i) => (
-                  <div key={i} className={`form-dot form-${f === "?" ? "unknown" : f}`} style={{ width: 26, height: 26, fontSize: 12 }}>{f}</div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {data.upcoming_fixtures && data.upcoming_fixtures.length > 0 && (
-            <div className="profile-block">
-              <div className="profile-block-title">Upcoming Fixtures</div>
-              <div className="match-list">
-                {data.upcoming_fixtures.map((f, i) => (
-                  <div key={i} className="mini-match-row">
-                    <div className="mini-match-date">{f.date}</div>
-                    <div className="mini-match-opp">vs {f.opponent}</div>
-                    <div className="mini-match-venue">{f.venue}</div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {data.recent_results && data.recent_results.length > 0 ? (
-            <div className="profile-block">
-              <div className="profile-block-title">Season Results ({data.recent_results.length})</div>
-              {data.season_summary && (
-                <div className="season-summary">
-                  <div><b>{data.season_summary.won}</b><span>W</span></div>
-                  <div><b>{data.season_summary.drawn}</b><span>D</span></div>
-                  <div><b>{data.season_summary.lost}</b><span>L</span></div>
-                  <div><b>{data.season_summary.goals_for}</b><span>GF</span></div>
-                  <div><b>{data.season_summary.goals_against}</b><span>GA</span></div>
-                </div>
+          {activeTab === "matches" && (
+            <div className="tp-panel">
+              {!hasMatches && (
+                <ErrorState
+                  title="No match history found"
+                  message="No fixtures or results are available for this team yet — check back once the season is further underway."
+                  compact
+                />
               )}
-              <div className="match-list">
-                {data.recent_results.map((r, i) => (
-                  <div key={i} className="mini-match-row">
-                    {r.outcome && (
-                      <div className={`form-dot form-${r.outcome}`} style={{ width: 22, height: 22, fontSize: 11, flexShrink: 0 }}>
-                        {r.outcome}
+
+              {upcoming.length > 0 && (
+                <section className="tp-group">
+                  <h3 className="tp-group-title">Upcoming</h3>
+                  <div className="tp-list">
+                    {upcoming.map((f, i) => {
+                      const { day, time } = splitDateTime(f.date);
+                      return (
+                        <div key={i} className="tp-match">
+                          <div className="tp-when">
+                            <b>{day}</b>
+                            {time && <span>{time}</span>}
+                          </div>
+                          <div className="tp-opp">
+                            <span className="tp-opp-name">vs {f.opponent}</span>
+                            {f.venue && <span className="tp-opp-sub">{f.venue}</span>}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </section>
+              )}
+
+              {results.length > 0 ? (
+                <section className="tp-group">
+                  <h3 className="tp-group-title">Results ({results.length})</h3>
+                  <div className="tp-list">
+                    {results.map((r, i) => (
+                      <div key={i} className="tp-match">
+                        {r.outcome ? (
+                          <div className={`form-dot tp-outcome form-${r.outcome}`}>{r.outcome}</div>
+                        ) : (
+                          <div className="tp-outcome tp-outcome-none" />
+                        )}
+                        <div className="tp-opp">
+                          <span className="tp-opp-name">vs {r.opponent}</span>
+                          <span className="tp-opp-sub">{[r.date, r.venue].filter(Boolean).join(" · ")}</span>
+                        </div>
+                        <div className="tp-score">{r.result}</div>
                       </div>
-                    )}
-                    <div className="mini-match-date">{r.date}</div>
-                    <div className="mini-match-opp">
-                      vs {r.opponent} <span className="mini-match-venue-inline">({r.venue})</span>
-                    </div>
-                    <div className="mini-match-result">{r.result}</div>
+                    ))}
                   </div>
-                ))}
-              </div>
-              {data.season_summary && data.season_summary.played_per_table > data.season_summary.matches_listed && (
-                <div className="profile-block-empty" style={{ marginTop: 10 }}>
-                  The league table shows {data.season_summary.played_per_table} games played; {data.season_summary.matches_listed} match
-                  {data.season_summary.matches_listed === 1 ? "" : "es"} listed so far. The rest appear once published.
-                </div>
+                  {summary && summary.played_per_table > summary.matches_listed && (
+                    <p className="tp-note">
+                      The league table shows {summary.played_per_table} games played; {summary.matches_listed} match
+                      {summary.matches_listed === 1 ? "" : "es"} listed so far. The rest appear once published.
+                    </p>
+                  )}
+                </section>
+              ) : (
+                hasMatches && (
+                  <section className="tp-group">
+                    <h3 className="tp-group-title">Results</h3>
+                    <p className="tp-note">No completed matches recorded for {data.team_name || "this team"} yet this season.</p>
+                  </section>
+                )
               )}
-            </div>
-          ) : (
-            <div className="profile-block">
-              <div className="profile-block-title">Season Results</div>
-              <div className="profile-block-empty">
-                No completed matches recorded for {data.team_name || "this team"} yet this season.
-              </div>
             </div>
           )}
 
-          {(!data.upcoming_fixtures || data.upcoming_fixtures.length === 0) &&
-           (!data.recent_results || data.recent_results.length === 0) && (
-            <ErrorState
-              title="No match history found"
-              message="No fixtures or results are available for this team yet — check back once the season is further underway."
-              compact
-            />
+          {activeTab === "squad" && (
+            <div className="tp-panel">
+              {squad.length === 0 ? (
+                <p className="tp-note">No squad has been published for this team yet.</p>
+              ) : (
+                <div className="tp-squad">
+                  {squad.map((p) => (
+                    <button
+                      key={p.player_id}
+                      className="tp-player"
+                      onClick={() => onOpenPlayer && onOpenPlayer(p.player_id)}
+                      disabled={!onOpenPlayer}
+                    >
+                      <PlayerAvatar id={p.player_id} name={p.player_name} hasPhoto={p.has_photo} size={52} />
+                      <span className="tp-player-name">
+                        {p.player_name}
+                        {p.captain && <span className="pl-captain" title="Captain">C</span>}
+                      </span>
+                      <span className="tp-player-sub">
+                        {[p.jersey != null ? `#${p.jersey}` : "", p.position].filter(Boolean).join(" · ") || "Player"}
+                      </span>
+                      {p.goals > 0 && <span className="tp-player-goals">{p.goals} {p.goals === 1 ? "goal" : "goals"}</span>}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
           )}
         </>
       )}
