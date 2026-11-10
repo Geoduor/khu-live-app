@@ -742,6 +742,20 @@ def create_agent_session(username: str) -> str:
     return token
 
 
+def revoke_agent_session(token: str) -> bool:
+    """Delete one session (agent pressed Log out). Unknown tokens are ignored."""
+    if not token:
+        return False
+    conn = get_connection()
+    try:
+        cur = conn.cursor()
+        cur.execute("DELETE FROM agent_sessions WHERE token = ?", (_session_key(token),))
+        conn.commit()
+        return cur.rowcount > 0
+    finally:
+        conn.close()
+
+
 def verify_agent_session(token: str):
     """Check a session token. Returns {"username", "display_name"} if
     valid AND the agent is still active, else None. Expired sessions

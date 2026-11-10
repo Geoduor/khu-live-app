@@ -39,6 +39,22 @@ function timingSafeEqual(a, b) {
   return diff === 0;
 }
 
+// One rate-limit key per connection owner. A single IPv6 connection owns a whole /64 (billions of addresses), so
+// counting each address separately let one person rotate addresses to dodge every limit. IPv4 is unchanged.
+function ipKey(ip) {
+  let s = String(ip || "").toLowerCase();
+  if (!s.includes(":")) return s;
+  const zone = s.indexOf("%");
+  if (zone >= 0) s = s.slice(0, zone);
+  if (s.includes(".")) return s.slice(s.lastIndexOf(":") + 1); // ::ffff:1.2.3.4 is really IPv4
+  const [head, tail] = s.split("::");
+  const h = head ? head.split(":") : [];
+  const t = tail ? tail.split(":") : [];
+  const fill = tail === undefined ? 0 : Math.max(8 - h.length - t.length, 0);
+  const groups = [...h, ...Array(fill).fill("0"), ...t];
+  return groups.slice(0, 4).map((g) => g.padStart(4, "0")).join(":") + "::/64";
+}
+
 async function limited(binding, key) {
   if (!binding) return false; // not configured: skip rather than block everyone
   try { return !(await binding.limit({ key })).success; } catch (e) { return false; }
@@ -219,13 +235,13 @@ export default {
 
     // Cheapest checks first: flood limits, then the human check, so bad traffic never costs Render anything.
     if (request.method === "POST" && LOGIN_PATHS.has(url.pathname)) {
-      if (await limited(env.RL_LOGIN, ip)) return reply(request, env, 429, "Too many login attempts. Wait a minute and try again.", { "Retry-After": "60" });
+      if (await limited(env.RL_LOGIN, ipKey(ip))) return reply(request, env, 429, "Too many login attempts. Wait a minute and try again.", { "Retry-After": "60" });
       if (!(await turnstileOk(request, env, ip))) return reply(request, env, 403, "Please complete the human check and try again.");
     } else if (request.method === "POST" && url.pathname === "/api/shop/orders") {
-      if (await limited(env.RL_ORDER, ip)) return reply(request, env, 429, "Too many orders from this connection. Wait a minute and try again.", { "Retry-After": "60" });
+      if (await limited(env.RL_ORDER, ipKey(ip))) return reply(request, env, 429, "Too many orders from this connection. Wait a minute and try again.", { "Retry-After": "60" });
       if (!(await turnstileOk(request, env, ip))) return reply(request, env, 403, "Please complete the human check and try again.");
     }
-    if (request.method !== "OPTIONS" && (await limited(env.RL_API, ip))) {
+    if (request.method !== "OPTIONS" && (await limited(env.RL_API, ipKey(ip)))) {
       return reply(request, env, 429, "Too many requests. Slow down and try again shortly.", { "Retry-After": "60" });
     }
 
@@ -251,4 +267,4 @@ export default {
   },
 };
 
-export { retryPending, handleCallback, freshSeconds };
+export { retryPending, handleCallback, freshSeconds, ipKey };

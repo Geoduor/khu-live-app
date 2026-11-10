@@ -145,3 +145,32 @@ Accepted risks (your decision):
 4. Open `https://khu-live-app.vercel.app/admin.html` without logging in. Expected: only a login box, no data.
 5. At checkout the "I am not a robot" box must appear and the order must be refused if you skip it.
 6. After Daraja go-live: place one small real order, confirm it turns "paid" in the admin page, then refund it.
+
+## Audit 5 (November 2026) — whole codebase re-read as an attacker: logins, uploads, restore, importers, Worker, admin pages
+
+Method: a fresh read of the sign-in and session code, the request middleware, every restore/import path, the file and image handlers, the server-side fetchers, the Cloudflare Worker and the admin/agent pages, looking for things the first four audits did not cover. New regression tests: `backend/verify_audit5.py` (28 checks; they fail on the old code and pass now) and four more in `edge/worker.test.mjs`. All earlier suites still pass. As before, this was a code review plus local attack simulations; the live Render, Vercel and Worker deployments could not be reached from the build environment.
+
+| # | Weakness (plain English) | Severity | Fix |
+|---|---|---|---|
+| 1 | **One person could look like billions of visitors.** Every phone or home connection on IPv6 is given a whole block of about 18 quintillion addresses. The login lockout and every rate limit counted each address separately, so an attacker could change address on every try and never be locked out or slowed (on the API and on the Worker). | Medium | Both now count an IPv6 connection by its /64 block (the unit one connection owns); IPv4 is unchanged. `_ip_bucket()` in `main.py`, `ipKey()` in `edge/worker.js`. |
+| 2 | **The admin lockout could be wiped out of memory.** When the failed-login table reached 20,000 entries the server threw away the *oldest* one, which is exactly the "admin account" counter. An attacker flooding it with fresh addresses could reset the counter and keep guessing. Merely *checking* an address also added an entry, which made the flood cheap. | Medium | Expired entries are dropped first, then address entries; the admin counter is never dropped, and checking an address no longer creates entries. |
+| 3 | **The image proxy would fetch any page on KHU's site**, not only images (home page, search results, feeds, `wp-admin`), up to 240 a minute per visitor, and failed requests were never remembered. Every one is a real request to KHU from our server's address, which KHU already blocks when it sees too much (the "scraper stalled" problem). Audit 1 closed the same hole on `/api/match`; this one was missed. | Medium | Only `https://kenyahockeyunion.org/wp-content/...` is accepted (no `..`, no encoded dots, 300 characters at most), and an address that failed is not requested again for 10 minutes. |
+| 4 | **Agent "Log out" only forgot the token on that phone.** The token itself stayed valid for 30 days on the server, so one copied from a shared or lost phone kept working. | Medium | New `POST /api/agent/logout` deletes the session on the server; the agent page calls it. Other sessions of the same agent are unaffected. |
+| 5 | A season label ending in a newline slipped past the format check (`$` allows a trailing newline). | Low | Whole-string match. |
+| 6 | A broken PDF upload returned the raw Python error text to the browser. | Low | Plain message; the detail goes to the server log only. |
+| 7 | If `EDGE_KEY` is missing on Render the API quietly accepts direct traffic and the Worker's flood and password limits can be walked around. | Low | A loud warning is now written to the Render log at start-up when `EDGE_KEY` is unset. |
+
+Checked and found safe (attacker view): admin session signing and expiry (constant-time, forged and expired tokens refused); master-token and password comparisons (constant-time); the "no such user" login path spends the same time as a real one; agent sessions are stored hashed and a deactivated agent loses access at once; every `/api/admin/*` write route checks the admin token (agents reach only the match-day routes); request-size limits run before any body is read; sponsor links must be `https://` with no embedded password and are shown as text and a plain link; sponsor and shop pictures are checked by their first bytes and served with `nosniff` and a sandbox policy; the Worker strips any `x-edge-*`, `cf-*` and `x-forwarded-for` headers a visitor sends, never caches anything carrying a token or cookie, and only echoes our own sites in CORS; no `innerHTML`, `eval` or `document.write` in the admin, agent or React code.
+
+Still open — your decision (not changed, because each is a trade-off or needs a deliberate choice):
+- **Locking out the real admin.** Thirty wrong passwords in 15 minutes lock admin sign-in for everyone, so an attacker can keep you out of the login page (not out of a session you already hold, which lasts 8 hours). The Worker's per-visitor limit and Turnstile make it costly; keep Turnstile switched on.
+- **Admin sessions cannot be ended one at a time.** They are signed, not stored. To end all of them, change `ADMIN_TOKEN` on Render.
+- **Agent tokens live in the phone's `localStorage` for up to 30 days** (now revocable with Log out). If agents share phones, shorten the lifetime (`timedelta(days=30)` in `database.py`).
+- **Restore trusts a backup file.** Only an admin can restore, and corrections are re-checked, but shop rows (prices, image types, order status) and season data are loaded as they come. Keep backup files private and only restore files you made. The bucket's own access keys (`BACKUP_S3_*`) are the thing to protect.
+- **The admin and agent pages allow inline scripts** (`'unsafe-inline'` in their security policy) because the pages are single files. Nothing injects markup today (no `innerHTML`); moving the script to its own file would let that be tightened.
+- **Turnstile is off until `TURNSTILE_SECRET` is set** in the Worker (by design, documented in `docs/EDGE_SETUP.md`).
+
+### Check these on the live site after deploying (2 minutes)
+1. Render log at start-up must NOT contain "EDGE_KEY is not set". If it does, set `EDGE_KEY` (same value as in the Worker).
+2. In the agent page, log in, press Log out, then press the browser Back button: you should be asked to log in again.
+3. Team logos still show on Home, Table and Fixtures (if a logo is missing, send me its address; it means KHU serves it from outside `/wp-content/`).
