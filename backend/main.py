@@ -139,18 +139,33 @@ def _from_edge(request: Request) -> bool:
     return bool(EDGE_KEY) and secrets.compare_digest((request.headers.get("x-edge-key", "")).encode("utf-8"), EDGE_KEY.encode("utf-8"))
 
 
+def _ip_bucket(ip: str) -> str:
+    """One key per connection owner. A single home or attacker connection is handed a whole IPv6 /64 (billions of
+    addresses); counting each address separately let one person dodge every lockout and rate limit by rotating
+    addresses. So an IPv6 address is reduced to its /64, and IPv4-mapped IPv6 to the plain IPv4 address."""
+    try:
+        a = ipaddress.ip_address((ip or "").strip())
+    except ValueError:
+        return ip
+    if a.version == 6:
+        if a.ipv4_mapped:
+            return str(a.ipv4_mapped)
+        return str(ipaddress.ip_network(f"{a}/64", strict=False))
+    return str(a)
+
+
 def _client_ip(request: Request) -> str:
     if _from_edge(request):  # the Worker saw the real visitor address; nobody else can set this header
         try:
-            return str(ipaddress.ip_address(request.headers.get("x-edge-client-ip", "").strip()))
+            return _ip_bucket(str(ipaddress.ip_address(request.headers.get("x-edge-client-ip", "").strip())))
         except ValueError:
             pass
     fwd = request.headers.get("x-forwarded-for", "")
     if fwd:
         parts = [p.strip() for p in fwd.split(",") if p.strip()]
         if parts:
-            return parts[-min(TRUSTED_PROXY_HOPS, len(parts))]
-    return request.client.host if request.client else "unknown"
+            return _ip_bucket(parts[-min(TRUSTED_PROXY_HOPS, len(parts))])
+    return _ip_bucket(request.client.host) if request.client else "unknown"
 
 
 # ── Generic per-IP rate limiter (in-memory, fixed sliding window) ──
@@ -179,21 +194,45 @@ def _rate_limit(request: Request, bucket: str, limit: int, window_seconds: int =
 def _login_check_allowed(ip: str, extra_key: str = "", extra_max: int = 0):
     now = time.time()
     fails = [t for t in _login_failures.get(ip, []) if now - t < _LOGIN_WINDOW_SECONDS]
-    _login_failures[ip] = fails
+    _login_store(ip, fails)
     if extra_key:  # per-account / global cap so a botnet can't brute-force across many IPs
         efails = [t for t in _login_failures.get(extra_key, []) if now - t < _LOGIN_WINDOW_SECONDS]
-        _login_failures[extra_key] = efails
+        _login_store(extra_key, efails)
         if len(efails) >= extra_max:
             raise HTTPException(status_code=429, detail="Too many failed login attempts. Try again in 15 minutes.")
     if len(fails) >= _LOGIN_MAX_FAILS:
         raise HTTPException(status_code=429, detail="Too many failed login attempts. Try again in 15 minutes.")
 
 
+def _login_store(key: str, fails: list):
+    """Keep a key only while it has live failures: merely *checking* an address must not add a table entry
+    (otherwise junk addresses fill the table and push real lockout counters out of it)."""
+    if fails:
+        _login_failures[key] = fails
+    else:
+        _login_failures.pop(key, None)
+
+
+_LOGIN_MAX_KEYS = 20000
+_LOGIN_PROTECTED_PREFIXES = ("admin:", "agent:")
+
+
 def _login_record_failure(ip: str, *extra_keys: str):
     for k in (ip,) + extra_keys:
         _login_failures.setdefault(k, []).append(time.time())
-    if len(_login_failures) > 20000:
-        _login_failures.pop(next(iter(_login_failures)))
+    if len(_login_failures) > _LOGIN_MAX_KEYS:
+        now = time.time()
+        for k in [k for k, v in _login_failures.items() if not v or now - v[-1] > _LOGIN_WINDOW_SECONDS]:
+            _login_failures.pop(k, None)  # expired entries go first
+        # Still full: drop address entries before account entries, oldest first, and never the admin counter.
+        # (The old code dropped the oldest key of any kind, which an attacker could arrange to be the admin lockout.)
+        for protected in (False, True):
+            while len(_login_failures) > _LOGIN_MAX_KEYS:
+                victim = next((k for k in _login_failures
+                               if k != "admin:global" and k.startswith(_LOGIN_PROTECTED_PREFIXES) == protected), None)
+                if victim is None:
+                    break
+                _login_failures.pop(victim, None)
 
 
 def _authorize_writer(x_admin_token: str = "", x_agent_token: str = "") -> str:
@@ -437,6 +476,9 @@ allowed_origins = (
 
 if "*" in allowed_origins:
     logger.warning("ALLOWED_ORIGINS is not set — CORS is open to every website. Set it in production.")
+if os.environ.get("RENDER") and not os.environ.get("EDGE_KEY"):
+    # Without EDGE_KEY anyone can call this server directly and skip the Worker's flood and password-guess limits.
+    logger.warning("EDGE_KEY is not set on Render — the API accepts direct traffic and the Cloudflare Worker's protection can be bypassed.")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=allowed_origins,
@@ -2223,6 +2265,8 @@ def health():
 # server directly for images at all.
 _LOGO_CACHE: dict = {}  # url -> (content_bytes, content_type) — small in-memory cache
 _LOGO_CACHE_MAX_ENTRIES = 500
+_LOGO_FAILED: dict = {}  # url -> time of last failed fetch (so repeated bad requests never reach KHU)
+_LOGO_FAIL_SECONDS = 600
 
 
 def _is_khu_image_url(url: str) -> bool:
@@ -2230,18 +2274,38 @@ def _is_khu_image_url(url: str) -> bool:
     return is_allowed_khu_url(url)
 
 
+def _is_khu_logo_url(url: str) -> bool:
+    """A logo/photo address, not just any page on KHU's host. The image proxy used to accept ANY path there, so a
+    visitor could make this server request arbitrary KHU pages (search results, admin paths, feeds) at up to 240 a
+    minute per address; KHU already blocks our server's address when it sees too much traffic. Images live under
+    /wp-content/ (uploads and plugin images), so only that is accepted."""
+    if len(url or "") > 300 or not _is_khu_image_url(url):
+        return False
+    from urllib.parse import urlparse
+    path = urlparse(url).path
+    return path.startswith("/wp-content/") and ".." not in path and "\\" not in path and "%2e" not in path.lower()
+
+
 _LOGO_MAX_BYTES = 2 * 1024 * 1024
 # SVG is deliberately NOT allowed: it can carry scripts.
 _LOGO_TYPES = ("image/png", "image/jpeg", "image/jpg", "image/gif", "image/webp", "image/x-icon", "image/vnd.microsoft.icon")
 
 
+def _remember_logo_failure(url: str):
+    if len(_LOGO_FAILED) >= _LOGO_CACHE_MAX_ENTRIES:
+        _LOGO_FAILED.pop(next(iter(_LOGO_FAILED)))
+    _LOGO_FAILED[url] = time.time()
+
+
 def _fetch_logo(url: str):
     """Fetch (and cache) a KHU-hosted logo. Returns (bytes, content_type)."""
-    if not _is_khu_image_url(url):
+    if not _is_khu_logo_url(url):
         raise HTTPException(status_code=400, detail="Only kenyahockeyunion.org image URLs are allowed.")
 
     if url in _LOGO_CACHE:
         return _LOGO_CACHE[url]
+    if time.time() - _LOGO_FAILED.get(url, 0) < _LOGO_FAIL_SECONDS:  # a bad address is not retried against KHU for a while
+        raise HTTPException(status_code=404, detail="Could not fetch logo image.")
 
     try:
         resp = safe_get(_KHU_SCRAPER, url, headers=SCRAPER_HEADERS, timeout=10, stream=True)
@@ -2260,10 +2324,12 @@ def _fetch_logo(url: str):
         raise
     except Exception as e:
         logger.warning(f"Logo proxy fetch failed for {url}: {e}")
+        _remember_logo_failure(url)
         raise HTTPException(status_code=404, detail="Could not fetch logo image.")
 
     content_type = (resp.headers.get("Content-Type", "") or "").split(";")[0].strip().lower()
     if content_type not in _LOGO_TYPES:
+        _remember_logo_failure(url)
         raise HTTPException(status_code=415, detail="URL did not return a supported image.")
 
     # Simple bounded in-memory cache — logos rarely change, no need to
@@ -2782,7 +2848,8 @@ async def upload_fixtures_pdf(
     try:
         pdf_result = parse_pdf_fixtures(tmp_path)
     except Exception as e:
-        raise HTTPException(status_code=422, detail=f"Could not parse PDF: {e}")
+        logger.warning("PDF upload could not be parsed: %s: %s", type(e).__name__, e)
+        raise HTTPException(status_code=422, detail="Could not read that PDF. Make sure it is KHU's season calendar and not scanned or password-protected.")
     finally:
         os.unlink(tmp_path)
 
@@ -3941,6 +4008,15 @@ def agent_login(payload: AgentLoginInput, request: Request):
     return {"token": token, "display_name": display_name}
 
 
+@app.post("/api/agent/logout", status_code=204)
+def agent_logout(request: Request, x_agent_token: str = Header(default="")):
+    """End an agent session on the SERVER. Before this, 'Log out' only forgot the token in the browser, so a token copied
+    from a shared phone kept working for its full 30 days."""
+    _rate_limit(request, "agent-logout", 30, 60)
+    db.revoke_agent_session(x_agent_token)
+    return Response(status_code=204)
+
+
 @app.post("/api/admin/login")
 def admin_login(payload: AgentLoginInput, request: Request):
     """
@@ -4482,7 +4558,7 @@ class SeasonImportPayload(BaseModel):
 
 
 def _season_label_or_400(label: str) -> str:
-    if not _SEASON_LABEL_RE.match(label or ""):
+    if not _SEASON_LABEL_RE.fullmatch(label or ""):  # fullmatch: "$" would let a trailing newline through
         raise HTTPException(status_code=400, detail="Season label must be like 2025-26 (letters, numbers, - . _).")
     return label
 

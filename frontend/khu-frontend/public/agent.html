@@ -575,6 +575,12 @@
   }
 
   function logout() {
+    // Ask the server to end the session too, so a token copied from a shared phone stops working at once.
+    // Best effort: logging out on this device never waits for (or fails because of) the network.
+    const oldToken = localStorage.getItem('khu_agent_token');
+    if (oldToken) {
+      try { fetch(`${apiBase()}/api/agent/logout`, { method: 'POST', headers: { 'x-agent-token': oldToken }, keepalive: true }).catch(() => {}); } catch (e) { /* ignore */ }
+    }
     localStorage.removeItem('khu_agent_token');
     localStorage.removeItem('khu_agent_display_name');
     showScreen();

@@ -182,5 +182,17 @@ check("live match detail is kept only 15 seconds", freshSeconds(new Request("htt
 check("rules: only public read pages have a lifetime", freshSeconds(new Request("https://x/api/shop/orders/1"), new URL("https://x/api/shop/orders/1")) === 0
   && freshSeconds(new Request("https://x/api/live"), new URL("https://x/api/live")) === 15);
 
+console.log("IPv6 rotation");
+const { ipKey } = await import("./worker.js");
+check("addresses in one /64 share a rate-limit key", ipKey("2001:db8:1:2::1") === ipKey("2001:db8:1:2:ffff:ffff:ffff:ffff"));
+check("a different /64 gets its own key", ipKey("2001:db8:1:2::1") !== ipKey("2001:db8:1:3::1"));
+check("IPv4 and IPv4-mapped IPv6 are keyed by the IPv4 address", ipKey("1.2.3.4") === "1.2.3.4" && ipKey("::ffff:1.2.3.4") === "1.2.3.4");
+{
+  const env = mkEnv({ RL_LOGIN: counter(3) });
+  const codes = [];
+  for (let i = 1; i <= 6; i++) codes.push((await call(env, "/api/admin/login", { method: "POST", ip: `2001:db8:9:9::${i}`, body: "{}" })).status);
+  check("rotating IPv6 addresses cannot dodge the login limit", codes.slice(3).every((c) => c === 429), codes.join(","));
+}
+
 console.log("\nRESULT:", fails ? `${fails} FAILURE(S)` : "all checks passed");
 process.exit(fails ? 1 : 0);
