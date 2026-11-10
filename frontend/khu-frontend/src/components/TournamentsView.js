@@ -75,17 +75,27 @@ export default function TournamentsView() {
         />
       ) : (
         <div className="match-list">
-          {list.map((t) => (
-            <div key={t.id} className="tour-card" onClick={() => setSelectedId(t.id)}>
-              <div className="tour-card-top">
-                <span className={`tour-status tour-status-${liveStatus(t, t.matches_played, t.matches_total)}`}>{STATUS_LABEL[liveStatus(t, t.matches_played, t.matches_total)] || t.status}</span>
-                <span className="tour-dates">{dateRange(t)}</span>
+          {list.map((t) => {
+            const st = liveStatus(t, t.matches_played, t.matches_total);
+            const pct = t.matches_total > 0 ? Math.min(100, Math.round((t.matches_played / t.matches_total) * 100)) : 0;
+            return (
+              <div key={t.id} className={`tour-card tour-card-${st}`} onClick={() => setSelectedId(t.id)}>
+                <div className="tour-card-top">
+                  <span className={`tour-status tour-status-${st}`}>{STATUS_LABEL[st] || t.status}</span>
+                  <span className="tour-dates">{dateRange(t)}</span>
+                </div>
+                <div className="tour-name">{t.name}</div>
+                {t.venue && <div className="tour-venue">📍 {t.venue}</div>}
+                <div className="tour-progress">
+                  <div className="tour-bar" aria-hidden="true"><span style={{ width: `${pct}%` }} /></div>
+                  <div className="tour-count">
+                    <span>{t.matches_played} of {t.matches_total} matches played</span>
+                    <span className="tour-open">View ›</span>
+                  </div>
+                </div>
               </div>
-              <div className="tour-name">{t.name}</div>
-              {t.venue && <div className="tour-venue">📍 {t.venue}</div>}
-              <div className="tour-count">{t.matches_played} of {t.matches_total} matches played</div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>
