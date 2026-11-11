@@ -15,7 +15,7 @@ These require no authentication and are what the frontend uses directly.
 
 | Method | Path | Description |
 |---|---|---|
-| GET | `/api/health` | Backend status, cache freshness, circuit-breaker state |
+| GET | `/api/health` | Backend status, cache freshness, circuit-breaker state, `last_live_watch`. Always 200. With `?strict=1` it adds `healthy` and `problems` and answers **503** when the scraper is stalled (breaker open, or last good refresh older than `KHU_HEALTH_MAX_AGE_MINUTES`, default 45). For uptime monitors: see docs/MONITORING.md |
 | GET | `/api/match-notices` | Recent status notices (postponed, abandoned, ...) for the banner |
 | GET | `/api/logo-data` | `?url=` a KHU logo as a JSON data URL (used by the share-card generator; KHU `/wp-content/` images only, 2 MB cap) |
 | GET | `/api/leagues` | All 8 leagues, in display order |
