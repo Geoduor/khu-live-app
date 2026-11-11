@@ -1805,6 +1805,116 @@ def apply_match_corrections(data: dict) -> int:
     return len(applied)
 
 
+# ══════════════════════════════════════════════════════
+# AUTO-RETIRE — delete hand-made edits once KHU agrees with them
+# ══════════════════════════════════════════════════════
+# A manual result (or a match correction) is a stand-in for what KHU's site
+# does not show yet, or shows wrongly. Once KHU shows the SAME thing, the
+# stand-in is dead weight, so it is deleted. Safety rules:
+#   * only after a FULL scrape of that league (never the partial live-watch
+#     pass, never carried-over data);
+#   * KHU must agree on the final score. If KHU shows a DIFFERENT score the
+#     entry is kept and flagged, because a human typed it and one of the two
+#     is wrong; a person decides;
+#   * the agreement must hold for KHU_RETIRE_CYCLES refreshes in a row
+#     (default 2), so one odd page cannot delete anything;
+#   * a manual result carrying goal scorers or cards is kept: KHU does not
+#     publish those, so deleting the row would lose them for good;
+#   * KHU_AUTO_RETIRE=0 switches the whole thing off.
+# Everything it does is written to the log.
+
+AUTO_RETIRE = os.environ.get("KHU_AUTO_RETIRE", "1").strip() != "0"
+try:
+    RETIRE_CYCLES = max(1, int(os.environ.get("KHU_RETIRE_CYCLES", "2")))
+except ValueError:
+    RETIRE_CYCLES = 2
+
+_retire_streak: dict = {}      # ("result"|"correction", key) -> consecutive refreshes where KHU agreed
+_manual_conflicts: dict = {}   # match_key -> {"khu_score": "1-0", "our_score": "2-0"}
+_manual_kept_for_scorers: set = set()   # match_keys KHU agrees on but that carry scorers/cards
+_retired_recently: list = []   # newest last: what was deleted automatically (kept to 50)
+
+
+def _note_retired(kind: str, key: str, why: str) -> None:
+    _retired_recently.append({"kind": kind, "key": key, "why": why, "at": datetime.now().isoformat()})
+    del _retired_recently[:-50]
+    logger.info(f"Auto-retired manual {kind} {key}: {why}")
+
+
+def retire_caught_up_manual_edits(data: dict, complete_shorts: set) -> dict:
+    """Delete manual results and match corrections KHU's own data now agrees
+    with. `data` is the just-built fixtures/results snapshot; `complete_shorts`
+    the leagues scraped in full this cycle. Returns counts for logging."""
+    out = {"results_retired": 0, "corrections_retired": 0, "conflicts": 0}
+    if not AUTO_RETIRE or not complete_shorts:
+        return out
+
+    # What KHU itself publishes (not our manual copies, not our corrected copies).
+    khu = {}
+    for bucket in ("results", "live"):
+        for m in data.get(bucket, []) or []:
+            if m.get("source") in ("manual", "pdf") or m.get("corrected"):
+                continue
+            khu[_result_signature(m)] = m
+
+    seen = set()
+    _manual_conflicts.clear()
+    _manual_kept_for_scorers.clear()
+    for r in db.load_manual_results():
+        short = (r.get("league_short") or "").strip().upper()
+        mk = r.get("match_key")
+        if short not in complete_shorts or not mk:
+            continue
+        slot = ("result", mk)
+        km = khu.get(_result_signature(r))
+        sc = _final_score(km) if km else None
+        if sc is None:
+            _retire_streak.pop(slot, None)       # KHU has no final score for it yet: the stand-in is still needed
+            continue
+        ours = (_to_int(r.get("home_score")), _to_int(r.get("away_score")))
+        if sc != ours:
+            _retire_streak.pop(slot, None)
+            _manual_conflicts[mk] = {"khu_score": f"{sc[0]}-{sc[1]}", "our_score": f"{ours[0]}-{ours[1]}"}
+            out["conflicts"] += 1
+            continue
+        if r.get("scorers") or r.get("cards"):
+            _manual_kept_for_scorers.add(mk)     # KHU agrees, but KHU has no scorers: keep ours
+            continue
+        _retire_streak[slot] = _retire_streak.get(slot, 0) + 1
+        seen.add(slot)
+        if _retire_streak[slot] >= RETIRE_CYCLES and db.delete_manual_result(mk):
+            _note_retired("result", mk, f"KHU now shows {sc[0]}-{sc[1]}, the same score")
+            _retire_streak.pop(slot, None)
+            out["results_retired"] += 1
+
+    try:
+        corrections = db.load_match_corrections()
+    except Exception:  # noqa: BLE001
+        corrections = []
+    for c in corrections:
+        ck = c.get("corr_key", "")
+        slot = ("correction", ck)
+        short = ck.split("|", 1)[0].upper()
+        if short not in complete_shorts:
+            continue
+        if ck not in _corrections_khu_matches:
+            _retire_streak.pop(slot, None)
+            continue
+        _retire_streak[slot] = _retire_streak.get(slot, 0) + 1
+        seen.add(slot)
+        if _retire_streak[slot] >= RETIRE_CYCLES and db.delete_match_correction(ck):
+            _note_retired("correction", ck, "KHU's page now shows exactly what the correction says")
+            _retire_streak.pop(slot, None)
+            out["corrections_retired"] += 1
+
+    # Forget streaks for entries that no longer exist (deleted by hand meanwhile).
+    for slot in [k for k in _retire_streak if k not in seen]:
+        _retire_streak.pop(slot, None)
+    if out["conflicts"]:
+        logger.warning(f"{out['conflicts']} manual result(s) disagree with KHU's published score — kept, please review")
+    return out
+
+
 def refresh_fixtures_results(only_team_names=None):
     """
     Scrape fixtures/results/live for every league by visiting each
@@ -1828,6 +1938,7 @@ def refresh_fixtures_results(only_team_names=None):
         errors = []
         stale_leagues = []   # leagues whose data was carried over from the previous cycle
         fresh_scraped = 0    # matches genuinely scraped this cycle
+        complete_shorts = set()   # leagues scraped in FULL this cycle (every team page answered)
 
         for league_key in LEAGUES:
             standings_data = cache["standings"].get(league_key)
@@ -1877,6 +1988,8 @@ def refresh_fixtures_results(only_team_names=None):
                                    "error": f"Partial scrape ({result.get('teams_failed', 0)} team page(s) failed) — kept previous data."})
             else:
                 fresh_scraped += len(league_matches)
+                if league_matches and not result.get("error"):
+                    complete_shorts.add(LEAGUES[league_key]["short"])
             all_matches.extend(league_matches)
 
         fixtures = _group_and_sort_matches([m for m in all_matches if m["state"] == "NS"])
@@ -1967,6 +2080,14 @@ def refresh_fixtures_results(only_team_names=None):
         data["_cache_success"] = success
         cache["fixtures_results"] = data
         archive_current_matches()
+
+        # ── Delete hand-made edits KHU has now caught up with ──
+        # Only after a full, successful scrape (never the partial live-watch pass).
+        if success and only_team_names is None:
+            try:
+                retire_caught_up_manual_edits(data, complete_shorts)
+            except Exception as e:  # noqa: BLE001 — cleanup must never break a refresh
+                logger.error(f"Auto-retire of manual edits skipped ({type(e).__name__})")
 
         # ── Re-derive standings overlays with the NEW results snapshot ──
         # The standings scrape ran earlier in this same cycle; this pass
@@ -3045,7 +3166,13 @@ def list_manual_results(x_admin_token: str = Header(default=""), x_agent_token: 
     """List every manually-entered result currently stored — for review, or to find a match_key to delete. Callable by you or any active agent."""
     _authorize_writer(x_admin_token, x_agent_token)
     results = db.load_manual_results()
-    return {"results": results, "count": len(results)}
+    for r in results:
+        mk = r.get("match_key")
+        if mk in _manual_conflicts:
+            r["khu_conflict"] = _manual_conflicts[mk]      # KHU shows a different score: review
+        if mk in _manual_kept_for_scorers:
+            r["kept_for_scorers"] = True                   # KHU agrees; kept only for its scorers/cards
+    return {"results": results, "count": len(results), "recently_retired": _retired_recently[-10:]}
 
 
 @app.delete("/api/admin/results/{match_key}")
