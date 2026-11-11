@@ -48,6 +48,7 @@ Use the Supabase **Session pooler** string (Project → Connect), with the Supab
 - **Results grouped by date** — newest day first
 - **Match detail pages** — date, venue, logos, live/final score, a minute-by-minute events list (goals and cards when recorded) and a Share button
 - **Top scorers** — a leaderboard per league (Table tab → Top scorers), shareable as an image; tap a row to open the player's page
+- **Team page** — a header card (league position, W/D/L, goals for/against, recent form) with a star to follow the team, then two tabs: **Matches** (upcoming first, then results) and **Squad**
 - **Squads and player pages** — each team profile lists its squad (photo, position, shirt number, goals); a player's page shows photo, details, season stats and goals log
 - **Row-diff animations** — standings visibly flash and show rank-change arrows on each live poll, so the table feels alive instead of just reloading
 
@@ -66,8 +67,12 @@ Use the Supabase **Session pooler** string (Project → Connect), with the Supab
 - **SQLite persistent cache** — the app loads instantly from the last successful scrape on startup, never a blank screen
 - **Circuit breaker** — if kenyahockeyunion.org goes down, the app stops hammering it (CLOSED → OPEN → HALF_OPEN states, same pattern as Netflix's Hystrix), automatically resuming once the source recovers. Manual refresh always bypasses the breaker and tries for real, rate-limited to prevent abuse.
 - **Scraper protection handling** — detects bot-protection pages, retries, aborts a league early after repeated blocks, and keeps previously scraped matches instead of overwriting them with partial data
-- **Admin hardening** — constant-time credential check and login throttling
+- **Live-watch** — on match days a small extra scrape every 2 minutes (`KHU_LIVE_WATCH_MINUTES`, 0 turns it off) visits only the teams playing today, so live scores and finals show within minutes; the full refresh still runs every 15 minutes. `/api/health` shows `last_live_watch`.
+- **Self-cleaning manual edits** — a manual result or match correction is deleted automatically once KHU's own site shows the same thing for two full refreshes in a row. A different KHU score keeps the entry and flags it (`khu_conflict` in the admin results list); results with goal scorers or cards are kept. `KHU_AUTO_RETIRE=0` switches it off.
+- **Admin hardening** — constant-time credential check and login throttling (IPv6 visitors are limited per /64 network, and agent logout ends the session on the server)
 - **Team name correction layer** — a single map in the scraper fixes known naming inconsistencies on KHU's own site (e.g. "Kisumu Youngsters" → "Kisumu Youngstars"), applied everywhere a team name is extracted
+
+- **Tournament cards** — each tournament shows a colour-coded status (live red, upcoming amber, finished green), dates, venue and a progress bar of matches played
 
 ### Platform
 - **Offline-first PWA** — installable to a phone home screen, works with cached data when offline
@@ -88,11 +93,17 @@ khu-app/
 │   ├── playerprofiles.py        Player profiles and photos
 │   ├── khusquads.py             Squad import from the KHU website
 │   ├── tournaments.py           Tournament validation, group tables, stage ordering
+│   ├── shop.py, mpesa.py        Optional in-app shop and M-Pesa (Daraja) payments
 │   ├── verify_*.py              Offline test scripts (run before deploying)
 │   ├── push.py                  Web Push system with favorites-based scoping
 │   ├── requirements.txt
 │   ├── .env.example              Template for required environment variables
 │   └── .gitignore
+├── edge/                     Cloudflare Worker: rate limits, page cache, human check, M-Pesa callback retry (docs/EDGE_SETUP.md)
+├── scripts/
+│   └── pr_risk_check.py        Read-only checker for a contributor's branch (docs/REVIEWING_PRS.md)
+├── docs/                     Setup guides (edge, backups, shop) and the pull request review routine
+├── .github/CODEOWNERS        Every change needs the owner's review
 └── frontend/
     └── khu-frontend/           React PWA
         ├── public/
@@ -166,6 +177,16 @@ cd backend
 python verify_robustness.py        # offline checks incl. tournaments, auth, seed restore, player profiles, squad import
 python verify_manual_results_v2.py # manual results and table recalculation
 python verify_security.py          # attacker-style checks (see SECURITY.md)
+python verify_audit5.py            # security audit 5: IPv6 limits, login lockout, logo proxy, agent logout
+python verify_live_watch.py        # live-watch pass: only today's teams are fetched
+python verify_match_corrections.py # fixing KHU's own mistakes, incl. table effects
+python verify_auto_retire.py       # manual edits deleted once KHU agrees
+python verify_edge.py              # only the Worker may reach the API once EDGE_KEY is set
+python verify_shop.py              # shop, stock and M-Pesa handling
+python verify_redteam.py           # shop from an attacker's view
+cd .. && node edge/worker.test.mjs # Worker rate-limit keys, cache and retry (run from the repo root)
+cd frontend/khu-frontend && node sw.test.mjs   # service worker rules
+cd ../../backend
 cd ../frontend/khu-frontend
 CI=true npm run build           # treats lint warnings as errors, as the deploy does
 ```
@@ -184,12 +205,12 @@ Backend on Render (paid instance), frontend on Vercel (Hobby). Without `DATABASE
 - This is **not an official KHU product** — it's a fan-built tool that reads publicly available data from the KHU website.
 - Data accuracy depends entirely on kenyahockeyunion.org staying online and unchanged in structure. If they redesign their site, the scraper's selectors may need updating.
 - Before deploying publicly, generate your own VAPID keypair (instructions in `backend/push.py`) rather than reusing any example keys.
-- Requests to KHU respect a 15-minute scheduled refresh interval and a circuit breaker that stops all automatic requests if the site becomes unreachable, resuming automatically once it recovers.
+- Requests to KHU respect a 15-minute scheduled refresh (plus the small 2-minute live-watch on match days, which fetches only a handful of pages) and a circuit breaker that stops all automatic requests if the site becomes unreachable, resuming automatically once it recovers.
 - Favorites and push subscriptions are stored per-device, not per-account — there is no login system, and no personal data beyond a browser's push endpoint and chosen team list is ever collected.
 
 ## Contributing
 
-See [CONTRIBUTING.md](./CONTRIBUTING.md).
+See [CONTRIBUTING.md](./CONTRIBUTING.md). `main` is protected: every change goes through a pull request that the owner approves (see `.github/CODEOWNERS`), and the owner reviews contributor branches with [docs/REVIEWING_PRS.md](./docs/REVIEWING_PRS.md).
 
 ## License
 
