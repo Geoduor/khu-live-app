@@ -151,7 +151,7 @@ def main():
             continue
         old = set(re.findall(r'^\s*"?([A-Za-z0-9@/_.-]+)"?\s*(?:==|:)', before, re.M))
         new = set(re.findall(r'^\s*"?([A-Za-z0-9@/_.-]+)"?\s*(?:==|:)', after, re.M))
-        for name in sorted(new - old - {"name", "version", "private", "scripts", "dependencies", "browserslist", "production", "development", "eslintConfig", "extends"}):
+        for name in sorted(new - old - {"name", "version", "private", "scripts", "dependencies", "browserslist", "production", "development", "eslintConfig", "extends", "postinstall", "preinstall", "prepare", "start", "build", "test", "eject"}):
             print(f"   {path}: + {name}  (look it up on npm/PyPI: age, downloads, spelling close to a famous package?)")
             deps += 1
     if not deps:

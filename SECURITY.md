@@ -174,3 +174,22 @@ Still open — your decision (not changed, because each is a trade-off or needs 
 1. Render log at start-up must NOT contain "EDGE_KEY is not set". If it does, set `EDGE_KEY` (same value as in the Worker).
 2. In the agent page, log in, press Log out, then press the browser Back button: you should be asked to log in again.
 3. Team logos still show on Home, Table and Fixtures (if a logo is missing, send me its address; it means KHU serves it from outside `/wp-content/`).
+
+## Contributor access (November 2026)
+
+A contributor was added with the **Write** role. What that role can and cannot do, and the settings that keep it safe.
+
+**He can:** create and delete his own branches, push to them, open pull requests, comment, open issues.
+**He cannot:** change `main` (the "Protect main" ruleset requires a pull request, one approval and a code-owner review), change repository settings or rulesets, see Render, Vercel or Cloudflare, or read any secret. No secrets are stored in the repository or its history (checked: current files and every commit on every branch, November 2026).
+
+Settings that must stay as they are:
+1. Ruleset "Protect main" is **Active**, and its bypass list contains only the owner (Repository admin).
+2. His role is **Write**, never Maintain or Admin (Admin could switch the ruleset off).
+3. `CODEOWNERS` has `* @Geoduor`, so every file needs the owner's approval. Only the owner may be a code owner.
+4. There are **no GitHub Actions workflows** in the repository. Any new file under `.github/workflows/` is a red flag. In Settings → Actions → General keep "Require approval for all outside collaborators" and set Workflow permissions to **Read repository contents**.
+5. Render: Pull Request Previews **Disabled**; auto-deploy tracks `main` only.
+6. Vercel: the `khu-live-app` project holds one variable (`REACT_APP_API_URL`, the public backend address). Do not add secrets to it. Other Vercel projects (`buddy`, `off-pitch`) are separate and not reachable from this repository.
+7. The Cloudflare Worker is deployed by hand with `wrangler deploy`; nothing a contributor pushes reaches it.
+8. Secret scanning and push protection are on (free for public repositories).
+
+How a takeover could still happen: only by the owner approving a pull request that hides something. Use `docs/REVIEWING_PRS.md` and run `python3 scripts/pr_risk_check.py origin/main origin/<branch>` before approving.
