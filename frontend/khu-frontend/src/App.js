@@ -70,7 +70,12 @@ function App() {
   const closeOverlay = () => setOverlay(null);
   // The Shop button only appears once at least one store has been set up.
   const [shopOpen, setShopOpen] = useState(false);
-  useEffect(() => { getShopStores().then((d) => setShopOpen(((d && d.stores) || []).length > 0)).catch(() => {}); }, []);
+  useEffect(() => {
+    if (typeof getShopStores !== "function") return;
+    getShopStores()
+      .then((d) => setShopOpen(((d && d.stores) || []).length > 0))
+      .catch(() => {});
+  }, []);
 
   // Count which screen is open (see utils/track.js — no cookies, no ids).
   // The Cups tab counts itself, since it has two screens inside.
