@@ -44,6 +44,17 @@ Set `REACT_APP_API_URL` in a `.env.local` file if your backend isn't at
    selector worked without checking (see ARCHITECTURE.md §3 for the
    most significant example).
 
+## If you have Write access
+
+1. Never push to `main`. It is protected and every change needs the owner's approval.
+2. Work on your own branch (`fix/short-description` or `feat/short-description`) and open a pull request with a clear description. Add a screenshot for visual changes.
+3. Keep each pull request small and focused: one fix or one feature.
+4. Ask before touching payments (`backend/mpesa.py`, `backend/shop.py`), the admin or agent pages, or anything in `backend/`.
+5. Never put a password, key or token in code, issues, pull requests or chat.
+6. Report a suspected security problem privately to the owner, not in a public issue.
+
+Reviewers: see `docs/REVIEWING_PRS.md`.
+
 ## Conventions this codebase already follows
 
 - **Team name corrections** live in dedicated, well-commented dicts

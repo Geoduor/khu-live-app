@@ -31,3 +31,22 @@ Thumbs.db
 *.keystore
 *.jks
 signing-key-info.txt
+
+# Cloudflare Wrangler local state (holds the account id and email) — never commit
+.wrangler/
+.dev.vars
+.dev.vars.*
+
+# Keys, certificates and package-registry credentials — never commit
+*.pem
+*.key
+*.p12
+*.pfx
+.npmrc
+.pypirc
+service-account*.json
+google-services.json
+
+# Dependencies and build output
+node_modules/
+build/
