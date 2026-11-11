@@ -191,6 +191,7 @@ Settings that must stay as they are:
 6. Vercel: the `khu-live-app` project holds one variable (`REACT_APP_API_URL`, the public backend address). Do not add secrets to it. Other Vercel projects (`buddy`, `off-pitch`) are separate and not reachable from this repository.
 7. The Cloudflare Worker is deployed by hand with `wrangler deploy`; nothing a contributor pushes reaches it.
 8. Secret scanning and push protection are on (free for public repositories).
+9. Uptime monitor on `/api/health?strict=1` (docs/MONITORING.md) so a stalled scraper is noticed within minutes.
 
 How a takeover could still happen: only by the owner approving a pull request that hides something. Use `docs/REVIEWING_PRS.md` and run `python3 scripts/pr_risk_check.py origin/main origin/<branch>` before approving.
 

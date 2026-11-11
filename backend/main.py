@@ -2346,10 +2346,39 @@ def root():
     }
 
 
+_PROCESS_STARTED = time.time()
+try:
+    HEALTH_MAX_AGE_MINUTES = max(REFRESH_INTERVAL_MINUTES * 2, int(os.environ.get("KHU_HEALTH_MAX_AGE_MINUTES", "45")))
+except ValueError:
+    HEALTH_MAX_AGE_MINUTES = 45
+_HEALTH_STARTUP_GRACE_SECONDS = 600
+
+
+def _health_problems(breaker_state: dict) -> list:
+    """Plain-English reasons the scraper is NOT keeping the data fresh. Empty list = healthy.
+    Used by /api/health?strict=1 so an outside uptime monitor can alert when the scraper stalls."""
+    problems = []
+    if str(breaker_state.get("state", "")).upper() == "OPEN":
+        problems.append("KHU scraping is paused: the circuit breaker is open after repeated failures.")
+    last_ok = cache.get("last_refresh_success")
+    if last_ok:
+        try:
+            age_min = (datetime.now() - datetime.fromisoformat(last_ok)).total_seconds() / 60
+        except ValueError:
+            age_min = None
+        if age_min is not None and age_min > HEALTH_MAX_AGE_MINUTES:
+            problems.append(f"The last successful refresh from KHU was {int(age_min)} minutes ago (limit {HEALTH_MAX_AGE_MINUTES}).")
+    elif time.time() - _PROCESS_STARTED > _HEALTH_STARTUP_GRACE_SECONDS:
+        problems.append("No successful refresh from KHU since this server started.")
+    return problems
+
+
 @app.get("/api/health")
-def health():
+def health(strict: str = ""):
+    """Status for humans and monitors. Plain call: always 200 with the details. With ?strict=1 the answer is 503
+    (same details plus a "problems" list) when the scraper is stalled, so an uptime monitor can alert on it."""
     breaker_state = db.get_circuit_state()
-    return {
+    body = {
         "status": cache["status"],
         "last_refresh_attempt": cache["last_refresh_attempt"],
         "last_refresh_success": cache["last_refresh_success"],
@@ -2369,6 +2398,13 @@ def health():
         "refresh_interval_minutes": REFRESH_INTERVAL_MINUTES,
         "database": dbconn.backend_name(),
     }
+    if strict.strip().lower() in ("1", "true", "yes", "on"):
+        problems = _health_problems(breaker_state)
+        body["healthy"] = not problems
+        body["problems"] = problems
+        if problems:
+            return JSONResponse(status_code=503, content=body, headers={"Cache-Control": "no-store"})
+    return body
 
 
 # ══════════════════════════════════════════════════════

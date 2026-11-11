@@ -69,6 +69,7 @@ Use the Supabase **Session pooler** string (Project → Connect), with the Supab
 - **Scraper protection handling** — detects bot-protection pages, retries, aborts a league early after repeated blocks, and keeps previously scraped matches instead of overwriting them with partial data
 - **Live-watch** — on match days a small extra scrape every 2 minutes (`KHU_LIVE_WATCH_MINUTES`, 0 turns it off) visits only the teams playing today, so live scores and finals show within minutes; the full refresh still runs every 15 minutes. `/api/health` shows `last_live_watch`.
 - **Self-cleaning manual edits** — a manual result or match correction is deleted automatically once KHU's own site shows the same thing for two full refreshes in a row. A different KHU score keeps the entry and flags it (`khu_conflict` in the admin results list); results with goal scorers or cards are kept. `KHU_AUTO_RETIRE=0` switches it off.
+- **Stall alerts** — `/api/health?strict=1` answers 503 when the scraper is stuck, so a free uptime monitor can message you (setup in [docs/MONITORING.md](./docs/MONITORING.md))
 - **Admin hardening** — constant-time credential check and login throttling (IPv6 visitors are limited per /64 network, and agent logout ends the session on the server)
 - **Team name correction layer** — a single map in the scraper fixes known naming inconsistencies on KHU's own site (e.g. "Kisumu Youngsters" → "Kisumu Youngstars"), applied everywhere a team name is extracted
 
@@ -102,7 +103,7 @@ khu-app/
 ├── edge/                     Cloudflare Worker: rate limits, page cache, human check, M-Pesa callback retry (docs/EDGE_SETUP.md)
 ├── scripts/
 │   └── pr_risk_check.py        Read-only checker for a contributor's branch (docs/REVIEWING_PRS.md)
-├── docs/                     Setup guides (edge, backups, shop) and the pull request review routine
+├── docs/                     Setup guides (edge, backups, shop, monitoring) and the pull request review routine
 ├── .github/CODEOWNERS        Every change needs the owner's review
 └── frontend/
     └── khu-frontend/           React PWA
@@ -182,6 +183,7 @@ python verify_live_watch.py        # live-watch pass: only today's teams are fet
 python verify_match_corrections.py # fixing KHU's own mistakes, incl. table effects
 python verify_auto_retire.py       # manual edits deleted once KHU agrees
 python verify_edge.py              # only the Worker may reach the API once EDGE_KEY is set
+python verify_health_strict.py     # /api/health?strict=1 for uptime monitors
 python verify_shop.py              # shop, stock and M-Pesa handling
 python verify_redteam.py           # shop from an attacker's view
 cd .. && node edge/worker.test.mjs # Worker rate-limit keys, cache and retry (run from the repo root)
