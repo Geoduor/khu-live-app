@@ -1,0 +1,38 @@
+# Every change needs review from the repository owner before it can be merged to main.
+# (GitHub enforces this through the branch-protection rule "Require review from Code Owners".)
+# Later lines win, so the sensitive areas below are listed explicitly even though * already covers them:
+# they are the places where a quiet change could cost money, expose logins, or change what runs in production.
+
+*                                  @Geoduor
+
+# Payments (M-Pesa) and the shop
+/backend/mpesa.py                  @Geoduor
+/backend/shop.py                   @Geoduor
+/docs/SHOP_SETUP.md                @Geoduor
+
+# Logins, sessions, admin and agent tools, backups, database
+/backend/main.py                   @Geoduor
+/backend/database.py               @Geoduor
+/backend/dbconn.py                 @Geoduor
+/backend/backup.py                 @Geoduor
+/backend/push.py                   @Geoduor
+/frontend/khu-frontend/public/admin.html          @Geoduor
+/frontend/khu-frontend/public/agent.html          @Geoduor
+/frontend/khu-frontend/public/service-worker.js   @Geoduor
+
+# Cloudflare Worker (rate limits, human check, payment callback, cache)
+/edge/                             @Geoduor
+
+# Deployment, security headers and dependencies (a changed dependency can carry hidden code)
+/render.yaml                       @Geoduor
+/frontend/khu-frontend/vercel.json @Geoduor
+/backend/requirements.txt          @Geoduor
+/backend/runtime.txt               @Geoduor
+/frontend/khu-frontend/package.json       @Geoduor
+/frontend/khu-frontend/package-lock.json  @Geoduor
+/android/                          @Geoduor
+
+# The rules themselves
+/.github/                          @Geoduor
+/SECURITY.md                       @Geoduor
+/CONTRIBUTING.md                   @Geoduor
