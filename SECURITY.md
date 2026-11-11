@@ -193,3 +193,13 @@ Settings that must stay as they are:
 8. Secret scanning and push protection are on (free for public repositories).
 
 How a takeover could still happen: only by the owner approving a pull request that hides something. Use `docs/REVIEWING_PRS.md` and run `python3 scripts/pr_risk_check.py origin/main origin/<branch>` before approving.
+
+### Frontend dependency audit (November 2026)
+
+`npm audit` lists known issues in the frontend's packages. What matters is whether the vulnerable code reaches visitors.
+
+- Packages that ship to visitors' phones: `react`, `react-dom`, `axios`, `web-vitals` and their dependencies. Checked: **none of the flagged packages appears in the built JavaScript** (searched `build/static/js` for each one).
+- The flagged packages are build and dev-server tools that come with `react-scripts` (webpack-dev-server, svgo, postcss, workbox and similar). They run on the developer's machine and on Vercel's build machine, never in a visitor's browser.
+- `npm audit fix` (no `--force`) took the count from 51 to 36 and removed both critical findings, with the build and tests passing. The rest need `npm audit fix --force`, which downgrades `react-scripts` and breaks the build. They go away only by moving off Create React App (for example to Vite), a bigger job that is not urgent.
+- `@testing-library/user-event` was unused and has been removed. `@testing-library/dom` stays: `@testing-library/react` requires it.
+- Re-run `npm audit` before approving any pull request that touches `package.json` or the lock file.
