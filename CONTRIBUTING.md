@@ -31,10 +31,15 @@ Set `REACT_APP_API_URL` in a `.env.local` file if your backend isn't at
 ## Before opening a PR
 
 1. **Backend**: verify `python3 -c "import main"` succeeds cleanly and
-   run `python verify_robustness.py` (and `verify_manual_results_v2.py`
-   if you touched manual results). There's no CI yet, so run them
-   yourself.
-2. **Frontend**: run `CI=true npm run build` before pushing — this is
+   run `python verify_robustness.py` and `python verify_security.py`,
+   plus the script for the area you touched (`verify_manual_results_v2.py`
+   and `verify_auto_retire.py` for manual results, `verify_match_corrections.py`
+   for corrections, `verify_live_watch.py` for the scraper schedule,
+   `verify_shop.py` for the shop). If you changed `edge/`, also run
+   `node edge/worker.test.mjs` from the repo root. There's no CI yet, so run
+   them yourself.
+2. **Frontend**: run `CI=true npm run build` (and `node sw.test.mjs` if you
+   touched the service worker) before pushing — this is
    what Vercel uses, and it treats ESLint warnings (like unused
    variables) as hard errors. A build that passes locally without
    `CI=true` can still fail on Vercel.

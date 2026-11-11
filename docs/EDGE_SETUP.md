@@ -2,7 +2,7 @@
 
 The Worker (`edge/worker.js`) stands between the app and Render. It:
 
-1. **Stops floods and password guessing** before they reach Render (limits per visitor address).
+1. **Stops floods and password guessing** before they reach Render (limits per visitor address; an IPv6 visitor counts as one address per /64 network, so rotating through addresses does not dodge the limit).
 2. **Adds a human check (Cloudflare Turnstile)** on admin login, agent login and shop ordering.
 3. **Never misses an M-Pesa payment report.** It always answers Safaricom, saves the report if Render is restarting, and re-sends it every minute until Render accepts it.
 4. **Locks Render so only the Worker can use the API.** Anyone calling the Render address directly gets "403".

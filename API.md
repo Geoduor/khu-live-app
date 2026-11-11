@@ -16,6 +16,8 @@ These require no authentication and are what the frontend uses directly.
 | Method | Path | Description |
 |---|---|---|
 | GET | `/api/health` | Backend status, cache freshness, circuit-breaker state |
+| GET | `/api/match-notices` | Recent status notices (postponed, abandoned, ...) for the banner |
+| GET | `/api/logo-data` | `?url=` a KHU logo as a JSON data URL (used by the share-card generator; KHU `/wp-content/` images only, 2 MB cap) |
 | GET | `/api/leagues` | All 8 leagues, in display order |
 | GET | `/api/standings/all` | Standings for every league |
 | GET | `/api/standings/{league_key}` | Standings for one league (e.g. `premier_league_men`) |
@@ -69,7 +71,7 @@ environment variable.
 | Method | Path | Auth | Description |
 |---|---|---|---|
 | POST | `/api/admin/results/add` | admin or agent | Add/correct one result. Body: `{league_short, home_team, away_team, home_score, away_score, date, venue?}`. Applied to the live cache immediately |
-| GET | `/api/admin/results/list` | admin or agent | List every manually-entered result, including its `match_key` (needed to delete) and `entered_by` |
+| GET | `/api/admin/results/list` | admin or agent | List every manually-entered result, including its `match_key` (needed to delete) and `entered_by`. A result carries `khu_conflict` (`{khu_score, our_score}`) when KHU now shows a different final score, and `kept_for_scorers: true` when KHU agrees but the entry holds scorers/cards. The reply also has `recently_retired`: the last 10 entries deleted automatically. Entries KHU matches are deleted by themselves, see ARCHITECTURE.md step 5b |
 | DELETE | `/api/admin/results/{match_key}` | admin or agent | Remove one manual result |
 | GET | `/api/admin/results/export-seed` | admin only | Export for permanent seed-file persistence — same pattern as PDF fixtures |
 
@@ -94,6 +96,15 @@ neither (0–99); date as `YYYY-MM-DD` or `YYYY-MM-DD HH:MM`.
 Same pattern as manual results (`set`, `list`, `DELETE .../{stat_key}`, `export-seed`), under
 `/api/admin/team-stats/*` and `/api/admin/player-stats/*`. Seeds:
 `team_stats_seed.json`, `player_stats_seed.json`.
+
+| Method | Path | Auth | Description |
+|---|---|---|---|
+| POST | `/api/admin/team-stats/set` | admin or agent | Correct fields on one team's standings row (only the fields sent change) |
+| GET | `/api/admin/team-stats/list` | admin or agent | Every team-stat correction stored |
+| GET | `/api/admin/team-stats/export-seed` | admin only | Export for permanent persistence |
+| POST | `/api/admin/player-stats/set` | admin or agent | Set one player's season stat line (replaces the previous line) |
+| GET | `/api/admin/player-stats/list` | admin or agent | Every player stat line, with `stat_key` for deletion |
+| GET | `/api/admin/player-stats/export-seed` | admin only | Export for permanent persistence |
 
 ## Admin — match corrections (fix KHU's mistakes, our app only)
 
@@ -197,6 +208,7 @@ Public endpoint (no token needed to call it — it *issues* the token).
 
 | Method | Path | Description |
 |---|---|---|
+| POST | `/api/agent/logout` | Header `x-agent-token`. Ends that session on the server (204). Rate limited |
 | POST | `/api/agent/login` | Body: `{username, password}`. Returns `{token, display_name}` on success. Token is valid 30 days, used as `x-agent-token` on subsequent requests |
 
 ---

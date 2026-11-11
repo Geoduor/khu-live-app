@@ -42,9 +42,12 @@ true, it's called out explicitly so nobody re-introduces the same bug.
 | `backup.py` | Builds the backup file; nightly upload to an S3-compatible bucket (see `docs/BACKUP_SETUP.md`) |
 | `insights.py` | Private analytics counts and the sponsor slot |
 | `playerprofiles.py` | Player profiles: shirt number, position, bio, photo (validated by file bytes) |
+| `shop.py` / `mpesa.py` | Optional shop: stores, products, orders, stock; M-Pesa (Daraja) STK push and payment confirmation |
 | `khusquads.py` | Reads a team's public squad list from kenyahockeyunion.org into profiles (fills blanks only) |
 
 ### Data flow per refresh cycle (every 15 minutes, plus on-demand)
+
+On match days a lighter **live-watch** pass (`refresh_live_watch`, every 2 minutes) repeats steps 2 to 6 for ONLY the teams playing today; every other match is carried over from the last full scrape. It is skipped while a full refresh runs or the circuit breaker is open, never counts as a complete scrape of a league, and never retires manual edits (step 5b).
 
 1. **Standings** are scraped first, per league, from each league's
    season-specific URL (e.g. `.../premier-league-men-plm-2026/`). This
@@ -65,6 +68,13 @@ true, it's called out explicitly so nobody re-introduces the same bug.
    while KHU's table lags, manual results carry it; the moment the site
    publishes a match, that match's manual effect drops out of the table
    and the site's own numbers take over — automatically, no cleanup.
+5b. **Hand-made edits are retired once KHU agrees** (`retire_caught_up_manual_edits`).
+   After a FULL, successful scrape of a league, a manual result is deleted
+   when KHU shows the same final score, and a match correction is deleted
+   when KHU's page already shows what it says. The agreement must hold for
+   two refreshes in a row (`KHU_RETIRE_CYCLES`). A different KHU score keeps
+   the entry and flags it (`khu_conflict`); results with scorers/cards and
+   "hide match" corrections are kept. `KHU_AUTO_RETIRE=0` switches it off.
 6. **Team logos** are backfilled from standings data wherever a fixture
    or result is missing one, using exact match → known-alias match →
    conservative fuzzy match (see §5).

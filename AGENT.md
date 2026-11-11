@@ -109,6 +109,13 @@ never reach the table. When an overlay changes the numbers the table
 re-sorts by points → goal difference → goals for, so positions can never
 contradict the stats sitting beside them.
 
+Once a full scrape has shown KHU agreeing with a manual result (same final
+score) or a match correction (page already shows the corrected values) for
+two refreshes in a row, `retire_caught_up_manual_edits` DELETES the stored
+entry. It never acts on the partial live-watch pass, keeps entries KHU
+contradicts (flagged as `khu_conflict`), and keeps results carrying
+scorers/cards because KHU does not publish those. See ARCHITECTURE.md 5b.
+
 ## Render's ephemeral filesystem
 
 Free-tier Render wipes local disk (including SQLite) on every cold
