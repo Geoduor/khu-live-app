@@ -1287,12 +1287,15 @@
 
 
   // ── Visitors & usage ──
+  let anSeq = 0;
   async function loadAnalytics() {
-    const msg = $('anMsg'), out = $('anOut');
-    out.textContent = '';
+    const msg = $('anMsg'), box = $('anOut');
+    const mine = ++anSeq;                         // only the newest request may draw
+    const out = document.createDocumentFragment(); // built off-screen, swapped in once
     try {
       const res = await fetch(`${apiBase()}/api/admin/analytics/summary?days=${encodeURIComponent($('anDays').value)}`, { headers: adminHeaders() });
       const d = await res.json();
+      if (mine !== anSeq) return;                  // a newer tap superseded this one
       if (!res.ok) { say(msg, typeof d.detail === 'string' ? d.detail : 'Could not load the numbers.'); return; }
       msg.className = 'msg';
       const line = (label, value) => {
@@ -1318,7 +1321,8 @@
       const h2 = document.createElement('div'); h2.textContent = 'Day by day (newest first)'; h2.style.cssText = 'margin-top:14px;font-weight:700;'; out.appendChild(h2);
       d.series.slice().reverse().slice(0, 31).forEach((r) => line(r.day, `${r.visitors} visitors · ${r.views} views`));
       if (!d.series.length) { const e = document.createElement('div'); e.textContent = 'No visits counted yet in this period.'; out.appendChild(e); }
-    } catch (e) { say(msg, e.message); }
+      box.textContent = ''; box.appendChild(out);
+    } catch (e) { if (mine === anSeq) say(msg, e.message); }
   }
 
   // ── Sponsor slot ──
