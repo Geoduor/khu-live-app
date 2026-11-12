@@ -13,13 +13,15 @@ Data is scraped directly and respectfully from [kenyahockeyunion.org](https://ww
 
 ## Promo video
 
+A 40-second tour of the current app: live-watch scores, fixtures and alerts, league tables (light and dark), the new team pages and tournament cards. The screens are the real app showing real KHU data; the live goal is a re-enactment.
+
 <p align="center">
   <a href="docs/promo/KHU-Live-Promo.mp4">
-    <img src="docs/promo/KHU-Live-Promo.gif" alt="KHU Live promo video: live scores, fixtures, tables and tournaments" width="300">
+    <img src="docs/promo/KHU-Live-Promo.gif" alt="KHU Live promo video: live scores, fixtures, tables, team pages and tournaments" width="300">
   </a>
 </p>
 
-<p align="center"><b><a href="docs/promo/KHU-Live-Promo.mp4">▶ Play the full video with sound (27 s, MP4)</a></b></p>
+<p align="center"><b><a href="docs/promo/KHU-Live-Promo.mp4">▶ Play the full video with sound (40 s, MP4)</a></b></p>
 
 <details>
 <summary>Embedded player</summary>
