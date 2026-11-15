@@ -5,7 +5,7 @@ compatibility_date = "2025-01-01"
 
 [vars]
 BACKEND_URL = "https://khu-backend.onrender.com"
-ALLOWED_ORIGINS = "https://khu-live-app.vercel.app"
+ALLOWED_ORIGINS = "https://khulive.co.ke,https://www.khulive.co.ke,https://khu-live-app.vercel.app"
 
 # Retry store for M-Pesa payment reports Render could not take at that moment.
 # Create it once:  npx wrangler kv namespace create RETRY   and paste the id below.

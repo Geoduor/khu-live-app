@@ -461,7 +461,7 @@ app.add_middleware(_BodyLimitMiddleware)
 
 # CORS origins: locally we allow everything for convenience. In production
 # (Render), set ALLOWED_ORIGINS to your real Vercel URL(s), comma-separated,
-# e.g. "https://khu-live-app.vercel.app,https://your-custom-domain.com"
+# e.g. "https://khulive.co.ke,https://www.khulive.co.ke,https://khu-live-app.vercel.app"
 _allowed_origins_env = os.environ.get("ALLOWED_ORIGINS", "")
 allowed_origins = (
     [o.strip() for o in _allowed_origins_env.split(",") if o.strip()]
@@ -469,7 +469,7 @@ allowed_origins = (
     else (
         # On Render (it sets RENDER=true) never fall back to "any website":
         # a forgotten variable must fail closed, not open.
-        ["https://khu-live-app.vercel.app"] if os.environ.get("RENDER")
+        ["https://khulive.co.ke", "https://www.khulive.co.ke", "https://khu-live-app.vercel.app"] if os.environ.get("RENDER")
         else ["*"]  # local dev fallback only
     )
 )

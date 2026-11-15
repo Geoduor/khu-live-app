@@ -22,7 +22,7 @@ const FONT = "'Inter', 'Segoe UI', Roboto, Helvetica, Arial, sans-serif";
 // would print whatever host the app happens to be opened from (an embed, a
 // preview URL, a partner site). Override with REACT_APP_PUBLIC_URL if the
 // app moves to a custom domain.
-const APP_URL = (process.env.REACT_APP_PUBLIC_URL || "https://khu-live-app.vercel.app").replace(/\/+$/, "");
+const APP_URL = (process.env.REACT_APP_PUBLIC_URL || "https://khulive.co.ke").replace(/\/+$/, "");
 function appLink() {
   return APP_URL.replace(/^https?:\/\//, "");
 }

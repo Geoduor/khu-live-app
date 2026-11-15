@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { useInstallPrompt } from "../hooks/useInstallPrompt";
 
-const APP_URL = (process.env.REACT_APP_PUBLIC_URL || "https://khu-live-app.vercel.app").replace(/\/+$/, "");
+const APP_URL = (process.env.REACT_APP_PUBLIC_URL || "https://khulive.co.ke").replace(/\/+$/, "");
 
 export default function InstallBanner() {
   const {
