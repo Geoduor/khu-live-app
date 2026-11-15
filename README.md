@@ -23,6 +23,8 @@ A 40-second tour of the current app: live-watch scores, fixtures and alerts, lea
 
 <p align="center"><b><a href="docs/promo/KHU-Live-Promo.mp4">▶ Play the full video with sound (40 s, MP4)</a></b></p>
 
+<p align="center">Try the app: <b><a href="https://khulive.co.ke">khulive.co.ke</a></b> (free, installable PWA — open it and tap Install). The old address <code>khu-live-app.vercel.app</code> redirects there.</p>
+
 <details>
 <summary>Embedded player</summary>
 
