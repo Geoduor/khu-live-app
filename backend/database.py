@@ -111,6 +111,17 @@ def init_db():
         )
     """)
 
+    # ── Leagues whose table is built from OUR match results ──
+    # For a league listed here, the displayed table is computed from the
+    # results the app shows (scraped + corrections + manual) so it always
+    # agrees with the team pages, instead of trusting KHU's own table.
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS derived_tables_store (
+            league_short TEXT PRIMARY KEY,
+            updated_at   TEXT NOT NULL
+        )
+    """)
+
     # ── Manual player-stat entries ──
     # KHU's site doesn't publish individual player statistics at all —
     # this isn't a scraper gap to fill, it's tracking something that
@@ -478,6 +489,29 @@ def delete_match_correction(corr_key: str) -> bool:
     conn.commit()
     conn.close()
     return deleted
+
+
+def load_derived_leagues() -> set:
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute("SELECT league_short FROM derived_tables_store")
+    rows = cur.fetchall()
+    conn.close()
+    return {r["league_short"] for r in rows}
+
+
+def set_derived_league(league_short: str, on: bool) -> None:
+    conn = get_connection()
+    cur = conn.cursor()
+    if on:
+        cur.execute("""
+            INSERT INTO derived_tables_store (league_short, updated_at) VALUES (?, ?)
+            ON CONFLICT(league_short) DO UPDATE SET updated_at = excluded.updated_at
+        """, (league_short, datetime.now().isoformat()))
+    else:
+        cur.execute("DELETE FROM derived_tables_store WHERE league_short = ?", (league_short,))
+    conn.commit()
+    conn.close()
 
 
 def delete_archive_matches(keys: list) -> int:
