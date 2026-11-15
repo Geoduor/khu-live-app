@@ -5,6 +5,7 @@
     <link rel="icon" href="%PUBLIC_URL%/favicon.ico" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="theme-color" content="#FBF8F7" />
+    <meta name="robots" content="index, follow, max-image-preview:large" />
     <meta
       name="description"
       content="Unofficial fan app for live Kenya Hockey Union scores, standings, and fixtures — sourced from kenyahockeyunion.org, not affiliated with or endorsed by Kenya Hockey Union."
@@ -32,11 +33,43 @@
     <meta name="twitter:image" content="https://khulive.co.ke/og-logo.png" />
     <link rel="canonical" href="https://khulive.co.ke/" />
     <link rel="manifest" href="%PUBLIC_URL%/manifest.json" />
-    <title>KHU Live — Fan Scores & Fixtures</title>
+    <title>KHU Live — Kenya Hockey Scores, Fixtures &amp; Tables</title>
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@graph": [
+          {
+            "@type": "WebSite",
+            "@id": "https://khulive.co.ke/#website",
+            "name": "KHU Live",
+            "alternateName": "Kenya Hockey Live",
+            "url": "https://khulive.co.ke/",
+            "description": "Unofficial fan app for Kenya hockey live scores, fixtures and league tables.",
+            "inLanguage": "en-KE"
+          },
+          {
+            "@type": "WebApplication",
+            "@id": "https://khulive.co.ke/#app",
+            "name": "KHU Live",
+            "url": "https://khulive.co.ke/",
+            "applicationCategory": "SportsApplication",
+            "operatingSystem": "Any (installable web app)",
+            "isAccessibleForFree": true,
+            "offers": { "@type": "Offer", "price": "0", "priceCurrency": "KES" },
+            "description": "Live scores, fixtures, results and league tables for Kenya field hockey. Unofficial; not affiliated with the Kenya Hockey Union.",
+            "image": "https://khulive.co.ke/og-logo.png"
+          }
+        ]
+      }
+    </script>
     <script src="%PUBLIC_URL%/edge-config.js"></script>
   </head>
   <body>
-    <noscript>You need to enable JavaScript to run this app.</noscript>
+    <noscript>
+      <h1>KHU Live — Kenya hockey scores, fixtures and league tables</h1>
+      <p>Live scores, fixtures, results and league tables for Kenya field hockey: Premier League Men and Women, Super League, and the National League zones. KHU Live is an unofficial fan app and is not affiliated with the Kenya Hockey Union.</p>
+      <p>You need to enable JavaScript to run this app.</p>
+    </noscript>
     <div id="root"></div>
     <!--
       This HTML file is a template.

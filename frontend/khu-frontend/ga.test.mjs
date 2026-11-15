@@ -1,0 +1,13 @@
+import { readFileSync } from "node:fs";
+const src = readFileSync(new URL("./src/utils/ga.js", import.meta.url), "utf8").replace(/export /g, "") + "\nreturn { initGA, gaView };";
+const { initGA, gaView } = new Function(src)();
+let fails = 0; const check = (n, c) => { console.log((c ? "PASS " : "FAIL ") + n); if (!c) fails++; };
+const mk = (nav = {}) => { const scripts = []; return { win: { navigator: nav }, doc: { createElement: () => ({}), head: { appendChild: (s) => scripts.push(s) } }, scripts }; };
+let e = mk(); check("no id -> off", initGA(undefined, e.win, e.doc) === false && !e.scripts.length && !e.win.gtag);
+e = mk(); check("bad id rejected", initGA("UA-1; alert(1)", e.win, e.doc) === false && !e.scripts.length);
+e = mk(); check("valid id loads gtag.js", initGA("G-ABC1234567", e.win, e.doc) === true && e.scripts[0].src === "https://www.googletagmanager.com/gtag/js?id=G-ABC1234567");
+check("config: no ad signals, anonymised", JSON.stringify([...e.win.dataLayer].map((a) => [...a])).includes('"allow_google_signals":false') && JSON.stringify([...e.win.dataLayer].map((a) => [...a])).includes('"anonymize_ip":true'));
+gaView("table", e.win); check("page_view sent", [...e.win.dataLayer.at(-1)][1] === "page_view");
+e = mk({ doNotTrack: "1" }); check("DNT respected", initGA("G-ABC1234567", e.win, e.doc) === false && !e.scripts.length);
+e = mk({ globalPrivacyControl: true }); check("GPC respected", initGA("G-ABC1234567", e.win, e.doc) === false);
+console.log(fails ? "FAILED" : "all checks passed"); process.exit(fails ? 1 : 0);
