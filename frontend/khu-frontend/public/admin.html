@@ -360,6 +360,12 @@
 </div>
 
 <div class="card">
+  <div class="section-title">How each league table is built</div>
+  <div class="subtitle" style="margin-bottom: 12px;">Tick a league to build its table from the match results this app shows (including your fixes), so the table always agrees with the team pages. Untick to go back to KHU's own table numbers. Do this for a league only when its results list is complete.</div>
+  <div id="tableModeList"></div>
+</div>
+
+<div class="card">
   <div class="section-title">Fix a match KHU has wrong</div>
   <div class="subtitle" style="margin-bottom: 12px;">Use this when KHU's website lists a match under the wrong team or with a wrong score. Describe the match <strong>exactly as KHU shows it now</strong>, then fill in only what is wrong. Fans of this app see the fixed version; KHU's site is not changed. When KHU fixes their page, this stops applying by itself.</div>
 
@@ -856,6 +862,7 @@
       loadTournaments();
       loadTeamStats();
       loadMatchCorrections();
+      loadTableModes();
       loadPlayerStats();
       loadSponsors();
     } else {
@@ -1928,6 +1935,34 @@
       loadMatchCorrections();
     } catch (e) { showMsg(msg, e.message, true); }
     finally { btn.disabled = false; btn.textContent = 'Save correction'; }
+  }
+
+  async function loadTableModes() {
+    const box = $('tableModeList');
+    if (!box || !apiBase() || !token()) return;
+    try {
+      const res = await fetch(`${apiBase()}/api/admin/table-mode/list`, { headers: { 'x-admin-token': token() } });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || 'Could not load.');
+      setKids(box, data.leagues.map((l) => {
+        const cb = h('input', { type: 'checkbox', style: 'width:auto' });
+        cb.checked = !!l.from_results;
+        cb.addEventListener('change', async () => {
+          cb.disabled = true;
+          try {
+            const r = await fetch(`${apiBase()}/api/admin/table-mode/set`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', 'x-admin-token': token() },
+              body: JSON.stringify({ league_short: l.league_short, from_results: cb.checked }),
+            });
+            const d = await r.json();
+            if (!r.ok) throw new Error(d.detail || 'Could not save.');
+          } catch (e) { cb.checked = !cb.checked; alert(String(e.message || e)); }
+          cb.disabled = false;
+        });
+        return h('label', {}, cb, ' ' + l.league_short + ' — build from our results');
+      }));
+    } catch (e) { setKids(box, note(String(e.message || e))); }
   }
 
   async function loadMatchCorrections() {

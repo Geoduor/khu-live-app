@@ -1469,6 +1469,51 @@ def _resort_rows_by_league_order(rows: list) -> None:
     rows[:] = ordered
 
 
+def _derive_rows_from_results(league: dict, rows: list) -> bool:
+    """Overwrite each row's played/won/drawn/lost/GF/GA/GD/points/form with
+    numbers computed from the finished matches this app currently shows for
+    the league. Returns False (rows untouched) when there are no finished
+    matches to build from, so a failed scrape can never zero a table."""
+    fr = cache.get("fixtures_results") or {}
+    seen, matches = set(), []
+    for m in fr.get("results", []):
+        if m.get("league_short", "").strip().upper() != league["short"].upper():
+            continue
+        if not _final_score(m):
+            continue
+        sig = _result_signature(m)
+        if sig in seen:
+            continue
+        seen.add(sig)
+        matches.append(m)
+    if not matches:
+        return False
+    for row in rows:
+        tally = {"played": 0, "won": 0, "drawn": 0, "lost": 0, "goals_for": 0, "goals_against": 0, "points": 0}
+        mine = []
+        for m in matches:
+            hs, as_ = _final_score(m)
+            for side, (a, b) in (("home", (hs, as_)), ("away", (as_, hs))):
+                if _team_matches_fixture_side(row.get("team", ""), row.get("team_url", ""),
+                                              m.get(f"{side}_team", ""), m.get(f"{side}_team_url", "")):
+                    outcome, pts = _outcome_and_points(a, b)
+                    tally["played"] += 1
+                    tally["won"] += outcome == "W"
+                    tally["drawn"] += outcome == "D"
+                    tally["lost"] += outcome == "L"
+                    tally["goals_for"] += a
+                    tally["goals_against"] += b
+                    tally["points"] += pts
+                    mine.append((_parse_match_date(m.get("date", "")), outcome))
+                    break
+        mine.sort(key=lambda t: t[0])
+        row.update(tally)
+        row["goal_diff"] = tally["goals_for"] - tally["goals_against"]
+        row["form"] = [o for _, o in mine][-5:]
+        row.pop("is_placeholder", None)
+    return True
+
+
 def recompute_league_standings(league_key: str) -> dict:
     """
     Rebuild one league's displayed standings from the pristine scraped
@@ -1498,15 +1543,30 @@ def recompute_league_standings(league_key: str) -> dict:
         return summary
 
     rows = copy.deepcopy(pristine)
-    published = _scraped_result_signatures()
-    uncaptured = _uncaptured_manual_results(league, published)
+    derived = False
+    try:
+        derived = league["short"] in db.load_derived_leagues()
+    except Exception as e:
+        logger.error(f"Could not read table modes: {type(e).__name__}: {e}")
 
-    results_applied, unmatched = _apply_manual_results_to_rows(rows, uncaptured)
-    match_fixes = _apply_match_correction_effects(league, rows)
-    corrections_applied, matched_keys = _apply_team_stat_corrections(league, rows)
-
-    if results_applied or corrections_applied or match_fixes:
+    if derived and _derive_rows_from_results(league, rows):
+        # The table is built from the same results the team pages show
+        # (scraped + corrections + manual already merged), so nothing more
+        # to overlay except explicit admin stat overrides.
+        results_applied, unmatched, match_fixes, uncaptured = 0, [], 0, []
+        corrections_applied, matched_keys = _apply_team_stat_corrections(league, rows)
         _resort_rows_by_league_order(rows)
+    else:
+        derived = False
+        published = _scraped_result_signatures()
+        uncaptured = _uncaptured_manual_results(league, published)
+
+        results_applied, unmatched = _apply_manual_results_to_rows(rows, uncaptured)
+        match_fixes = _apply_match_correction_effects(league, rows)
+        corrections_applied, matched_keys = _apply_team_stat_corrections(league, rows)
+
+        if results_applied or corrections_applied or match_fixes:
+            _resort_rows_by_league_order(rows)
 
     # The scraper emits every stat as text; the overlay writes ints for
     # the rows it touches. Normalise back to text so a table never mixes
@@ -1519,7 +1579,9 @@ def recompute_league_standings(league_key: str) -> dict:
 
     standings_data["standings"] = rows
     standings_data["total_teams"] = len(rows)
+    standings_data["table_mode"] = "from_results" if derived else "khu"
 
+    summary["table_mode"] = standings_data["table_mode"]
     summary["match_corrections_in_table"] = match_fixes
     summary["manual_results_applied"] = results_applied
     summary["corrections_applied"] = corrections_applied
@@ -2096,7 +2158,7 @@ def refresh_fixtures_results(only_team_names=None):
         # first publishes it — not one cycle late. The reverse holds too:
         # while a match stays unpublished, its manual entry keeps the
         # table correct with no extra bookkeeping.
-        if db.load_manual_results():
+        if db.load_manual_results() or db.load_derived_leagues():
             for league_key in LEAGUES:
                 recompute_league_standings(league_key)
 
@@ -3305,6 +3367,37 @@ def set_team_stats(payload: TeamStatsInput, x_admin_token: str = Header(default=
     }
 
 
+class TableModeInput(BaseModel):
+    league_short: str
+    from_results: bool
+
+
+@app.post("/api/admin/table-mode/set")
+def set_table_mode(payload: TableModeInput, x_admin_token: str = Header(default="")):
+    """Choose how a league's table is built: KHU's own numbers (plus our
+    overlays), or computed from the results this app shows so the table
+    always agrees with the team pages."""
+    if not _is_admin(x_admin_token):
+        raise HTTPException(status_code=401, detail="Missing or invalid admin token.")
+    short = payload.league_short.strip().upper()
+    league = LEAGUES_BY_SHORT.get(short)
+    if not league:
+        raise HTTPException(status_code=400, detail=f"Unknown league '{payload.league_short[:20]}'.")
+    db.set_derived_league(short, payload.from_results)
+    summary = recompute_league_standings(league["key"])
+    _status_changed()
+    return {"league_short": short, "from_results": payload.from_results,
+            "table_mode": summary.get("table_mode")}
+
+
+@app.get("/api/admin/table-mode/list")
+def list_table_modes(x_admin_token: str = Header(default="")):
+    if not _is_admin(x_admin_token):
+        raise HTTPException(status_code=401, detail="Missing or invalid admin token.")
+    on = db.load_derived_leagues()
+    return {"leagues": [{"league_short": s, "from_results": s in on} for s in LEAGUES_BY_SHORT]}
+
+
 @app.get("/api/admin/team-stats/list")
 def list_team_stats(x_admin_token: str = Header(default=""), x_agent_token: str = Header(default="")):
     """List every manual team-stat correction currently stored."""
@@ -4397,6 +4490,8 @@ async def admin_restore_backup(request: Request, x_admin_token: str = Header(def
         db.save_match_correction(
             _correction_key(cleaned["league_short"], cleaned["home_team"], cleaned["away_team"], cleaned["date"]), cleaned)
     run("match_corrections", data.get("match_corrections"), _restore_correction)
+    run("derived_leagues", [x for x in (data.get("derived_leagues") or []) if isinstance(x, str) and x.upper() in LEAGUES_BY_SHORT],
+        lambda x: db.set_derived_league(x.upper(), True))
     run("player_stats", data.get("players"), lambda p: db.save_player_stats(
         p["league_short"], p["team_name"], p["player_name"],
         {k: v for k, v in p.items() if k not in ("league_short", "team_name", "player_name", "stat_key")}))
