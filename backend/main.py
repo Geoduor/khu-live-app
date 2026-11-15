@@ -3113,9 +3113,9 @@ async def upload_fixtures_pdf(
     updated.setdefault("live", current.get("live", []))
     updated["scraped_at"] = current.get("scraped_at", datetime.now().isoformat())
 
-    db.save_fixtures_results(updated, success=True)
-    updated["_cache_scraped_at"] = datetime.now().isoformat()
-    updated["_cache_success"] = True
+    db.save_fixtures_results(updated, keep_timestamp=True)
+    updated["_cache_scraped_at"] = current.get("_cache_scraped_at") or datetime.now().isoformat()
+    updated["_cache_success"] = current.get("_cache_success", True)
     cache["fixtures_results"] = updated
 
     logger.info(f"PDF upload merged {added_count} new fixtures from {file.filename} (persisted {pdf_result['total']} to pdf_fixtures_store)")
@@ -3297,7 +3297,7 @@ def _purge_deleted_manual_from_views(record: dict) -> int:
                 updated[bucket] = after
         if removed:
             updated["total_results"] = len(updated.get("results", []))
-            db.save_fixtures_results(updated, success=True)
+            db.save_fixtures_results(updated, keep_timestamp=True)
             updated["_cache_scraped_at"] = current.get("_cache_scraped_at", datetime.now().isoformat())
             updated["_cache_success"] = current.get("_cache_success", True)
             cache["fixtures_results"] = updated

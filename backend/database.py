@@ -250,12 +250,19 @@ def load_all_standings():
     return result
 
 
-def save_fixtures_results(data: dict, success: bool = True):
+def save_fixtures_results(data: dict, success: bool = True, keep_timestamp: bool = False):
     """Save the homepage fixtures/results scrape (single row table).
     Same rule as save_standings: a failed scrape never overwrites the
     last-known-good payload, so a restart can always serve real data."""
     conn = get_connection()
     cur = conn.cursor()
+    if keep_timestamp:
+        # An admin edit (e.g. deleting a manual result) must not make old data look freshly
+        # scraped, or the stalled-scraper monitor would stay quiet after a restart.
+        cur.execute("UPDATE fixtures_results_cache SET data_json = ? WHERE id = 1", (json.dumps(data),))
+        conn.commit()
+        conn.close()
+        return
     if not success:
         cur.execute("SELECT success FROM fixtures_results_cache WHERE id = 1")
         row = cur.fetchone()

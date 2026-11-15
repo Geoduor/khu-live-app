@@ -175,6 +175,21 @@ Still open — your decision (not changed, because each is a trade-off or needs 
 2. In the agent page, log in, press Log out, then press the browser Back button: you should be asked to log in again.
 3. Team logos still show on Home, Table and Fixtures (if a logo is missing, send me its address; it means KHU serves it from outside `/wp-content/`).
 
+## Audit 6 (November 2026) — everything added since audit 5, attacked again
+
+Method: re-read the new code (custom domain and old-address redirect, "we moved" screen, Google Analytics, table-mode admin routes, delete-a-manual-result purge, live-watch, restore of table modes) plus the full set of checks: every earlier test suite passes, `pip-audit` clean, `npm audit --omit=dev` shows only the known build-tool packages (none ship to visitors), secrets scan clean, no `innerHTML`/`eval`/`document.write` anywhere. New test: `backend/verify_audit6.py`. The live site could not be reached from the build environment.
+
+| # | Weakness (plain English) | Severity | Fix |
+|---|---|---|---|
+| 1 | **Deleting a manual result (or uploading a fixtures PDF) stamped old data as "freshly scraped".** If the scraper was stalled, one edit made the saved copy look new, so after a restart the stalled-scraper monitor (`/api/health?strict=1`) could stay quiet while fans saw stale scores. | Low | These edits now save the data without touching the "scraped at" time or the success flag (`keep_timestamp` in `save_fixtures_results`). |
+| 2 | `robots.txt` listed `/admin` and `/agent`, pointing strangers at the login pages. | Low | Removed. Both pages already send `noindex, nofollow` (header and meta tag), which is the correct way to keep them out of Google. |
+
+Checked and found safe: the new `/api/admin/table-mode/*` routes need the admin token (401 otherwise) and accept only known league names; restore filters table-mode names the same way; the old-address redirect always goes to `https://khulive.co.ke` plus the visitor's path, so it cannot be used to send people to another site; the Google Analytics loader only accepts an ID shaped like `G-XXXX`, honours Do Not Track, and the page's security policy allows only Google's own analytics addresses; the Worker still echoes only the three listed origins.
+
+Still open — your decision:
+- The admin and agent pages' security policy allows connections to any `*.workers.dev` address. Narrowing it to your exact Worker address would be tighter, but would break the admin page if the Worker is ever renamed or moved to your own domain, so I left it.
+- Dependabot's remaining alerts are build tools from Create React App; they go away only by moving to Vite.
+
 ## Contributor access (November 2026)
 
 A contributor was added with the **Write** role. What that role can and cannot do, and the settings that keep it safe.
