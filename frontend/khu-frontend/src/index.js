@@ -4,7 +4,8 @@ import "./App.css";
 import { trackInstall } from "./utils/track";
 import App from "./App";
 import * as serviceWorkerRegistration from "./serviceWorkerRegistration";
-import { movedDomainTarget } from "./utils/movedDomain";
+import { movedDomainTarget, isInstalledApp } from "./utils/movedDomain";
+import MovedNotice from "./components/MovedNotice";
 
 // Apply the saved theme BEFORE React mounts, so there's no flash of
 // the wrong theme on load — same value useTheme() will read, just
@@ -41,10 +42,14 @@ window.addEventListener("appinstalled", () => {
   trackInstall();
 });
 
-// Old address -> new address (see utils/movedDomain.js). Nothing is rendered
-// on the old address; the browser is already on its way to the new one.
+// Old address -> new address (see utils/movedDomain.js). Browsers are sent
+// straight on; the installed old app shows a short "we moved" screen.
 const movedTo = movedDomainTarget(window.location);
-if (movedTo) {
+if (movedTo && isInstalledApp(window)) {
+  // Installed from the old address: a redirect would only show the new site
+  // inside a browser bar. Explain the one-time reinstall instead.
+  ReactDOM.createRoot(document.getElementById("root")).render(<MovedNotice target={movedTo} />);
+} else if (movedTo) {
   window.location.replace(movedTo);
 } else {
   const root = ReactDOM.createRoot(document.getElementById("root"));

@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 const src = readFileSync(new URL("./src/utils/movedDomain.js", import.meta.url), "utf8")
-  .replace(/export /g, "") + "\nreturn { movedDomainTarget, OLD_HOST, NEW_ORIGIN };";
-const { movedDomainTarget } = new Function(src)();
+  .replace(/export /g, "") + "\nreturn { movedDomainTarget, isInstalledApp, OLD_HOST, NEW_ORIGIN };";
+const { movedDomainTarget, isInstalledApp } = new Function(src)();
 let fails = 0;
 const check = (n, c) => { console.log((c ? "PASS " : "FAIL ") + n); if (!c) fails++; };
 const L = (hostname, pathname = "/", search = "", hash = "") => ({ hostname, pathname, search, hash });
@@ -13,4 +13,10 @@ check("localhost untouched", movedDomainTarget(L("localhost")) === null);
 check("look-alike host untouched", movedDomainTarget(L("khu-live-app.vercel.app.evil.com")) === null);
 check("preview deployment untouched", movedDomainTarget(L("khu-live-app-git-x-geoduor.vercel.app")) === null);
 check("no location -> null", movedDomainTarget(null) === null);
+const W = (standaloneMQ, iosStandalone) => ({ navigator: { standalone: iosStandalone }, matchMedia: () => ({ matches: standaloneMQ }) });
+check("installed (display-mode standalone)", isInstalledApp(W(true)) === true);
+check("installed (iOS standalone)", isInstalledApp(W(false, true)) === true);
+check("normal browser tab", isInstalledApp(W(false, undefined)) === false);
+check("no matchMedia -> false", isInstalledApp({ navigator: {} }) === false);
+check("throws -> false", isInstalledApp({ matchMedia: () => { throw new Error("x"); } }) === false);
 console.log(fails ? "FAILED" : "all checks passed"); process.exit(fails ? 1 : 0);
