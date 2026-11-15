@@ -28,6 +28,7 @@ main.db.save_fixtures_results = lambda *a, **k: None
 main.archive_current_matches = lambda: None
 main.db.load_pdf_fixtures = lambda: []
 main.db.load_manual_results = lambda: []
+main.db.load_derived_leagues = lambda: set()
 main.db.should_attempt_scrape = lambda cooldown_seconds=300: True
 ok = main.refresh_live_watch()
 check("watch returned True", ok is True)
