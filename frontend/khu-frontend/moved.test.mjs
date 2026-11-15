@@ -1,0 +1,16 @@
+import { readFileSync } from "node:fs";
+const src = readFileSync(new URL("./src/utils/movedDomain.js", import.meta.url), "utf8")
+  .replace(/export /g, "") + "\nreturn { movedDomainTarget, OLD_HOST, NEW_ORIGIN };";
+const { movedDomainTarget } = new Function(src)();
+let fails = 0;
+const check = (n, c) => { console.log((c ? "PASS " : "FAIL ") + n); if (!c) fails++; };
+const L = (hostname, pathname = "/", search = "", hash = "") => ({ hostname, pathname, search, hash });
+check("old host root -> new root", movedDomainTarget(L("khu-live-app.vercel.app")) === "https://khulive.co.ke/");
+check("keeps path, query, hash", movedDomainTarget(L("khu-live-app.vercel.app", "/team", "?u=1", "#x")) === "https://khulive.co.ke/team?u=1#x");
+check("new host untouched", movedDomainTarget(L("khulive.co.ke")) === null);
+check("www untouched", movedDomainTarget(L("www.khulive.co.ke")) === null);
+check("localhost untouched", movedDomainTarget(L("localhost")) === null);
+check("look-alike host untouched", movedDomainTarget(L("khu-live-app.vercel.app.evil.com")) === null);
+check("preview deployment untouched", movedDomainTarget(L("khu-live-app-git-x-geoduor.vercel.app")) === null);
+check("no location -> null", movedDomainTarget(null) === null);
+console.log(fails ? "FAILED" : "all checks passed"); process.exit(fails ? 1 : 0);

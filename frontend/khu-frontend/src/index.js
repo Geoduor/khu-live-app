@@ -4,6 +4,7 @@ import "./App.css";
 import { trackInstall } from "./utils/track";
 import App from "./App";
 import * as serviceWorkerRegistration from "./serviceWorkerRegistration";
+import { movedDomainTarget } from "./utils/movedDomain";
 
 // Apply the saved theme BEFORE React mounts, so there's no flash of
 // the wrong theme on load — same value useTheme() will read, just
@@ -40,12 +41,19 @@ window.addEventListener("appinstalled", () => {
   trackInstall();
 });
 
-const root = ReactDOM.createRoot(document.getElementById("root"));
-root.render(
-  <React.StrictMode>
-    <App />
-  </React.StrictMode>
-);
+// Old address -> new address (see utils/movedDomain.js). Nothing is rendered
+// on the old address; the browser is already on its way to the new one.
+const movedTo = movedDomainTarget(window.location);
+if (movedTo) {
+  window.location.replace(movedTo);
+} else {
+  const root = ReactDOM.createRoot(document.getElementById("root"));
+  root.render(
+    <React.StrictMode>
+      <App />
+    </React.StrictMode>
+  );
+}
 
 // Register the service worker so the app works offline and can be
 // installed as a PWA ("Add to Home Screen").
