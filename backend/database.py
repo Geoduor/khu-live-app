@@ -514,6 +514,29 @@ def set_derived_league(league_short: str, on: bool) -> None:
     conn.close()
 
 
+def delete_archive_match_if_manual(key: str) -> bool:
+    """Remove an archive record ONLY if it is still our manual stand-in (never
+    a record KHU's own scrape has since replaced). Used when an admin deletes a
+    manual result, so it does not linger in History."""
+    conn = get_connection()
+    try:
+        _ensure_archive_tables(conn)
+        row = conn.execute("SELECT data_json FROM match_archive WHERE match_key = ?", (key,)).fetchone()
+        if not row:
+            return False
+        try:
+            src = json.loads(row["data_json"]).get("source")
+        except (TypeError, ValueError):
+            return False
+        if src != "manual":
+            return False
+        conn.execute("DELETE FROM match_archive WHERE match_key = ?", (key,))
+        conn.commit()
+        return True
+    finally:
+        conn.close()
+
+
 def delete_archive_matches(keys: list) -> int:
     """Remove archive records by key. Used only when a correction proves the
     record was filed under the wrong teams (it would otherwise stay in the
