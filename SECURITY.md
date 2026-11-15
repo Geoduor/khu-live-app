@@ -51,8 +51,7 @@ admin-only and size-capped.
 - Push subscribe/unsubscribe are public by design; the long subscription URL is
   the only secret, and they are now rate-limited and capped.
 - Rate limits live in memory (reset on restart; fine for one Render instance).
-- `npm audit` still lists many issues, all inside `react-scripts` build tooling
-  (not shipped to users). Moving off Create React App is the long-term fix.
+- (Resolved November 2026: the frontend moved from Create React App to Vite; `npm audit` now reports 0 vulnerabilities.)
 - This was a code review plus local attack simulations. It was not a test of the
   live Render/Vercel deployment.
 
@@ -188,7 +187,7 @@ Checked and found safe: the new `/api/admin/table-mode/*` routes need the admin 
 
 Still open — your decision:
 - The admin and agent pages' security policy allows connections to any `*.workers.dev` address. Narrowing it to your exact Worker address would be tighter, but would break the admin page if the Worker is ever renamed or moved to your own domain, so I left it.
-- Dependabot's remaining alerts are build tools from Create React App; they go away only by moving to Vite.
+- (Resolved: the frontend now builds with Vite, so the old build-tool alerts are gone.)
 
 ## Contributor access (November 2026)
 
@@ -211,6 +210,8 @@ Settings that must stay as they are:
 How a takeover could still happen: only by the owner approving a pull request that hides something. Use `docs/REVIEWING_PRS.md` and run `python3 scripts/pr_risk_check.py origin/main origin/<branch>` before approving.
 
 ### Frontend dependency audit (November 2026)
+
+**Update: the frontend now builds with Vite instead of Create React App. `npm audit` reports 0 vulnerabilities and the notes below are kept only as history.**
 
 `npm audit` lists known issues in the frontend's packages. What matters is whether the vulnerable code reaches visitors.
 
