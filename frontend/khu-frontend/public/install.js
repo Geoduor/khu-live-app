@@ -1,5 +1,5 @@
 (function () {
-  var APP_URL = "https://khu-live-app.vercel.app";
+  var APP_URL = "https://khulive.co.ke";
   var PAGE_URL = APP_URL + "/install.html";
   var ua = navigator.userAgent || "";
   var $ = function (id) { return document.getElementById(id); };

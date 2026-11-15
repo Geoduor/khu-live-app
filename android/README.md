@@ -14,7 +14,7 @@ signed with the SAME key. **Back it up (two places) and never commit it to git.*
 (`.gitignore` already blocks `*.keystore` / `*.jks`.)
 
 ## Option A — PWABuilder (easiest, no installs, ~10 minutes)
-1. Open <https://www.pwabuilder.com>, enter `https://khu-live-app.vercel.app`, press **Start**.
+1. Open <https://www.pwabuilder.com>, enter `https://khulive.co.ke`, press **Start**.
 2. Press **Package for stores → Android**.
 3. Package ID: `app.vercel.khu_live_app.twa` · App name: `KHU Live`.
    Under *Signing key*, choose **New** and keep the generated key file safe.
@@ -29,7 +29,7 @@ signed with the SAME key. **Back it up (two places) and never commit it to git.*
 npm i -g @bubblewrap/cli
 mkdir khu-android && cd khu-android
 cp /path/to/repo/android/twa-manifest.json .
-bubblewrap init --manifest=https://khu-live-app.vercel.app/manifest.json   # accepts the SDK download
+bubblewrap init --manifest=https://khulive.co.ke/manifest.json   # accepts the SDK download
 bubblewrap build        # creates app-release-signed.apk and app-release-bundle.aab
 bubblewrap fingerprint  # prints the SHA-256 you need below
 ```
@@ -43,12 +43,12 @@ Without this step the app works but shows a browser bar at the top.
 2. Copy `android/assetlinks.template.json` to
    `frontend/khu-frontend/public/.well-known/assetlinks.json` and paste the fingerprint(s).
 3. Push to `main`, wait for Vercel, then check
-   `https://khu-live-app.vercel.app/.well-known/assetlinks.json` opens.
+   `https://khulive.co.ke/.well-known/assetlinks.json` opens.
 
 ## Share the APK directly (no Play Store yet)
 1. Put the APK at `frontend/khu-frontend/public/khu-live.apk`, push to `main`.
 2. The **"Download for Android"** button then appears automatically on
-   `https://khu-live-app.vercel.app/install.html` (it hides itself until the file exists).
+   `https://khulive.co.ke/install.html` (it hides itself until the file exists).
 3. People must allow "install from this browser" once; Android shows a normal warning.
    Play Protect may say "unrecognised app" — that is expected for files outside the Play Store.
 
@@ -57,7 +57,7 @@ Without this step the app works but shows a browser bar at the top.
 2. New personal accounts must run a **closed test with at least 12 testers for 14 days**
    before production access. Create the closed-test track first and invite testers by email.
 3. Create the app → upload the **.aab** → fill in the listing from `play-listing.md`.
-4. Privacy policy URL: `https://khu-live-app.vercel.app/privacy.html`.
+4. Privacy policy URL: `https://khulive.co.ke/privacy.html`.
 5. Content rating questionnaire (all "no"), target audience 13+ (not a children's app), data-safety form
    (see the notes in `play-listing.md`).
 
