@@ -1469,6 +1469,16 @@ def _resort_rows_by_league_order(rows: list) -> None:
     rows[:] = ordered
 
 
+def _derived_leagues_safe() -> set:
+    """Leagues whose table is built from our results. A database hiccup here
+    must never abort a refresh or a table recompute: fall back to KHU's table."""
+    try:
+        return db.load_derived_leagues()
+    except Exception as e:  # noqa: BLE001
+        logger.error(f"Could not read table modes: {type(e).__name__}: {e}")
+        return set()
+
+
 def _derive_rows_from_results(league: dict, rows: list) -> bool:
     """Overwrite each row's played/won/drawn/lost/GF/GA/GD/points/form with
     numbers computed from the finished matches this app currently shows for
@@ -1543,11 +1553,7 @@ def recompute_league_standings(league_key: str) -> dict:
         return summary
 
     rows = copy.deepcopy(pristine)
-    derived = False
-    try:
-        derived = league["short"] in db.load_derived_leagues()
-    except Exception as e:
-        logger.error(f"Could not read table modes: {type(e).__name__}: {e}")
+    derived = league["short"] in _derived_leagues_safe()
 
     if derived and _derive_rows_from_results(league, rows):
         # The table is built from the same results the team pages show
@@ -2158,7 +2164,7 @@ def refresh_fixtures_results(only_team_names=None):
         # first publishes it — not one cycle late. The reverse holds too:
         # while a match stays unpublished, its manual entry keeps the
         # table correct with no extra bookkeeping.
-        if db.load_manual_results() or db.load_derived_leagues():
+        if db.load_manual_results() or _derived_leagues_safe():
             for league_key in LEAGUES:
                 recompute_league_standings(league_key)
 
