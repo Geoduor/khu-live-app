@@ -11,3 +11,13 @@ export function movedDomainTarget(loc) {
   if (!loc || loc.hostname !== OLD_HOST) return null;
   return NEW_ORIGIN + (loc.pathname || "/") + (loc.search || "") + (loc.hash || "");
 }
+
+// True when the page is running as an installed app (own window, no browser bar).
+export function isInstalledApp(win) {
+  try {
+    if (win.navigator && win.navigator.standalone === true) return true; // iOS home-screen app
+    return Boolean(win.matchMedia && win.matchMedia("(display-mode: standalone)").matches);
+  } catch {
+    return false;
+  }
+}
