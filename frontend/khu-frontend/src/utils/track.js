@@ -1,3 +1,4 @@
+import { gaView } from "./ga";
 // Privacy-friendly usage counting: no cookies, no ids, nothing stored on the
 // device. The server only adds 1 to a per-day counter for the screen name.
 // Browsers that ask not to be tracked (Do Not Track / Global Privacy Control)
@@ -32,6 +33,7 @@ export function trackView(view) {
   if (!view || view === lastView) return;
   lastView = view;
   post("/api/analytics/hit", { view });
+  gaView(view);
 }
 
 export function trackInstall() { post("/api/analytics/install"); }
