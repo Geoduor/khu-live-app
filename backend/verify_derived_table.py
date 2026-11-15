@@ -81,4 +81,19 @@ r = c.post("/api/admin/table-mode/set", headers={"x-admin-token": "tok"}, json={
 check("set ok", r.status_code == 200 and "PLM" in MODES)
 l = c.get("/api/admin/table-mode/list", headers={"x-admin-token": "tok"}).json()["leagues"]
 check("list reflects", {x["league_short"]: x["from_results"] for x in l}["PLM"] is True)
+
+# team profile is never stale and agrees whichever way it is opened
+fails2 = 0
+main.cache["fixtures_results"] = {"results": [M("Kisii Falcons", "Bay Club", 1, 3, "01-11-2026")], "fixtures": [], "live": []}
+MODES.discard("NLM-SZ")
+c2 = TestClient(main.app)
+def prof(**kw):
+    return c2.get("/api/team", params=kw).json()
+a = prof(url=U("kisii-falcons"), name="Kisii Falcons", league="NLM-SZ")
+check("profile shows the result", len(a["recent_results"]) == 1)
+main.cache["fixtures_results"]["results"].append(M("Kisii Falcons", "Kisii University", 3, 1, "18-10-2026"))
+b = prof(url=U("kisii-falcons"), name="Kisii Falcons", league="NLM-SZ")
+check("new result shows immediately (no stale cache)", len(b["recent_results"]) == 2)
+d = prof(url=U("kisii-falcons") + "?sid=3634", name="Kisii Falcons ", league="NLM-SZ")
+check("other entry path agrees", len(d["recent_results"]) == 2)
 print("FAILED" if fails else "ALL PASS"); sys.exit(1 if fails else 0)

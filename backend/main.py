@@ -5053,14 +5053,12 @@ def get_team_profile(request: Request, url: str = "", name: str = "", league: st
         raise HTTPException(status_code=400, detail="Need at least a team name or URL to look up a profile")
 
     league = re.sub(r"[^A-Za-z-]", "", league or "")[:10].upper()
-    cache_key = f"{url}::{name[:120]}::{league}"
-    cached = _team_cache.get(cache_key)
-    if cached and (time.time() - cached[1]) < TEAM_CACHE_TTL:
-        data = cached[0]
-    else:
-        data = build_team_profile_from_cache(name, url, league)
-        if not data.get("error"):
-            _cache_put(_team_cache, cache_key, (data, time.time()))
+    # Built fresh on every request: it is pure in-memory work (no network),
+    # and a 10-minute per-(url, name, league) cache made the same team show
+    # different numbers depending on which screen opened it (table vs match
+    # card use different URL/name spellings = different cache entries) and
+    # hid manual results/corrections until the entry expired.
+    data = build_team_profile_from_cache(name, url, league)
     # The squad is read fresh each time so a new photo or shirt number shows straight away.
     try:
         squad = _squad_for(data.get("team_name") or name, data.get("league_short") or league)
