@@ -1,6 +1,4 @@
 # https://www.robotstxt.org/robotstxt.html
 User-agent: *
-Disallow: /admin
-Disallow: /agent
 
 Sitemap: https://khulive.co.ke/sitemap.xml
