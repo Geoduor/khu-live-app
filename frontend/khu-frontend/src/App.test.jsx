@@ -1,4 +1,4 @@
-jest.mock('./api', () => {
+vi.mock('./api', () => {
   const ok = (data) => () => Promise.resolve(data);
   return {
     __esModule: true,
@@ -40,7 +40,7 @@ jest.mock('./api', () => {
   };
 });
 
-jest.mock('./hooks/usePushNotifications', () => ({
+vi.mock('./hooks/usePushNotifications', () => ({
   usePushNotifications: () => ({
     permission: 'default',
     isSubscribed: false,
@@ -51,8 +51,8 @@ jest.mock('./hooks/usePushNotifications', () => ({
   }),
 }));
 
-const { render, screen, waitFor } = require('@testing-library/react');
-const App = require('./App').default;
+import { render, screen, waitFor } from '@testing-library/react';
+import App from './App';
 
 test('renders KHU app branding', async () => {
   render(<App />);

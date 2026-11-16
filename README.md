@@ -194,7 +194,8 @@ cd .. && node edge/worker.test.mjs # Worker rate-limit keys, cache and retry (ru
 cd frontend/khu-frontend && node sw.test.mjs   # service worker rules
 cd ../../backend
 cd ../frontend/khu-frontend
-CI=true npm run build           # treats lint warnings as errors, as the deploy does
+npm run build                  # Vite production build into frontend/khu-frontend/build
+npm test                       # Vitest (App render test)
 ```
 
 ## Deployment & data persistence

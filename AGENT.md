@@ -192,7 +192,7 @@ Every manual result records `entered_by`.
 - Share cards are canvas-generated client-side (`src/utils/shareCard.js`).
   Every card must keep the app name and "Unofficial Fan App" line.
   Logos load via `/api/logo` with `crossOrigin="anonymous"`.
-- CRA's CI build treats lint warnings as errors (e.g. `no-loop-func`) —
+- (Old CRA note; the frontend now builds with Vite, which does not fail on lint warnings.) CRA's CI build treated lint warnings as errors (e.g. `no-loop-func`) —
   always run `CI=true npm run build`.
 - Git: work on a branch and **do not push to main without the owner's
   explicit permission**.
