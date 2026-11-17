@@ -185,8 +185,9 @@ Method: re-read the new code (custom domain and old-address redirect, "we moved"
 
 Checked and found safe: the new `/api/admin/table-mode/*` routes need the admin token (401 otherwise) and accept only known league names; restore filters table-mode names the same way; the old-address redirect always goes to `https://khulive.co.ke` plus the visitor's path, so it cannot be used to send people to another site; the Google Analytics loader only accepts an ID shaped like `G-XXXX`, honours Do Not Track, and the page's security policy allows only Google's own analytics addresses; the Worker still echoes only the three listed origins.
 
-Still open — your decision:
-- The admin and agent pages' security policy allows connections to any `*.workers.dev` address. Narrowing it to your exact Worker address would be tighter, but would break the admin page if the Worker is ever renamed or moved to your own domain, so I left it.
+Follow-up (headers hardening): the security policy now allows only your exact Worker address (`khu-edge.geoduor.workers.dev`) instead of any `*.workers.dev`, on the public site and the admin/agent pages. If the Worker is ever renamed or moved to your own domain, update `vercel.json` and `edge-config.js` together. The public pages also now send `Access-Control-Allow-Origin: https://khulive.co.ke` (instead of `*`), `Cross-Origin-Opener-Policy: same-origin` and `Cross-Origin-Resource-Policy: same-site`. COEP is deliberately not set because it breaks Turnstile and Analytics.
+
+Still open:
 - (Resolved: the frontend now builds with Vite, so the old build-tool alerts are gone.)
 
 ## Contributor access (November 2026)
