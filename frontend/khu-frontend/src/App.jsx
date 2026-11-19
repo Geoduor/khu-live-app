@@ -21,6 +21,7 @@ import TeamLogo from "./components/TeamLogo";
 import InstallBanner from "./components/InstallBanner";
 import { useInstallPrompt } from "./hooks/useInstallPrompt";
 import ShopView from "./components/ShopView";
+import ConsentBanner, { PrivacyLinks } from "./components/ConsentBanner";
 import TopScorers from "./components/TopScorers";
 import ShareButton from "./components/ShareButton";
 import { renderTableCard, shareCanvas, slug, shareText } from "./utils/shareCard";
@@ -456,7 +457,9 @@ function App() {
         {!overlay && tab === "results" && (
           <ResultsView results={results} leagues={leagues} loading={loadingResults} onOpenMatch={openMatch} onOpenTeam={openTeam} isFavorite={isFavorite} toggleFavorite={toggleFavorite} />
         )}
+        <PrivacyLinks />
       </div>
+      <ConsentBanner />
 
       {/* Bottom Nav */}
       <div className="bnav">

@@ -11,6 +11,8 @@ export function initGA(id = process.env.REACT_APP_GA_ID, win = typeof window !==
     if (!win || !doc || !GA_ID_PATTERN.test(id || "")) return false;
     const nav = win.navigator || {};
     if (nav.doNotTrack === "1" || win.doNotTrack === "1" || nav.globalPrivacyControl === true) return false;
+    if (win.__khuGaLoaded) return true; // never inject gtag.js twice
+    win.__khuGaLoaded = true;
     win.dataLayer = win.dataLayer || [];
     win.gtag = function gtag() { win.dataLayer.push(arguments); }; // eslint-disable-line prefer-rest-params
     win.gtag("js", new Date());
