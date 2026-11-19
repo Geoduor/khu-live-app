@@ -6,7 +6,7 @@ import App from "./App";
 import * as serviceWorkerRegistration from "./serviceWorkerRegistration";
 import { movedDomainTarget, isInstalledApp } from "./utils/movedDomain";
 import MovedNotice from "./components/MovedNotice";
-import { initGA } from "./utils/ga";
+import { applyConsent } from "./utils/consent";
 
 // Apply the saved theme BEFORE React mounts, so there's no flash of
 // the wrong theme on load — same value useTheme() will read, just
@@ -53,7 +53,7 @@ if (movedTo && isInstalledApp(window)) {
 } else if (movedTo) {
   window.location.replace(movedTo);
 } else {
-  initGA();
+  applyConsent(); // Google Analytics / AdSense load only after the visitor accepted cookies
   const root = ReactDOM.createRoot(document.getElementById("root"));
   root.render(
     <React.StrictMode>

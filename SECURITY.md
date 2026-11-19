@@ -189,6 +189,10 @@ Still open — your decision:
 - The admin and agent pages' security policy allows connections to any `*.workers.dev` address. Narrowing it to your exact Worker address would be tighter, but would break the admin page if the Worker is ever renamed or moved to your own domain, so I left it.
 - (Resolved: the frontend now builds with Vite, so the old build-tool alerts are gone.)
 
+## Cookie consent and AdSense (November 2026)
+
+Google Analytics and Google AdSense now load **only after the visitor taps Accept** (`src/utils/consent.js`). Before a choice, after Decline, and for browsers sending Do Not Track / Global Privacy Control, no request goes to Google. Revoking after Accept removes Google's cookies and reloads the app. AdSense also needs `REACT_APP_ADSENSE_ID` (public Publisher ID) set in Vercel; without it nothing ad-related loads. Site ownership is shown with a meta tag and `public/ads.txt` (no script, no cookies). The public pages' security policy was widened for Google's ad domains (script, frame, image and connect sources, each limited to named Google hosts); the admin, agent and shop-checkout pages carry no ads. This was tested with stubbed Google responses only: after approval, check the browser console on a real ad page for any blocked address and tell the developer.
+
 ## Contributor access (November 2026)
 
 A contributor was added with the **Write** role. What that role can and cannot do, and the settings that keep it safe.
