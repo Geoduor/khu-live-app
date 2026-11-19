@@ -3015,6 +3015,138 @@ def manual_refresh():
     }
 
 
+# ──────────────────────────────────────────────
+# ADMIN "ADD A FIXTURE" FORM
+# ──────────────────────────────────────────────
+# For matches KHU hasn't published yet (e.g. a club's "Gameday" poster). The
+# fixture is stored with the KHU PDF fixtures (same table, tagged "admin-form"),
+# so it survives every refresh and restart, drops out by itself once KHU lists the
+# same match, and can never be overwritten by a PDF or the seed file.
+
+class FixtureInput(BaseModel):
+    league_short: str = Field(max_length=20)
+    home_team: str = Field(max_length=120)
+    away_team: str = Field(max_length=120)
+    home_team_url: Optional[str] = Field(default="", max_length=500)
+    away_team_url: Optional[str] = Field(default="", max_length=500)
+    date: str = Field(max_length=32)
+    venue: Optional[str] = Field(default="", max_length=120)
+
+
+def _build_admin_fixture(league_short, home, away, home_url, away_url, date, venue, added_by) -> dict:
+    """Validate and build one fixture record. Raises ValueError with a plain-English reason."""
+    league = LEAGUES_BY_SHORT.get(str(league_short or "").strip().upper())
+    if not league:
+        raise ValueError(f"Unknown league '{league_short}'. Must be one of: {', '.join(sorted(LEAGUES_BY_SHORT))}")
+    home, away = str(home or "").strip(), str(away or "").strip()
+    if not home or not away:
+        raise ValueError("Both teams are required.")
+    if home.lower() == away.lower():
+        raise ValueError("Home and away team can't be the same team.")
+    parsed = _parse_match_date(str(date or "").strip())
+    if not parsed or parsed.year == 1:
+        raise ValueError("The date must look like 'YYYY-MM-DD HH:MM'.")
+    return {
+        "matchday": "", "date": str(date).strip(),
+        "home_team": correct_team_name(home), "home_team_url": str(home_url or "").strip()[:500], "home_logo_url": "",
+        "away_team": correct_team_name(away), "away_team_url": str(away_url or "").strip()[:500], "away_logo_url": "",
+        "home_score": None, "away_score": None, "state": "NS", "match_url": "",
+        "league": league["name"], "league_short": league["short"],
+        "venue": str(venue or "").strip()[:120], "match_no": "", "is_first_leg": False,
+        "source": "pdf",  # treated like any stored calendar fixture everywhere
+        "added_by": str(added_by or "Admin")[:60],
+    }
+
+
+def _purge_fixture_from_cache(key: str) -> int:
+    """Remove our stored copy of one fixture from the live cache (never KHU's own copy)."""
+    current = cache.get("fixtures_results") or {}
+    before = current.get("fixtures", []) or []
+    after = [m for m in before if not (m.get("source") == "pdf" and _match_key(m) == key)]
+    if len(after) == len(before):
+        return 0
+    updated = dict(current)
+    updated["fixtures"] = after
+    updated["total_fixtures"] = len(after)
+    db.save_fixtures_results(updated, keep_timestamp=True)
+    updated["_cache_scraped_at"] = current.get("_cache_scraped_at", datetime.now().isoformat())
+    updated["_cache_success"] = current.get("_cache_success", True)
+    cache["fixtures_results"] = updated
+    return len(before) - len(after)
+
+
+@app.post("/api/admin/fixtures/add")
+def add_admin_fixture(payload: FixtureInput, x_admin_token: str = Header(default="")):
+    """Add (or correct, if re-submitted with the same league/teams/date) one upcoming fixture."""
+    if not _is_admin(x_admin_token):
+        raise HTTPException(status_code=401, detail="Missing or invalid admin token.")
+    try:
+        record = _build_admin_fixture(payload.league_short, payload.home_team, payload.away_team,
+                                      payload.home_team_url, payload.away_team_url, payload.date,
+                                      payload.venue, "Admin")
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    key = _match_key(record)
+    current = cache.get("fixtures_results") or {}
+    played = {_match_key(m) for m in (current.get("results") or []) if m.get("home_score") is not None}
+    if key in played:
+        raise HTTPException(status_code=409, detail="That match already has a result — it is not an upcoming fixture.")
+
+    db.save_pdf_fixtures([record], source_file=db.ADMIN_FIXTURE_SOURCE)
+
+    # Replace any earlier stored copy (a corrected time or venue), then merge into the live cache.
+    existing = [m for m in (current.get("fixtures", []) or []) if not (m.get("source") == "pdf" and _match_key(m) == key)]
+    listed_by_khu = any(_match_key(m) == key for m in existing)
+    merged = merge_pdf_fixtures_into_scraped(existing, [record])
+    merged = _group_and_sort_matches(merged)
+    logo_lookup = build_team_logo_lookup()
+    if logo_lookup:
+        backfill_match_logos(merged, logo_lookup, build_fuzzy_team_records())
+
+    updated = dict(current)
+    updated["fixtures"] = merged
+    updated["total_fixtures"] = len(merged)
+    updated.setdefault("results", current.get("results", []))
+    updated.setdefault("live", current.get("live", []))
+    updated["scraped_at"] = current.get("scraped_at", datetime.now().isoformat())
+    db.save_fixtures_results(updated, keep_timestamp=True)
+    updated["_cache_scraped_at"] = current.get("_cache_scraped_at") or datetime.now().isoformat()
+    updated["_cache_success"] = current.get("_cache_success", True)
+    cache["fixtures_results"] = updated
+
+    logger.info(f"Fixture added: {record['home_team']} v {record['away_team']} ({record['league_short']}) {record['date']}")
+    return {
+        "message": "Fixture added." if not listed_by_khu else "Saved. KHU already lists this match, so theirs is shown.",
+        "match_key": key, "fixture": record, "already_listed_by_khu": listed_by_khu,
+    }
+
+
+@app.get("/api/admin/fixtures/list")
+def list_admin_fixtures(x_admin_token: str = Header(default="")):
+    if not _is_admin(x_admin_token):
+        raise HTTPException(status_code=401, detail="Missing or invalid admin token.")
+    rows = [{**d, "match_key": k} for k, d in db.load_admin_fixtures()]
+    rows.sort(key=lambda r: r.get("date", ""))
+    return {"fixtures": rows, "total": len(rows)}
+
+
+@app.delete("/api/admin/fixtures/{match_key:path}")
+def delete_admin_fixture(match_key: str, x_admin_token: str = Header(default="")):
+    """Delete one fixture added through the form. KHU's own fixtures are never touched."""
+    if not _is_admin(x_admin_token):
+        raise HTTPException(status_code=401, detail="Missing or invalid admin token.")
+    if not db.delete_admin_fixture(match_key):
+        raise HTTPException(status_code=404, detail="No fixture added through the form has that key.")
+    removed = 0
+    try:
+        removed = _purge_fixture_from_cache(match_key)
+        db.delete_archive_unplayed(match_key)
+    except Exception as e:  # noqa: BLE001 — the delete itself already succeeded
+        logger.error(f"Could not purge deleted fixture from views: {type(e).__name__}: {e}")
+    return {"message": "Deleted.", "match_key": match_key, "removed_from_app": removed}
+
+
 @app.get("/api/admin/fixtures/export-pdf-seed")
 def export_pdf_seed(x_admin_token: str = Header(default="")):
     """
@@ -3222,9 +3354,9 @@ def add_manual_result(
     updated.setdefault("live", current.get("live", []))
     updated["scraped_at"] = current.get("scraped_at", datetime.now().isoformat())
 
-    db.save_fixtures_results(updated, success=True)
-    updated["_cache_scraped_at"] = datetime.now().isoformat()
-    updated["_cache_success"] = True
+    db.save_fixtures_results(updated, keep_timestamp=True)
+    updated["_cache_scraped_at"] = current.get("_cache_scraped_at") or datetime.now().isoformat()
+    updated["_cache_success"] = current.get("_cache_success", True)
     cache["fixtures_results"] = updated
 
     logger.info(f"Manual result added: {result['home_team']} {result['home_score']}-{result['away_score']} {result['away_team']} ({league['short']})")
@@ -4526,6 +4658,12 @@ async def admin_restore_backup(request: Request, x_admin_token: str = Header(def
         db.save_match_correction(
             _correction_key(cleaned["league_short"], cleaned["home_team"], cleaned["away_team"], cleaned["date"]), cleaned)
     run("match_corrections", data.get("match_corrections"), _restore_correction)
+    def _restore_fixture(f):
+        rec = _build_admin_fixture(f.get("league_short", ""), f.get("home_team", ""), f.get("away_team", ""),
+                                   f.get("home_team_url", ""), f.get("away_team_url", ""), f.get("date", ""),
+                                   f.get("venue", ""), f.get("added_by", "Admin"))
+        db.save_pdf_fixtures([rec], source_file=db.ADMIN_FIXTURE_SOURCE)
+    run("added_fixtures", data.get("added_fixtures"), _restore_fixture)
     run("derived_leagues", [x for x in (data.get("derived_leagues") or []) if isinstance(x, str) and x.upper() in LEAGUES_BY_SHORT],
         lambda x: db.set_derived_league(x.upper(), True))
     run("player_stats", data.get("players"), lambda p: db.save_player_stats(

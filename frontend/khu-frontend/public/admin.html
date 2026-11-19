@@ -269,6 +269,56 @@
   <div class="section-title">Currently Stored Manual Results</div>
   <div id="resultsList"><div class="empty-note">Enter your backend URL and token above, then this loads automatically.</div></div>
 </div>
+
+<div class="card" id="fixtureCard">
+  <div class="section-title">Add an Upcoming Fixture</div>
+  <div class="subtitle">For a match KHU hasn't published yet, for example from a club's "Gameday" poster. It shows on the Fixtures tab right away, and once KHU lists the same match, KHU's copy is shown instead (no duplicates). Adding the same teams and date again corrects the time or venue.</div>
+
+  <label>League</label>
+  <select id="fxLeague" onchange="populateTeamDropdowns()">
+    <option value="PLM">Premier League Men</option>
+    <option value="PLW">Premier League Women</option>
+    <option value="SLM">Super League Men</option>
+    <option value="SLW">Super League Women</option>
+    <option value="NLM-EZ">National League Men — Eastern Zone</option>
+    <option value="NLM-CZ">National League Men — Central Zone</option>
+    <option value="NLM-WZ">National League Men — Western Zone</option>
+    <option value="NLM-SZ">National League Men — Southern Zone</option>
+  </select>
+
+  <div class="row">
+    <div>
+      <label>Home Team</label>
+      <select id="fxHome"><option value="">Select a team...</option></select>
+    </div>
+    <div>
+      <label>Away Team</label>
+      <select id="fxAway"><option value="">Select a team...</option></select>
+    </div>
+  </div>
+
+  <div class="row">
+    <div>
+      <label>Date</label>
+      <input id="fxDate" type="date" />
+    </div>
+    <div>
+      <label>Kick-off time</label>
+      <input id="fxTime" type="time" />
+    </div>
+  </div>
+
+  <label>Venue (optional)</label>
+  <input id="fxVenue" placeholder="e.g. Dashmesh Stadium" />
+
+  <button id="fxBtn" onclick="submitFixture()">Add Fixture</button>
+  <div id="fxMsg" class="msg"></div>
+</div>
+
+<div class="card">
+  <div class="section-title">Fixtures You Added</div>
+  <div id="fxList"><div class="empty-note">Enter your backend URL and token above, then this loads automatically.</div></div>
+</div>
   </div>
   <div class="admin-panel" id="apanel-matches">
 <div class="card" id="statusCard">
@@ -838,6 +888,11 @@
       populateSelectWithTeams('awayTeam', teams);
       if (typeof updateTeamLabels === 'function') updateTeamLabels();
     }
+    if ($('fxLeague') && $('fxHome') && $('fxAway')) {
+      const fxTeams = allTeams.filter((t) => t.league_short === $('fxLeague').value);
+      populateSelectWithTeams('fxHome', fxTeams);
+      populateSelectWithTeams('fxAway', fxTeams);
+    }
     if ($('tsLeague') && $('tsTeamName')) {
       populateSelectWithTeams('tsTeamName', allTeams.filter((t) => t.league_short === $('tsLeague').value));
     }
@@ -928,6 +983,7 @@
       $('mainScreen').style.display = 'block';
       populateTeamDropdowns();
       loadResults();
+      loadFixtures();
       loadAgents();
       loadTournaments();
       loadTeamStats();
@@ -1098,6 +1154,84 @@
       const data = await res.json();
       if (!res.ok) throw new Error(data.detail || 'Could not delete.');
       loadResults();
+    } catch (e) {
+      alert(e.message);
+    }
+  }
+
+  // ── Upcoming fixtures added by hand (all text via textContent/DOM nodes, never innerHTML) ──
+  async function submitFixture() {
+    const btn = $('fxBtn');
+    const msg = $('fxMsg');
+    msg.className = 'msg';
+    if (!apiBase() || !token()) { showMsg(msg, 'Enter your backend URL and admin token first.', true); return; }
+    const home = $('fxHome').value.trim();
+    const away = $('fxAway').value.trim();
+    const date = $('fxDate').value;
+    const time = $('fxTime').value;
+    if (!home || !away || !date || !time) { showMsg(msg, 'Pick both teams, the date and the kick-off time.', true); return; }
+    if (home === away) { showMsg(msg, 'Home and away team can\'t be the same team.', true); return; }
+    btn.disabled = true;
+    btn.textContent = 'Adding...';
+    try {
+      const res = await fetch(`${apiBase()}/api/admin/fixtures/add`, {
+        method: 'POST',
+        headers: adminHeaders(),
+        body: JSON.stringify({
+          league_short: $('fxLeague').value,
+          home_team: home,
+          away_team: away,
+          home_team_url: ($('fxHome').selectedOptions[0] || {}).dataset.url || '',
+          away_team_url: ($('fxAway').selectedOptions[0] || {}).dataset.url || '',
+          date: `${date} ${time}`,
+          venue: $('fxVenue').value.trim(),
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        if (res.status === 401) { logout(); throw new Error('Your session ended — please log in again.'); }
+        throw new Error(data.detail || 'Something went wrong.');
+      }
+      showMsg(msg, `✅ ${home} vs ${away} — ${date} ${time}. ${data.message}`, false);
+      ['fxHome', 'fxAway', 'fxVenue'].forEach((id) => { $(id).value = ''; });
+      loadFixtures();
+    } catch (e) {
+      showMsg(msg, e.message, true);
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Add Fixture';
+    }
+  }
+
+  async function loadFixtures() {
+    const container = $('fxList');
+    if (!container || !apiBase() || !token()) return;
+    try {
+      const res = await fetch(`${apiBase()}/api/admin/fixtures/list`, { headers: { 'x-admin-token': token() } });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || 'Could not load fixtures.');
+      if (!data.fixtures.length) { setKids(container, note('No fixtures added by hand yet.')); return; }
+      setKids(container, data.fixtures.map((f) => rowOf(
+        h('div', {},
+          h('div', {}, h('strong', {}, f.home_team), ' vs ', h('strong', {}, f.away_team)),
+          h('div', { class: 'result-meta' }, `${f.league_short} · ${f.date}${f.venue ? ' · ' + f.venue : ''}`)),
+        delBtn('Delete', () => deleteFixture(f.match_key)),
+      )));
+    } catch (e) {
+      setKids(container, note(e.message));
+    }
+  }
+
+  async function deleteFixture(matchKey) {
+    if (!confirm('Delete this fixture?')) return;
+    try {
+      const res = await fetch(`${apiBase()}/api/admin/fixtures/${encodeURIComponent(matchKey)}`, {
+        method: 'DELETE',
+        headers: { 'x-admin-token': token() },
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || 'Could not delete.');
+      loadFixtures();
     } catch (e) {
       alert(e.message);
     }
@@ -1653,7 +1787,7 @@
   }
 
   const TAB_INFO = {
-    results: ['Results', 'Add results the scraper has not caught yet, and manage the ones you already entered.'],
+    results: ['Results', 'Add results and upcoming fixtures the scraper has not caught yet, and manage the ones you already entered.'],
     matches: ['Match notices', 'Mark matches as postponed, stopped or cancelled.'],
     cups: ['Tournaments', 'Create tournaments, enter their matches and results, and set champions.'],
     stats: ['Stats & fixes', 'Fix team stats, choose how league tables are built, correct matches and manage players.'],

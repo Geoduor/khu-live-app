@@ -61,6 +61,9 @@ environment variable.
 |---|---|---|
 | POST | `/api/admin/fixtures/upload-pdf` | Upload a KHU season-calendar PDF. Multipart form with a `file` field. Parses and merges fixtures immediately — never overwrites a fixture the live scrape already has |
 | GET | `/api/admin/fixtures/export-pdf-seed` | Export currently-stored PDF fixtures as JSON — save as `backend/pdf_fixtures_seed.json` and commit, so they survive Render's ephemeral disk permanently |
+| POST | `/api/admin/fixtures/add` | Add one upcoming fixture by hand (`league_short`, `home_team`, `away_team`, `date` as `YYYY-MM-DD HH:MM`, optional `venue` and team URLs). Admin only. Shows at once; KHU's own listing of the same match wins; re-sending the same league/teams/date corrects the time or venue; refused with 409 if the match already has a result. A KHU PDF or the seed file can never overwrite it |
+| GET | `/api/admin/fixtures/list` | Fixtures added through the form above |
+| DELETE | `/api/admin/fixtures/{match_key}` | Delete one form-added fixture (KHU PDF fixtures are never deleted here) |
 
 ## Admin & agents — manual results
 
