@@ -13,8 +13,8 @@ export default function ConsentBanner() {
   return (
     <div className="consent" role="dialog" aria-label="Cookie choices">
       <p className="consent-text">
-        Can we use cookies to count visits (Google Analytics) and show ads (Google AdSense)? The app works the same
-        either way. <a href="/privacy.html" target="_blank" rel="noopener noreferrer">Privacy policy</a>
+        Cookies for visit counts and ads (Google)? The app works either way.{" "}
+        <a href="/privacy.html" target="_blank" rel="noopener noreferrer">Privacy</a>
       </p>
       <div className="consent-btns">
         <button type="button" className="consent-btn" onClick={() => setConsent("denied")}>Decline</button>
