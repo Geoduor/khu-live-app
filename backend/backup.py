@@ -41,6 +41,7 @@ def build_backup() -> dict:
         "stats": db.load_team_stats(),
         "match_corrections": db.load_match_corrections(),
         "derived_leagues": sorted(db.load_derived_leagues()),
+        "added_fixtures": [d for _, d in db.load_admin_fixtures()],
         "players": db.load_player_stats(),
         "tournaments": db.load_tournaments(),
         "matches": db.load_tournament_matches(),

@@ -328,9 +328,51 @@ def save_pdf_fixtures(matches: list, source_file: str = ""):
                 data_json = excluded.data_json,
                 uploaded_at = excluded.uploaded_at,
                 source_file = excluded.source_file
-        """, (key, json.dumps(m), now, source_file))
+            WHERE COALESCE(pdf_fixtures_store.source_file, '') <> ?
+               OR excluded.source_file = ?
+        """, (key, json.dumps(m), now, source_file, ADMIN_FIXTURE_SOURCE, ADMIN_FIXTURE_SOURCE))
     conn.commit()
     conn.close()
+
+
+# Fixtures typed into the admin "Add a fixture" form are stored in the same table
+# as the PDF ones, tagged with this source_file. A KHU PDF or the seed file can
+# never overwrite a fixture you entered by hand.
+ADMIN_FIXTURE_SOURCE = "admin-form"
+
+
+def load_admin_fixtures() -> list:
+    """Fixtures added through the admin form, as [(match_key, data), ...]."""
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute("SELECT match_key, data_json FROM pdf_fixtures_store WHERE source_file = ?", (ADMIN_FIXTURE_SOURCE,))
+    rows = cur.fetchall()
+    conn.close()
+    return [(r["match_key"], json.loads(r["data_json"])) for r in rows]
+
+
+def delete_admin_fixture(match_key: str) -> bool:
+    """Delete ONE form-added fixture. KHU PDF fixtures are never deleted here."""
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute("DELETE FROM pdf_fixtures_store WHERE match_key = ? AND source_file = ?",
+                (match_key, ADMIN_FIXTURE_SOURCE))
+    deleted = cur.rowcount > 0
+    conn.commit()
+    conn.close()
+    return deleted
+
+
+def delete_archive_unplayed(key: str) -> bool:
+    """Remove an archive record only while it is still an unplayed fixture."""
+    conn = get_connection()
+    try:
+        _ensure_archive_tables(conn)
+        cur = conn.execute("DELETE FROM match_archive WHERE match_key = ? AND played = 0", (key,))
+        conn.commit()
+        return cur.rowcount > 0
+    finally:
+        conn.close()
 
 
 def load_pdf_fixtures() -> list:
@@ -347,7 +389,7 @@ def clear_pdf_fixtures():
     """Wipe all stored PDF fixtures. Useful if a bad PDF got uploaded by mistake."""
     conn = get_connection()
     cur = conn.cursor()
-    cur.execute("DELETE FROM pdf_fixtures_store")
+    cur.execute("DELETE FROM pdf_fixtures_store WHERE COALESCE(source_file, '') <> ?", (ADMIN_FIXTURE_SOURCE,))
     conn.commit()
     conn.close()
 
