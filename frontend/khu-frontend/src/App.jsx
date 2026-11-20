@@ -22,6 +22,7 @@ import InstallBanner from "./components/InstallBanner";
 import { useInstallPrompt } from "./hooks/useInstallPrompt";
 import ShopView from "./components/ShopView";
 import ConsentBanner, { PrivacyLinks } from "./components/ConsentBanner";
+import { readInitial, writeHash, parseHash } from "./utils/tabHash";
 import TopScorers from "./components/TopScorers";
 import ShareButton from "./components/ShareButton";
 import { renderTableCard, shareCanvas, slug, shareText } from "./utils/shareCard";
@@ -41,9 +42,10 @@ const TABS = [
 const POLL_INTERVAL_MS = 45000; // 45s — matches FotMob/SofaScore live polling cadence
 
 function App() {
-  const [tab, setTab] = useState("home");
+  const [initialPlace] = useState(() => readInitial()); // tab (and league) remembered in the address
+  const [tab, setTab] = useState(initialPlace.tab);
   const [leagues, setLeagues] = useState([]);
-  const [selectedLeague, setSelectedLeague] = useState("premier_league_men");
+  const [selectedLeague, setSelectedLeague] = useState(initialPlace.league || "premier_league_men");
   const [standings, setStandings] = useState(null);
   const [fixtures, setFixtures] = useState(null);
   const [results, setResults] = useState(null);
@@ -77,6 +79,18 @@ function App() {
       .then((d) => setShopOpen(((d && d.stores) || []).length > 0))
       .catch(() => {});
   }, []);
+
+  // Keep the address bar in step with the open tab so a refresh stays put, and follow manual address changes.
+  useEffect(() => { writeHash(tab, selectedLeague); }, [tab, selectedLeague]);
+  useEffect(() => {
+    const onHash = () => { const p = parseHash(window.location.hash); setTab(p.tab); if (p.league) setSelectedLeague(p.league); setOverlay(null); };
+    window.addEventListener("hashchange", onHash);
+    return () => window.removeEventListener("hashchange", onHash);
+  }, []);
+  // A league in the address that doesn't exist falls back to the default instead of showing an empty table.
+  useEffect(() => {
+    if (leagues.length && !leagues.some((l) => l.key === selectedLeague)) setSelectedLeague(leagues.some((l) => l.key === "premier_league_men") ? "premier_league_men" : leagues[0].key);
+  }, [leagues, selectedLeague]);
 
   // Count which screen is open (see utils/track.js — no cookies, no ids).
   // The Cups tab counts itself, since it has two screens inside.
