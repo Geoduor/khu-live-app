@@ -298,7 +298,7 @@ export default function ShopView({ onBack }) {
         <div className="shop-totals"><div className="shop-total"><span>You pay</span><span>{kes(subtotal + fee)}</span></div></div>
         <p className="shop-fine">
           We will send an M-Pesa request to this number: enter your PIN on your phone to pay. Your name, phone and address are shared only with the store so it can deliver, and are kept
-          for order records. See the <a href="/privacy.html" target="_blank" rel="noopener noreferrer">privacy notice</a>.
+          for order records. By paying you agree to the <a href="/terms.html" target="_blank" rel="noopener noreferrer">terms</a> and <a href="/refunds.html" target="_blank" rel="noopener noreferrer">refund policy</a>. See the <a href="/privacy.html" target="_blank" rel="noopener noreferrer">privacy notice</a>.
         </p>
         <HumanCheck onToken={setHumanToken} resetKey={humanReset} />
         {formError && <div className="shop-error" role="alert">{formError}</div>}
