@@ -35,6 +35,10 @@ export function PrivacyLinks() {
   return (
     <p className="privacy-links">
       <a href="/privacy.html" target="_blank" rel="noopener noreferrer">Privacy</a>
+      {" · "}
+      <a href="/terms.html" target="_blank" rel="noopener noreferrer">Terms</a>
+      {" · "}
+      <a href="/about.html" target="_blank" rel="noopener noreferrer">About &amp; contact</a>
       {cookiesInUse() ? (
         <>
           {" · "}
