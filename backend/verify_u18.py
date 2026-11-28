@@ -4,14 +4,18 @@ os.environ.pop("DATABASE_URL", None)
 sys.path.insert(0, os.path.dirname(__file__))
 import tournaments as tn
 d = json.load(open(os.path.join(os.path.dirname(__file__), "tournaments_seed.json")))
-TID = "fih-hockey5s-u18-world-cup-2026"
+TID = "fih-youth-hockey5s-world-cup-2026"
 t = next(x for x in d["tournaments"] if x["id"] == TID)
 ms = [m for m in d["matches"] if m["tournament_id"] == TID]
 bad = 0
 def ok(l, c):
     global bad; print(("PASS " if c else "FAIL ") + l); bad += (not c)
-ok("dates 5-12 Dec 2026, Cairo", t["start_date"] == "2026-12-05" and t["end_date"] == "2026-12-12" and "Cairo" in t["venue"])
+ok("dates 5-12 Dec 2026, Cairo", t["start_date"] == "2026-12-05" and t["end_date"] == "2026-12-12" and "Zamalek" in t["venue"])
 ok("36 pool games (6 pools x 6)", len(ms) == 36)
+kn = {(m["group_name"], m["away_team"] if m["home_team"] == "Kenya" else m["home_team"]): m["date"] for m in ms if "Kenya" in (m["home_team"], m["away_team"])}
+ok("Kenya's 6 games have the poster times (EAT)", kn == {("Women Pool B","Poland"):"2026-12-09 12:10",("Women Pool B","Iran"):"2026-12-09 17:30",("Women Pool B","Ukraine"):"2026-12-10 16:50",("Men Pool C","Austria"):"2026-12-09 18:50",("Men Pool C","Egypt"):"2026-12-10 12:50",("Men Pool C","Iran"):"2026-12-10 20:10"})
+ok("Kenya is listed first in its games", all(m["home_team"] == "Kenya" for m in ms if "Kenya" in (m["home_team"], m["away_team"])))
+ok("old draft event is retired", "fih-hockey5s-u18-world-cup-2026" in d["retired_tournament_ids"] and not any(x["id"] == "fih-hockey5s-u18-world-cup-2026" for x in d["tournaments"]))
 ok("unique match ids", len({m["match_id"] for m in ms}) == 36)
 ok("all valid", all(tn.validate_match(m) == "" for m in ms))
 det = tn.build_tournament_detail(t, ms)
